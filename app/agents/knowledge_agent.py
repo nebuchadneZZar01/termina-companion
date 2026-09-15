@@ -14,8 +14,17 @@ _KB = build_default_knowledge()
 
 def run(state: PlanningState) -> dict:
     objectives = _KB.retrieve(state.game_state, state.goal)
-    context = "\n".join(f"- {o.title} ({o.location}, {o.window})" for o in objectives)
+    lines: list[str] = []
+    for obj in objectives:
+        lines.append(f"- {obj.title} ({obj.location}, {obj.window})")
+        npc = _KB.npc(obj.npc_id)
+        if npc:
+            schedule = ", ".join(str(w) for w in npc.schedule)
+            lines.append(f"  - {npc.name}: schedule {schedule}")
+        event = _KB.event(obj.event_ref)
+        if event:
+            lines.append(f"  - event: {event.name} ({event.window})")
     return {
         "relevant_objectives": objectives,
-        "retrieved_context": context or "No relevant objectives found.",
+        "retrieved_context": "\n".join(lines) or "No relevant objectives found.",
     }

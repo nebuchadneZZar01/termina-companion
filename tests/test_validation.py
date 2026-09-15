@@ -49,6 +49,40 @@ def test_missing_item_rejected():
     assert any(i.kind == "item" and "Rare Item" in i.message for i in result.issues)
 
 
+def _npc(id_: str, **kw) -> object:
+    from app.data.mock_knowledge import NPC
+
+    return NPC(id=id_, name=id_, location="Q", **kw)
+
+
+def test_npc_unavailable_rejected():
+    from app.data.mock_knowledge import NPC
+
+    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    objective = _objective("o1", start)
+    objective.npc_id = "bartender"
+    plan = Plan(goal="x", steps=[_step("s1", start, ref="o1")])
+    npcs = [
+        NPC(
+            id="bartender",
+            name="Bartender",
+            location="Q",
+            schedule=[TimeWindow(start=ClockTime(day=1, hour=10), end=ClockTime(day=1, hour=11))],
+        )
+    ]
+    result = validate_plan(plan, _gs(), [objective], npcs)
+    assert not result.valid
+    assert any(i.kind == "npc" and "bartender" in i.message.lower() for i in result.issues)
+
+
+def test_npc_available_passes():
+    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    objective = _objective("o1", start)
+    objective.npc_id = "anju"
+    plan = Plan(goal="x", steps=[_step("s1", start, ref="o1")])
+    assert validate_plan(plan, _gs(), [objective], [_npc("anju", schedule=[start])]).valid
+
+
 def test_wrong_location_rejected():
     start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
     plan = Plan(goal="x", steps=[_step("s1", start, location="Wrong Spot", ref="o1")])
@@ -99,3 +133,15 @@ def test_knowledge_retrieval_filters_by_keywords():
     anju = kb.retrieve(gs, Goal(description="find the kafei letter"))
     assert all("kafei" in o.keywords for o in anju)
     assert len({o.id for o in anju}) == 4  # all four Anju & Kafei objectives match
+
+
+def test_knowledge_npc_schedules_and_events():
+    from app.data.mock_knowledge import build_default_knowledge
+
+    kb = build_default_knowledge()
+    assert kb.npc("anju").available_at(ClockTime(day=2, hour=9))
+    assert not kb.npc("anju").available_at(ClockTime(day=1, hour=23))
+    assert kb.event("ak_letter_delivery").name == "Kafei's letter is delivered"
+    assert len(kb.locations) >= 6
+    ak_deliver = next(o for q in kb.quests for o in q.objectives if o.id == "ak_deliver_letter")
+    assert ak_deliver.npc_id == "kafei"

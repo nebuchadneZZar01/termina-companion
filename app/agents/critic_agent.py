@@ -7,7 +7,7 @@ can be unit-tested directly.
 
 from __future__ import annotations
 
-from app.data.mock_knowledge import Objective
+from app.data.mock_knowledge import NPC, Objective, build_default_knowledge
 from app.domain import (
     ClockTime,
     GameState,
@@ -20,7 +20,10 @@ from app.state import PlanningState
 
 
 def validate_plan(
-    plan: Plan | None, game_state: GameState, objectives: list[Objective]
+    plan: Plan | None,
+    game_state: GameState,
+    objectives: list[Objective],
+    npcs: list[NPC] | None = None,
 ) -> ValidationResult:
     if not plan or not plan.steps:
         return ValidationResult(
@@ -30,13 +33,19 @@ def validate_plan(
 
     issues: list[ValidationIssue] = []
     by_id = {o.id: o for o in objectives}
+    npc_by_id = {n.id: n for n in npcs or []}
     for idx, step in enumerate(plan.steps):
-        issues.extend(_check_step(step, idx, plan, game_state, by_id))
+        issues.extend(_check_step(step, idx, plan, game_state, by_id, npc_by_id))
     return ValidationResult(valid=not issues, issues=issues)
 
 
 def _check_step(
-    step: PlanStep, idx: int, plan: Plan, game_state: GameState, by_id: dict[str, Objective]
+    step: PlanStep,
+    idx: int,
+    plan: Plan,
+    game_state: GameState,
+    by_id: dict[str, Objective],
+    npc_by_id: dict[str, NPC],
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     objective = by_id.get(step.objective_ref)
@@ -69,6 +78,13 @@ def _check_step(
             )
         )
 
+    if objective.npc_id:
+        npc = npc_by_id.get(objective.npc_id)
+        if npc and not any(
+            _lte(w.start, step.window.start) and _lte(step.window.end, w.end) for w in npc.schedule
+        ):
+            issues.append(_issue("npc", idx, f"{npc.name} is unavailable during {step.window}."))
+
     missing = [item for item in step.requires_items if item not in game_state.inventory]
     if missing:
         issues.append(_issue("item", idx, f"Missing item(s): {', '.join(missing)}."))
@@ -96,4 +112,10 @@ def _issue(kind: str, step_idx: int, message: str) -> ValidationIssue:
 
 
 def run(state: PlanningState) -> dict:
-    return {"validation": validate_plan(state.plan, state.game_state, state.relevant_objectives)}
+    npcs = _KB.npcs
+    return {
+        "validation": validate_plan(state.plan, state.game_state, state.relevant_objectives, npcs)
+    }
+
+
+_KB = build_default_knowledge()
