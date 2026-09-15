@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "termina-companion"
+version = "0.1.0"
+description = "Multi-agent temporal planning companion for The Legend of Zelda: Majora's Mask"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "langgraph>=1.0",
+    "pydantic>=2",
+    "streamlit>=1.40",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.9",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
