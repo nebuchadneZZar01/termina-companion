@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from app.data.mock_knowledge import build_default_knowledge
+from app.data.mock_knowledge import MASKS, build_default_knowledge
 from app.domain import ClockTime, GameState, Goal
 from app.graph import MAX_PLANNING_ATTEMPTS, build_graph
 
@@ -31,12 +31,13 @@ def render() -> None:
         day = st.selectbox("Day", [1, 2, 3], index=1)
         hour = st.slider("Hour", 0, 23, 8)
         minute = st.slider("Minute", 0, 59, 0, step=5)
-        locations = sorted({o.location for quest in kb.quests for o in quest.objectives})
+        locations = sorted({loc.name for loc in kb.locations})
         location = st.selectbox("Location", locations or ["Termina Field"])
         item_options = sorted(
             {i for quest in kb.quests for o in quest.objectives for i in o.requires_items}
         )
         inventory = st.multiselect("Inventory", item_options or ["Kafei's Letter"])
+        selected_masks = st.multiselect("Masks", list(MASKS))
         done_quests = st.multiselect("Completed quests", [q.id for q in kb.quests])
 
         st.header("Goal")
@@ -57,6 +58,7 @@ def render() -> None:
         time=ClockTime(day=day, hour=hour, minute=minute),
         location=location,
         inventory=list(inventory),
+        masks=list(selected_masks),
         quest_progress={q: "done" for q in done_quests},
     )
     goal = Goal(description=goal_text)

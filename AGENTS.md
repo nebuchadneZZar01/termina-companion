@@ -127,6 +127,8 @@ Do not implement MCP, RAG, persistent memory, tracing or evaluation prematurely.
 * The default branch is `main`.
 * Feature work happens on dedicated branches:
   `feat/<feature-name>` or `fix/<fix-name>`.
+* Never use `phase` in branch names (`feat/npcs-schedules-events`, not
+  `feat/phase3-game-knowledge`).
 * Open pull requests with `gh` and wait for review; the maintainer reviews
   and merges them (never self-merge).
 

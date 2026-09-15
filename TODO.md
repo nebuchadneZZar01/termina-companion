@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Current phase:** Phase 3 — Game Knowledge
+**Current phase:** Phase 4 — Streamlit UI
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
@@ -10,9 +10,9 @@ Status map:
 * Phase 0 — Foundation: complete.
 * Phase 1 — Domain Model: complete.
 * Phase 2 — Multi-Agent Core: complete.
-* Phase 3 — Game Knowledge: partial (mock vertical slice done; NPCs,
-  schedules and events as separate entities are next).
-* Phase 4 — Streamlit UI: partial (masks editor missing).
+* Phase 3 — Game Knowledge: complete (Clock Town, NPCs, schedules and
+  events as separate entities, NPC availability validated by the Critic).
+* Phase 4 — Streamlit UI: complete.
 * Phases 5–12: not started yet.
 * Phase 13 — Deployment: not started yet.
 
@@ -75,10 +75,10 @@ The first version should run locally without external API keys and use mock/demo
 Start with a small vertical slice.
 
 * [x] Create mock game dataset
-* [ ] Add Clock Town
-* [ ] Add a small set of NPCs
-* [ ] Add NPC schedules
-* [ ] Add relevant events
+* [x] Add Clock Town
+* [x] Add a small set of NPCs
+* [x] Add NPC schedules
+* [x] Add relevant events
 * [x] Add prerequisites
 * [x] Add Anju & Kafei as an example
 * [x] Keep the data model generic for future quests/content
@@ -89,7 +89,7 @@ Start with a small vertical slice.
 * [x] Create Game State editor
 * [x] Day / Time
 * [x] Location
-* [ ] Masks
+* [x] Masks
 * [x] Inventory
 * [x] Quest progress
 * [x] Goal input
