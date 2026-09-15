@@ -22,7 +22,6 @@ MASKS = [
     "Goron Mask",
     "Zora Mask",
     "Kafei's Mask",
-    "Bomber's Notebook",
 ]
 
 
