@@ -98,27 +98,39 @@ _STRINGS: dict[str, dict[str, str]] = {
         "generate_plan_caption": "Builds the plan from your state and goal.",
         "info_edit_state": ("Set your state and goal, then press **Plan My Quest**."),
         "planning": "Planning...",
+        "planning_complete": "Planning complete",
+        "planning_gave_up": "Planning failed \u2014 attempt limit ({max}) reached",
+        "step_attempt": "Attempt {n}/{max}",
+        "replan_line": "{n} issue(s) \u2192 re-planning (attempt {max})",
+        "knowledge_objectives": "{n} relevant objective(s):",
+        "knowledge_empty_hint": (
+            "No relevant objective matches this goal \u2014 try mentioning a "
+            "character, an item or a place."
+        ),
+        "spinner_lines": (
+            "Consulting the Triforce of Wisdom",
+            "Contacting the Zonai servers",
+            "Opening the Door of Time",
+            "Playing the Song of Time",
+            "Asking the Great Fairy for advice",
+            "Paging through the Bomber's Notebook",
+            "Following a mischievous fairy",
+            "Warping with the Song of Storms",
+        ),
         # output
         "your_plan": "Your Plan",
         "plan_valid": "\u2713 Plan valid",
         "plan_not_valid": "\u2717 Plan not valid \u2014 check the issues below",
-        "agents_line": "\u2713 {count}/4 agents completed",
-        "agents_detail": "Agent report",
         "agent_state": "State Agent",
-        "agent_state_desc": "Canonicalizes your game state.",
         "agent_knowledge": "Knowledge Agent",
-        "agent_knowledge_desc": "Retrieves the relevant game knowledge.",
         "agent_planning": "Planning Agent",
-        "agent_planning_desc": "Builds the temporal plan.",
         "agent_critic": "Critic Agent",
-        "agent_critic_desc": "Checks the plan's feasibility.",
-        "agent_done": "done",
-        "agent_failed": "failed",
         "no_plan": "No plan produced.",
         "window_label": "Window",
         "needs": "Needs",
         "depends_on": "Depends on step(s) {deps}",
         "step_n": "Step {n}",
+        "plan": "plan",
         "attempts": "Attempts: {n} / max {max}",
         "replan_gave_up": "Reached the attempt limit ({max}) \u2014 showing the last attempt.",
         "no_replan": "First attempt \u2014 no replan needed.",
@@ -212,27 +224,39 @@ _STRINGS: dict[str, dict[str, str]] = {
         "generate_plan_caption": "Genera il piano dal tuo stato e obiettivo.",
         "info_edit_state": ("Imposta stato e obiettivo, poi premi **Pianifica la mia missione**."),
         "planning": "Pianificazione...",
+        "planning_complete": "Pianificazione completata",
+        "planning_gave_up": "Pianificazione fallita \u2014 limite tentativi ({max}) raggiunto",
+        "step_attempt": "Tentativo {n}/{max}",
+        "replan_line": "{n} problema/i \u2192 ripianificazione (tentativo {max})",
+        "knowledge_objectives": "{n} objective rilevanti:",
+        "knowledge_empty_hint": (
+            "Nessun obiettivo pertinente per questo obiettivo \u2014 prova a citare "
+            "un personaggio, un oggetto o un luogo."
+        ),
+        "spinner_lines": (
+            "Interrogando la Triforza della Saggezza",
+            "Contattando i server Zonai",
+            "Aprendo la Porta del Tempo",
+            "Suonando la Canzone del Tempo",
+            "Chiedendo consiglio alla Grande Fata",
+            "Cercando indizi nel Bomber's Notebook",
+            "Seguendo una fata dispettosa",
+            "Teleportando con la Canzone delle Tempeste",
+        ),
         # output
         "your_plan": "Il Tuo Piano",
         "plan_valid": "\u2713 Piano valido",
         "plan_not_valid": ("\u2717 Piano non valido \u2014 controlla i problemi qui sotto"),
-        "agents_line": "\u2713 {count}/4 agenti completati",
-        "agents_detail": "Report agenti",
         "agent_state": "Agente di Stato",
-        "agent_state_desc": "Canonicalizza il tuo stato di gioco.",
         "agent_knowledge": "Agente della Conoscenza",
-        "agent_knowledge_desc": "Recupera le conoscenze di gioco rilevanti.",
         "agent_planning": "Agente di Pianificazione",
-        "agent_planning_desc": "Costruisce il piano temporale.",
         "agent_critic": "Agente Critico",
-        "agent_critic_desc": "Verifica la fattibilit\u00e0 del piano.",
-        "agent_done": "completato",
-        "agent_failed": "fallito",
         "no_plan": "Nessun piano generato.",
         "window_label": "Finestra",
         "needs": "Necessita",
         "depends_on": "Dipende dai passi {deps}",
         "step_n": "Passo {n}",
+        "plan": "piano",
         "attempts": "Tentativi: {n} / max {max}",
         "replan_gave_up": (
             "Raggiunto il limite di tentativi ({max}) \u2014 mostro l\u2019ultimo tentativo."
@@ -308,6 +332,12 @@ def t(key: str, **kwargs: object) -> str:
     lang = st.session_state.get("lang", DEFAULT_LANG)
     template = _STRINGS.get(lang, _STRINGS[DEFAULT_LANG]).get(key, key)
     return template.format(**kwargs) if kwargs else template
+
+
+def spinner_lines() -> tuple[str, ...]:
+    """Zelda-themed phrases rotated in the planning spinner title."""
+    lang = st.session_state.get("lang", DEFAULT_LANG)
+    return _STRINGS.get(lang, _STRINGS[DEFAULT_LANG])["spinner_lines"]
 
 
 def tr(s: str) -> str:

@@ -38,6 +38,9 @@ class TimeWindow(BaseModel):
             raise ValueError("end must be after start")
         return end
 
+    def __str__(self) -> str:
+        return f"[{self.start} \u2192 {self.end}]"
+
     def contains(self, t: ClockTime) -> bool:
         return _clock(self.start) <= _clock(t) < _clock(self.end)
 

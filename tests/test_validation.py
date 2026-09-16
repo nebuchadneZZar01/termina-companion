@@ -1,6 +1,7 @@
 from app.agents.critic_agent import validate_plan
 from app.domain import ClockTime, GameState, Goal, Plan, PlanStep, TimeWindow
 from app.graph import MAX_PLANNING_ATTEMPTS, run_pipeline
+from app.ui import _markdown_windows
 
 
 def _objective(id_: str, window: TimeWindow, location: str = "Q") -> object:
@@ -21,6 +22,20 @@ def test_empty_plan_invalid():
     result = validate_plan(Plan(goal="x", steps=[]), _gs(), [])
     assert not result.valid
     assert result.issues[0].kind == "empty"
+
+
+def test_timewindow_str_is_readable():
+    w = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=2, hour=21))
+    s = str(w)
+    assert s == "[Day 1, 08:00 \u2192 Day 2, 21:00]"
+    assert "ClockTime" not in s
+
+
+def test_markdown_windows_wraps_embedded_windows():
+    msg = "falls outside the objective's slot [Day 3, 06:00 \u2192 Day 3, 12:00]."
+    out = _markdown_windows(msg)
+    assert "`[Day 3, 06:00 \u2192 Day 3, 12:00]`" in out
+    assert _markdown_windows("no window here") == "no window here"
 
 
 def test_valid_plan_passes():
@@ -125,6 +140,14 @@ def test_pipeline_gives_up_without_required_item():
     assert any(i.kind == "item" for i in result.validation.issues)
 
 
+def test_knowledge_retrieval_empty_when_no_match():
+    from app.data.mock_knowledge import build_default_knowledge
+
+    kb = build_default_knowledge()
+    gs = _gs()
+    assert kb.retrieve(gs, Goal(description="completely unrelated phrase")) == []
+
+
 def test_knowledge_retrieval_filters_by_keywords():
     from app.data.mock_knowledge import build_default_knowledge
 
@@ -133,6 +156,15 @@ def test_knowledge_retrieval_filters_by_keywords():
     anju = kb.retrieve(gs, Goal(description="find the kafei letter"))
     assert all("kafei" in o.keywords for o in anju)
     assert len({o.id for o in anju}) == 4  # all four Anju & Kafei objectives match
+
+
+def test_knowledge_retrieval_matches_italian_synonyms():
+    from app.data.mock_knowledge import build_default_knowledge
+
+    kb = build_default_knowledge()
+    gs = _gs()
+    found = kb.retrieve(gs, Goal(description="come faccio a riunire i due innamorati alla locanda"))
+    assert {o.id for o in found} == {"ak_talk_to_anju", "ak_reunite"}
 
 
 def test_knowledge_npc_schedules_and_events():
