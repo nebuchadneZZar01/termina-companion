@@ -6,6 +6,7 @@ from app.state import PlanningState
 
 
 def test_state_agent_logs_rule_based_path(caplog):
+    """The State Agent logs that it used the rule-based path."""
     state = PlanningState(
         game_state=GameState(time=ClockTime(day=2, hour=8), location="stockpot inn"),
         goal=Goal(description="Reunite Anju and Kafei"),
@@ -17,6 +18,8 @@ def test_state_agent_logs_rule_based_path(caplog):
 
 class _RaisingModel:
     def with_structured_output(self, schema):
+        """Return an invoke callable that always raises."""
+
         def _invoke(*args, **kwargs):
             raise RuntimeError("boom")
 
@@ -24,6 +27,7 @@ class _RaisingModel:
 
 
 def test_planning_agent_logs_llm_fallback(caplog, monkeypatch):
+    """The Planning Agent logs when the LLM path fails and it falls back."""
     monkeypatch.setattr(planning_agent, "get_chat_model", lambda: _RaisingModel())
     state = PlanningState(
         game_state=GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn"),
@@ -35,6 +39,7 @@ def test_planning_agent_logs_llm_fallback(caplog, monkeypatch):
 
 
 def test_planning_agent_rule_based_still_emits_plan(caplog, monkeypatch):
+    """The rule-based Planning Agent still emits a plan and logs itself."""
     from app.data.mock_knowledge import build_default_knowledge
 
     monkeypatch.setattr(planning_agent, "get_chat_model", lambda: None)

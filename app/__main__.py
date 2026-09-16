@@ -11,6 +11,15 @@ from app.log import configure_logging
 
 
 def demo() -> None:
+    """Run the headless Anju & Kafei demo and print the pipeline output.
+
+    args:
+        (none)
+
+    returns:
+        None: prints the goal, state, retrieved context, plan and
+        validation to stdout.
+    """
     configure_logging()
     game_state = GameState(
         time=ClockTime(day=2, hour=8, minute=0),

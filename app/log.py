@@ -15,6 +15,14 @@ _DATEFMT = "%Y-%m-%d %H:%M:%S"
 
 
 def configure_logging() -> None:
+    """Configure the root logger with date, level, and name.
+
+    args:
+        (none)
+
+    returns:
+        None: side-effect on the root logger only.
+    """
     logging.basicConfig(
         level=os.getenv("LOG_LEVEL", "INFO").upper(),
         format=_FORMAT,

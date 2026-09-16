@@ -26,6 +26,15 @@ _ALIASES = {
 
 
 def run(state: PlanningState) -> dict:
+    """Canonicalise the player's state and produce a summary.
+
+    args:
+        state (PlanningState): the workflow state with the raw game state.
+
+    returns:
+        dict: updated ``game_state`` with canonical location,
+        ``state_summary`` string and ``state_engine``.
+    """
     gs = state.game_state.model_copy(
         update={"location": _canonical_location(state.game_state.location)}
     )
@@ -44,4 +53,13 @@ def run(state: PlanningState) -> dict:
 
 
 def _canonical_location(location: str) -> str:
+    """Map a free-text location to its canonical name via the alias table.
+
+    args:
+        location (str): the raw location string from the player state.
+
+    returns:
+        str: the canonical location name, or the trimmed input when no alias
+        matches.
+    """
     return _ALIASES.get(location.strip().lower(), location.strip())

@@ -11,6 +11,15 @@ _ENV = ("LLM_PROVIDER", "LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL")
 
 @pytest.fixture(autouse=True)
 def _force_rule_based_provider():
+    """Force the rule-based LLM provider for every test and restore env.
+
+    args:
+        (none)
+
+    returns:
+        generator: a fixture that restores the original env variables after
+        each test.
+    """
     saved = {k: os.environ.get(k) for k in _ENV}
     for key in _ENV:
         os.environ.pop(key, None)

@@ -5,20 +5,24 @@ from app.domain import ClockTime, GameState, Plan, TimeWindow
 
 
 def test_clock_time_defaults():
+    """ClockTime defaults to Day 1."""
     assert ClockTime().day == 1
 
 
 def test_clock_time_rejects_hour_24():
+    """Hour 24 is out of range for the three-day clock."""
     with pytest.raises(ValidationError):
         ClockTime(hour=24)
 
 
 def test_clock_time_rejects_minute_60():
+    """Minute 60 is out of range."""
     with pytest.raises(ValidationError):
         ClockTime(minute=60)
 
 
 def test_game_state_defaults_to_empty_owned():
+    """GameState defaults to empty inventory, masks and progress."""
     gs = GameState(time=ClockTime(), location="X")
     assert gs.inventory == []
     assert gs.masks == []
@@ -26,6 +30,7 @@ def test_game_state_defaults_to_empty_owned():
 
 
 def test_time_window_rejects_empty_or_backwards():
+    """Empty or backwards windows are rejected."""
     with pytest.raises(ValidationError):
         TimeWindow(start=ClockTime(day=1, hour=10), end=ClockTime(day=1, hour=10))
     with pytest.raises(ValidationError):
@@ -33,6 +38,7 @@ def test_time_window_rejects_empty_or_backwards():
 
 
 def test_time_window_contains_is_inclusive_of_start_exclusive_of_end():
+    """A window contains its start, not its end."""
     window = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
     assert window.contains(ClockTime(day=1, hour=8))
     assert window.contains(ClockTime(day=1, hour=8, minute=59))
@@ -40,6 +46,7 @@ def test_time_window_contains_is_inclusive_of_start_exclusive_of_end():
 
 
 def test_plan_serialises():
+    """A Plan survives a dump/validate round-trip."""
     plan = Plan(goal="g", steps=[])
     assert plan.model_dump()["goal"] == "g"
     assert Plan.model_validate(plan.model_dump()) == plan
