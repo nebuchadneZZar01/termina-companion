@@ -7,6 +7,8 @@ can be unit-tested directly.
 
 from __future__ import annotations
 
+import logging
+
 from app.data.mock_knowledge import NPC, Objective, build_default_knowledge
 from app.domain import (
     ClockTime,
@@ -17,6 +19,8 @@ from app.domain import (
     ValidationResult,
 )
 from app.state import PlanningState
+
+logger = logging.getLogger(__name__)
 
 
 def validate_plan(
@@ -113,9 +117,19 @@ def _issue(kind: str, step_idx: int, message: str) -> ValidationIssue:
 
 def run(state: PlanningState) -> dict:
     npcs = _KB.npcs
-    return {
-        "validation": validate_plan(state.plan, state.game_state, state.relevant_objectives, npcs)
-    }
+    result = validate_plan(state.plan, state.game_state, state.relevant_objectives, npcs)
+    _log_result(result)
+    return {"validation": result, "critic_engine": "rule-based"}
+
+
+def _log_result(result: ValidationResult) -> None:
+    if result.valid:
+        logger.info("Critic [rules]: VALID")
+        return
+    logger.info("Critic [rules]: INVALID — %d issue(s)", len(result.issues))
+    for issue in result.issues:
+        step = f"step {issue.step_idx + 1}" if issue.step_idx is not None else "plan"
+        logger.info("  - [%s/%s] %s: %s", issue.severity, issue.kind, step, issue.message)
 
 
 _KB = build_default_knowledge()

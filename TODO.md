@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Current phase:** Phase 4 — Streamlit UI
+**Current phase:** Phase 6 — MCP
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
@@ -13,7 +13,11 @@ Status map:
 * Phase 3 — Game Knowledge: complete (Clock Town, NPCs, schedules and
   events as separate entities, NPC availability validated by the Critic).
 * Phase 4 — Streamlit UI: complete.
-* Phases 5–12: not started yet.
+* Phase 5 — LLM Integration: complete (6 providers; the Planning Agent
+  uses the LLM with structured output and a rule-based fallback; State,
+  Knowledge and Critic stay rule-based and deterministic; demo mode
+  preserved with no API keys).
+* Phases 6–12: not started yet.
 * Phase 13 — Deployment: not started yet.
 
 ### Target flow
@@ -108,14 +112,16 @@ Game State → Goal → Plan → Validation
 
 # Phase 5 — LLM Integration
 
-* [ ] Create LLM provider abstraction
-* [ ] Support multiple LLM providers
-* [ ] Configure providers through environment variables
-* [ ] Integrate real LLM calls
-* [ ] Use structured Pydantic output
-* [ ] Add tool calling
-* [ ] Preserve demo mode without API keys
-* [ ] Add tests for LLM-dependent components where practical
+* [x] Create LLM provider abstraction
+* [x] Support multiple LLM providers
+* [x] Configure providers through environment variables
+* [x] Integrate real LLM calls
+* [x] Use structured Pydantic output
+* [x] Keep Knowledge retrieval deterministic (keyword matcher; MCP tool seam)
+* [x] Preserve demo mode without API keys
+* [x] Add tests for LLM-dependent components where practical
+* [x] Ground LLM plans against the knowledge base (refs, titles, locations,
+  required items) and dedupe steps
 
 # Phase 6 — MCP
 
@@ -202,9 +208,9 @@ Use ContextTracing or the selected tracing solution once the core workflow is st
 # Phase 12 — Production Readiness
 
 * [ ] Complete README
-* [ ] Add `.env.example`
+* [x] Add `.env.example`
 * [ ] Improve error handling
-* [ ] Improve logging
+* [x] Improve logging
 * [ ] Complete test suite
 * [ ] Verify installation from a clean environment
 * [ ] Verify end-to-end execution
@@ -212,7 +218,7 @@ Use ContextTracing or the selected tracing solution once the core workflow is st
 * [ ] Add architecture diagram
 * [ ] Stabilize demo mode
 * [ ] Review dependencies
-* [ ] Update `AGENTS.md`
+* [x] Update `AGENTS.md`
 * [ ] Final project cleanup
 
 # Phase 13 — Deployment

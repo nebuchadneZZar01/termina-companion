@@ -7,18 +7,26 @@ Entry points: ``uv run streamlit run main.py`` (preferred) or
 from __future__ import annotations
 
 import datetime
+import itertools
+import queue
+import re
+import threading
+import time
 
 import streamlit as st
 
 from app.data.mock_knowledge import MASKS, build_default_knowledge
 from app.domain import ClockTime, GameState, Goal, TimeWindow
 from app.graph import MAX_PLANNING_ATTEMPTS, build_graph
-from app.i18n import t, tr, tr_msg
+from app.i18n import spinner_lines, t, tr, tr_msg
 
 
 @st.cache_resource
 def _graph():
     return build_graph()
+
+
+_SPINNER_INTERVAL = 3.0
 
 
 _CSS = """
@@ -44,13 +52,93 @@ _CSS = """
     letter-spacing: 0.04em;
     margin: 0.5rem 0 0.1rem 0;
 }
-.agents-compact {
-    color: #8A93A6;
-    font-size: 0.85rem;
-    margin: 0.4rem 0 0.8rem 0;
-}
 </style>
 """
+
+
+def _append_step(status, node: str, result: dict) -> None:
+    if node == "state":
+        _step_state(status, result)
+    elif node == "knowledge":
+        _step_knowledge(status, result)
+    elif node == "plan":
+        _step_plan(status, result)
+    elif node == "critic":
+        _step_critic(status, result)
+
+
+def _engine_badge(engine: str | None) -> str:
+    return f" ({engine})" if engine else ""
+
+
+_WINDOW_RE = re.compile(r"\[(Day \d, \d{2}:\d{2} \u2192 Day \d, \d{2}:\d{2})\]")
+
+
+def _markdown_windows(s: str) -> str:
+    """Wraps embedded TimeWindow strings in backticks for markdown rendering."""
+    return _WINDOW_RE.sub(lambda m: f"`[{m.group(1)}]`", s)
+
+
+def _step_state(status, result: dict) -> None:
+    c = status.container()
+    c.markdown(f"**\u2713 {t('agent_state')}{_engine_badge(result.get('state_engine'))}**")
+    c.write(f"{t('trace_where')} {tr(result['game_state'].location)}")
+    c.write(result["state_summary"])
+
+
+def _step_knowledge(status, result: dict) -> None:
+    c = status.container()
+    c.markdown(f"**\u2713 {t('agent_knowledge')}{_engine_badge(result.get('knowledge_engine'))}**")
+    objectives = result["relevant_objectives"]
+    c.write(t("knowledge_objectives", n=len(objectives)))
+    for obj in objectives:
+        c.write(f"\u2022 {tr(obj.title)}")
+    if not objectives:
+        c.caption(t("knowledge_empty_hint"))
+
+
+def _step_plan(status, result: dict) -> None:
+    c = status.container()
+    plan = result["plan"]
+    attempt = result["replan_attempts"]
+    header = (
+        f"**\u2713 {t('agent_planning')}{_engine_badge(result.get('plan_engine'))} \u2014 "
+        f"{t('step_attempt', n=attempt, max=MAX_PLANNING_ATTEMPTS)}**"
+    )
+    c.markdown(header)
+    if not plan or not plan.steps:
+        c.write(t("no_plan"))
+        return
+    for i, step in enumerate(plan.steps, 1):
+        s, e = step.window.start, step.window.end
+        window = f"Day {s.day} {s.hour:02d}:{s.minute:02d}\u2013{e.hour:02d}:{e.minute:02d}"
+        c.write(f"\u2022 {i}. {tr(step.title)} @ {tr(step.location)} ({window})")
+
+
+def _step_critic(status, result: dict) -> None:
+    c = status.container()
+    c.markdown(f"**\u2713 {t('agent_critic')}{_engine_badge(result.get('critic_engine'))}**")
+    validation = result["validation"]
+    if validation.valid:
+        c.write(f"\u2713 {t('plan_valid')}")
+        return
+    c.write(t("replan_line", n=len(validation.issues), max=MAX_PLANNING_ATTEMPTS))
+    for issue in validation.issues:
+        _render_issue(c, issue)
+
+
+def _render_issue(scope, issue) -> None:
+    is_error = issue.severity == "error"
+    kind = t(f"kind_{issue.kind}")
+    where = t("step_n", n=issue.step_idx + 1) if issue.step_idx is not None else t("plan")
+    col_sev, col_kind, col_step, col_msg = scope.columns([1, 1, 1, 4], vertical_alignment="center")
+    col_sev.badge(
+        (t("sev_error") if is_error else t("sev_warning")).upper(),
+        color="red" if is_error else "orange",
+    )
+    col_kind.badge(kind.upper(), color="blue")
+    col_step.markdown(f"**{where}**")
+    col_msg.markdown(_markdown_windows(tr_msg(issue.message)))
 
 
 def _section(title: str, caption: str = "") -> None:
@@ -193,22 +281,8 @@ def _render_trace_issues(validation) -> None:
         if not validation.issues:
             st.success(t("no_issues"))
         for issue in validation.issues:
-            is_error = issue.severity == "error"
-            kind = t(f"kind_{issue.kind}")
-            where = issue.step_idx + 1 if issue.step_idx is not None else None
             with st.container(border=True):
-                col_sev, col_kind, col_step = st.columns([1, 1, 2], vertical_alignment="center")
-                with col_sev:
-                    st.badge(
-                        (t("sev_error") if is_error else t("sev_warning")).upper(),
-                        color="red" if is_error else "orange",
-                    )
-                with col_kind:
-                    st.badge(kind.upper(), color="blue")
-                if where:
-                    with col_step:
-                        st.markdown(f"**{t('step_n', n=where)}**")
-                st.write(tr_msg(issue.message))
+                _render_issue(st, issue)
     with col_legend:
         st.markdown(
             f'<p class="section-title">{t("legend_severity")}</p>',
@@ -314,8 +388,64 @@ def render() -> None:
     )
     goal = Goal(description=goal_text)
 
-    with st.spinner(t("planning")):
-        result = _graph().invoke({"game_state": game_state, "goal": goal})
+    initial = {"game_state": game_state, "goal": goal}
+    result: dict = {}
+
+    def _run_stream(q) -> None:
+        try:
+            for update in _graph().stream(initial, stream_mode="updates"):
+                q.put(update)
+        finally:
+            q.put(None)
+
+    agent_name = {
+        "state": t("agent_state"),
+        "knowledge": t("agent_knowledge"),
+        "plan": t("agent_planning"),
+        "critic": t("agent_critic"),
+    }
+    phrases = itertools.cycle(spinner_lines())
+    q: queue.Queue = queue.Queue()
+    threading.Thread(target=_run_stream, args=(q,), daemon=True).start()
+
+    with st.status(f"{next(phrases)}...", type="step", state="running", expanded=True) as outer:
+        next_flip = time.monotonic()
+        while True:
+            if next_flip <= time.monotonic():
+                outer.update(label=f"{next(phrases)}...", state="running", expanded=True)
+                next_flip = time.monotonic() + _SPINNER_INTERVAL
+            try:
+                item = q.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if item is None:
+                break
+            for node, data in item.items():
+                result.update(data)
+                name = agent_name[node]
+                if node == "plan":
+                    attempt = t(
+                        "step_attempt",
+                        n=result["replan_attempts"],
+                        max=MAX_PLANNING_ATTEMPTS,
+                    )
+                    name += f" \u2014 {attempt}"
+                with st.status(name, type="step", expanded=True) as step:
+                    _append_step(step, node, result)
+                outer.update(expanded=True)
+        st.status(
+            t("planning_complete")
+            if result["validation"].valid
+            else t("planning_gave_up", max=MAX_PLANNING_ATTEMPTS),
+            type="step",
+            state="complete" if result["validation"].valid else "error",
+        )
+    valid = result["validation"].valid
+    outer.update(
+        label=t("planning_complete") if valid else t("planning_gave_up", max=MAX_PLANNING_ATTEMPTS),
+        state="complete" if valid else "error",
+        expanded=True,
+    )
 
     _section(t("your_plan"))
     validation = result["validation"]
@@ -325,35 +455,6 @@ def render() -> None:
         st.error(t("plan_not_valid"))
 
     _render_plan(result["plan"])
-
-    agent_ok = [
-        bool(result["state_summary"]),
-        bool(result["retrieved_context"]),
-        bool(result["plan"] and result["plan"].steps),
-        validation.valid,
-    ]
-    agent_count = sum(agent_ok)
-    agents = [
-        (t("agent_state"), t("agent_state_desc"), agent_ok[0]),
-        (t("agent_knowledge"), t("agent_knowledge_desc"), agent_ok[1]),
-        (t("agent_planning"), t("agent_planning_desc"), agent_ok[2]),
-        (t("agent_critic"), t("agent_critic_desc"), agent_ok[3]),
-    ]
-    st.markdown(
-        f'<div class="agents-compact">{t("agents_line", count=agent_count)}</div>',
-        unsafe_allow_html=True,
-    )
-    with st.expander(t("agents_detail")):
-        for name, desc, ok in agents:
-            mark = "\u2713" if ok else "\u2717"
-            col_text, col_badge = st.columns([4, 1], vertical_alignment="center")
-            with col_text:
-                st.markdown(f"**{mark} {name}** \u2014 {desc}")
-            with col_badge:
-                st.badge(
-                    (t("agent_done") if ok else t("agent_failed")).upper(),
-                    color="green" if ok else "red",
-                )
 
     tab_why, tab_sources, tab_trace = st.tabs([t("tab_why"), t("tab_sources"), t("tab_trace")])
 

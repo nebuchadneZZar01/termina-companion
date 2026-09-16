@@ -7,9 +7,11 @@ from __future__ import annotations
 
 from app.domain import ClockTime, GameState, Goal
 from app.graph import MAX_PLANNING_ATTEMPTS, run_pipeline
+from app.log import configure_logging
 
 
 def demo() -> None:
+    configure_logging()
     game_state = GameState(
         time=ClockTime(day=2, hour=8, minute=0),
         location="Stockpot Inn",
