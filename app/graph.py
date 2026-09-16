@@ -8,6 +8,8 @@ Run it headlessly with ``python -m app`` or from the UI.
 
 from __future__ import annotations
 
+import logging
+
 from langgraph.graph import END, START, StateGraph
 
 from app.agents import critic_agent, knowledge_agent, planning_agent, state_agent
@@ -15,6 +17,8 @@ from app.domain import GameState, Goal
 from app.state import PlanningState
 
 MAX_PLANNING_ATTEMPTS = 3
+
+logger = logging.getLogger(__name__)
 
 
 def build_graph():
@@ -34,9 +38,14 @@ def build_graph():
 
 def _route(state: PlanningState) -> str:
     if state.validation and state.validation.valid:
+        logger.info("Graph: valid plan — done")
         return "valid"
     if state.replan_attempts >= MAX_PLANNING_ATTEMPTS:
+        logger.warning("Graph: replan limit reached (%d) — giving up", MAX_PLANNING_ATTEMPTS)
         return "give_up"
+    logger.info(
+        "Graph: re-planning (attempt %d/%d)", state.replan_attempts + 1, MAX_PLANNING_ATTEMPTS
+    )
     return "replan"
 
 
