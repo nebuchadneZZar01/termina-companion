@@ -228,8 +228,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "tab_sources_caption": (
             "What the Knowledge Agent pulled from the game database for your goal: "
             "the objectives, NPCs and events used to build the plan. "
-            "No RAG yet \u2014 retrieval is keyword matching; RAG slots into "
-            "KnowledgeBase.retrieve() later."
+            "No RAG yet \u2014 retrieval is keyword matching; RAG slots into the "
+            "MCP search tool later."
         ),
         "tab_trace": "How it was planned",
         "tab_trace_caption": (
@@ -361,7 +361,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Cosa l'Agente della Conoscenza ha estratto dal database di gioco "
             "per il tuo obiettivo: obiettivi, NPC ed eventi usati per costruire il piano. "
             "Nessuna RAG \u2014 il recupero \u00e8 per parole chiave; la RAG "
-            "si inserir\u00e0 in KnowledgeBase.retrieve() in seguito."
+            "si inserir\u00e0 nel tool di ricerca MCP in seguito."
         ),
         "tab_trace": "Come \u00e8 stato pianificato",
         "tab_trace_caption": (
