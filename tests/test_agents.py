@@ -1,11 +1,18 @@
 """Every agent reports which engine produced its output."""
 
 from app.agents import critic_agent, knowledge_agent, planning_agent, state_agent
-from app.data.mock_knowledge import build_default_knowledge
+from app.data.mock_knowledge import Objective, build_default_knowledge
 from app.domain import ClockTime, GameState, Goal, Plan, PlanStep, TimeWindow
+from app.mcp.tools import search_quests
 from app.state import PlanningState
 
 _KB = build_default_knowledge()
+
+
+def _relevant(description: str) -> list[Objective]:
+    """Objectives matched by the MCP search tool for a goal text."""
+    groups = search_quests(description)
+    return [Objective.model_validate(obj) for group in groups for obj in group["objectives"]]
 
 
 def _state(**kw) -> PlanningState:
@@ -21,7 +28,7 @@ def _state(**kw) -> PlanningState:
     return PlanningState(
         game_state=gs,
         goal=Goal(description="Reunite Anju and Kafei"),
-        relevant_objectives=_KB.retrieve(gs, Goal(description="kafei letter")),
+        relevant_objectives=_relevant("kafei letter"),
     )
 
 
@@ -51,9 +58,12 @@ def test_planning_agent_rule_based_fallback(monkeypatch):
 def test_knowledge_context_includes_objective_ids():
     """The knowledge context lists each retrieved objective by its id."""
     from app.agents.knowledge_agent import _format
+    from app.mcp.tools import get_event, get_npc_schedule
 
-    objectives = _KB.retrieve(_state().game_state, Goal(description="kafei letter"))
-    context = _format(objectives)
+    objectives = _relevant("kafei letter")
+    npc_schedules = {o.npc_id: get_npc_schedule(o.npc_id) for o in objectives if o.npc_id}
+    events = {o.event_ref: get_event(o.event_ref) for o in objectives if o.event_ref}
+    context = _format(objectives, npc_schedules, events)
     assert all(f"[{o.id}]" in context for o in objectives)
 
 
@@ -155,12 +165,15 @@ def test_dedupe_keeps_first_occurrence_and_remaps_depends_on():
 
 
 class _FakeModel:
+    _invoked: list = []
+
     def with_structured_output(self, _schema):
         """Pretend to bind a structured-output schema and return self."""
         return self
 
-    def invoke(self, _msgs):
-        """Return a canned grounded Plan with a duplicate step."""
+    def invoke(self, msgs):
+        """Capture the prompt and return a canned grounded Plan."""
+        _FakeModel._invoked = msgs
         start = ClockTime(day=2, hour=9)
         window = TimeWindow(start=start, end=ClockTime(day=2, hour=10))
         return Plan(
@@ -203,6 +216,49 @@ def test_planning_agent_llm_plan_is_grounded(monkeypatch):
     refs = [s.objective_ref for s in result["plan"].steps]
     assert refs == ["ak_get_letter", "ak_talk_to_anju"]
     assert result["plan"].steps[1].depends_on == [0]
+
+
+def test_planning_prompt_enforces_window_containment(monkeypatch):
+    """The LLM prompt binds each step's window inside the objective's window."""
+    monkeypatch.setattr(planning_agent, "get_chat_model", lambda: _FakeModel())
+    planning_agent.run(_state())
+    system = next(m.content for m in _FakeModel._invoked if m.type == "system")
+    assert "objective's bracketed window" in system
+    assert "step.window.start >= that window's start" in system
+    assert "step.window.end <= that window's end" in system
+
+
+def test_clamp_windows_pins_window_inside_objective_slot():
+    """A window spanning outside the slot is cut to the intersection."""
+    w = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=2, hour=21))
+    plan = _plan_step("ak_talk_to_anju", "Stockpot Inn", w)
+    out = planning_agent._clamp_windows(plan, _state().relevant_objectives)
+    assert out.steps[0].objective_ref == "ak_talk_to_anju"
+    assert out.steps[0].window.start == ClockTime(day=2, hour=8)
+    assert out.steps[0].window.end == ClockTime(day=2, hour=21)
+
+
+def test_clamp_windows_falls_back_when_window_is_disjoint():
+    """A window fully outside the slot falls back inside the objective's."""
+    w = TimeWindow(start=ClockTime(day=3, hour=10), end=ClockTime(day=3, hour=11))
+    plan = _plan_step("ak_get_letter", "Market District", w)
+    state = _state()
+    out = planning_agent._clamp_windows(plan, state.relevant_objectives)
+    obj = next(o for o in state.relevant_objectives if o.id == "ak_get_letter")
+    step_window = out.steps[0].window
+    assert step_window.start == obj.window.start
+    start = (step_window.start.day, step_window.start.hour, step_window.start.minute)
+    end = (step_window.end.day, step_window.end.hour, step_window.end.minute)
+    obj_end = (obj.window.end.day, obj.window.end.hour, obj.window.end.minute)
+    assert start < end <= obj_end
+
+
+def test_clamp_windows_leaves_ungrounded_steps_untouched():
+    """Steps with an unknown objective ref pass through unchanged."""
+    w = TimeWindow(start=ClockTime(day=3, hour=10), end=ClockTime(day=3, hour=11))
+    plan = _plan_step("mystery", "Nowhere", w)
+    out = planning_agent._clamp_windows(plan, _state().relevant_objectives)
+    assert out.steps[0].window == w
 
 
 def test_ground_replaces_invented_location():
