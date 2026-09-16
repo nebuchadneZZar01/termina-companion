@@ -5,17 +5,15 @@ NPCs, schedules, timed events, mask and item requirements. Data is
 deliberately NOT lore-complete: it exists to validate the architecture,
 not the game.
 
-``KnowledgeBase.retrieve`` is the seam where RAG (vector retrieval over a real
-wiki dump) will plug in later.
+Agents read this data through the MCP tools in ``app.mcp.tools``, never
+directly.
 """
 
 from __future__ import annotations
 
-import re
-
 from pydantic import BaseModel, Field
 
-from app.domain import ClockTime, GameState, Goal, TimeWindow
+from app.domain import ClockTime, TimeWindow
 
 MASKS = [
     "Deku Mask",
@@ -134,38 +132,6 @@ class KnowledgeBase(BaseModel):
             ScheduledEvent | None: the matching event, or None when unknown.
         """
         return next((e for e in self.events if e.id == event_id), None)
-
-    def retrieve(self, game_state: GameState, goal: Goal) -> list[Objective]:
-        """Return unfinished objectives matching the goal's keywords, best first.
-
-        No keyword match means no relevant objective: an empty list tells the
-        planner there is nothing grounded to work from, instead of leaking
-        unrelated objectives from the whole knowledge slice.
-        """
-        done_quests = {qid for qid, status in game_state.quest_progress.items() if status == "done"}
-        words = set(re.findall(r"[a-z']+", goal.description.lower()))
-        scored: list[tuple[int, Objective]] = []
-        for obj in self.all_objectives:
-            if any(o in done_quests for o in _containing_quests(self.quests, obj.id)):
-                continue
-            score = len(words & set(obj.keywords))
-            if score > 0:
-                scored.append((score, obj))
-        scored.sort(key=lambda pair: pair[0], reverse=True)
-        return [obj for _, obj in scored]
-
-
-def _containing_quests(quests: list[Quest], objective_id: str) -> list[str]:
-    """List the quest ids that contain a given objective.
-
-    args:
-        quests (list[Quest]): all quests to scan.
-        objective_id (str): the objective's identifier.
-
-    returns:
-        list[str]: ids of quests owning that objective.
-    """
-    return [q.id for q in quests if any(o.id == objective_id for o in q.objectives)]
 
 
 def _tw(day: int, start: tuple[int, int], end: tuple[int, int]) -> TimeWindow:

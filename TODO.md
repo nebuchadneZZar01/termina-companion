@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Current phase:** Phase 6 — MCP
+**Current phase:** Phase 7 — RAG
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
@@ -19,7 +19,12 @@ Status map:
   uses the LLM with structured output and a rule-based fallback; State,
   Knowledge and Critic stay rule-based and deterministic; demo mode
   preserved with no API keys).
-* Phases 6–12: not started yet.
+* Phase 6 — MCP: complete (MCP tools replace KB.retrieve(); the Knowledge
+  Agent calls them in-process; the MCPServer exposes the same tools for
+  external MCP clients; 6 tools: search_quests, get_npc_schedule,
+  get_quest_info, get_event, get_location, check_prerequisites; in-process
+  Client integration test passes).
+* Phases 7–12: not started yet.
 * Phase 13 — Deployment: not started yet.
 
 ### Target flow
@@ -127,15 +132,15 @@ Game State → Goal → Plan → Validation
 
 # Phase 6 — MCP
 
-* [ ] Define game tool interfaces
-* [ ] Create Termina MCP server
-* [ ] Implement `get_npc_schedule`
-* [ ] Implement `get_quest_info`
-* [ ] Implement `get_event`
-* [ ] Implement `get_location`
-* [ ] Implement `check_prerequisites`
-* [ ] Integrate MCP with Knowledge Agent
-* [ ] Add MCP tool tests
+* [x] Define game tool interfaces
+* [x] Create Termina MCP server
+* [x] Implement `get_npc_schedule`
+* [x] Implement `get_quest_info`
+* [x] Implement `get_event`
+* [x] Implement `get_location`
+* [x] Implement `check_prerequisites`
+* [x] Integrate MCP with Knowledge Agent
+* [x] Add MCP tool tests
 
 # Phase 7 — RAG
 

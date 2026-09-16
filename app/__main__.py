@@ -43,7 +43,7 @@ def demo() -> None:
     print(f"\n--- Plan ({plan_label}) ---")
     if result.plan:
         for i, step in enumerate(result.plan.steps, 1):
-            print(f"{i}. [{step.window}] {step.title} @ {step.location}")
+            print(f"{i}. {step.window} {step.title} @ {step.location}")
             print(f"   dep: {step.depends_on or 'start'}")
             if step.requires_items:
                 print(f"   needs: {', '.join(step.requires_items)}")

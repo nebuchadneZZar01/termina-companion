@@ -5,6 +5,11 @@ Pydantic output, given the state summary, retrieved objectives and (on
 re-planning) the previous validation feedback. Otherwise it falls back to the
 deterministic slot-filling brain below.
 
+LLM output is post-processed deterministically: step refs, titles and
+locations are grounded to the knowledge objectives, duplicate steps are
+removed, and each step's window is clamped inside its objective's window so
+temporal feasibility never depends on the model (see ``_clamp_windows``).
+
 The rule-based brain still drives the re-planning loop in demo mode: the first
 attempt schedules naive one-hour slots from the player's current time (so the
 Critic Agent has a real conflict to catch), later attempts schedule sequential
@@ -54,6 +59,7 @@ def run(state: PlanningState) -> dict:
     elif engine == "llm":
         result = _ground_llm_steps(result, state.relevant_objectives)
         result = _dedupe_steps(result)
+        result = _clamp_windows(result, state.relevant_objectives)
     _log_plan(result)
     return {"plan": result, "replan_attempts": state.replan_attempts + 1, "plan_engine": engine}
 
@@ -75,14 +81,22 @@ def _llm_run(state: PlanningState, model) -> Plan | None:
     prompt = SystemMessage(
         "You are the Planning Agent of a Zelda temporal planner. Build an ordered, "
         "temporal plan that fulfils the player's goal using only the relevant "
-        "objectives below. Schedule each step inside the objective's time window, "
-        "in the right location, with the required items. Steps must respect "
-        "prerequisites: depends_on lists the indices of earlier steps this step "
-        "needs. Set each step's objective_ref to exactly one of the bracketed ids "
-        "listed with the objectives and use only those ids. Each step's title "
-        "must be a short natural-language action phrase describing the objective, "
-        "never the objective id. Every window must be "
-        "inside the three-day cycle."
+        "objectives below. Each objective is listed as:\n"
+        "  [id] Title (Location, [Day D, HH:MM \u2192 Day D, HH:MM])\n"
+        "Step constraints:\n"
+        "  - objective_ref: exactly one bracketed id from the list; never invent "
+        "ids or titles.\n"
+        "  - window MUST be fully inside the objective's bracketed window shown "
+        "right after the location: step.window.start >= that window's start AND "
+        "step.window.end <= that window's end. Schedule the step inside that "
+        "window, not the whole day.\n"
+        "  - each step happens in the objective's location, with the required "
+        "items and masks it lists.\n"
+        "  - depends_on: indices of earlier steps this step needs (only properly "
+        "earlier indices).\n"
+        "  - every window stays inside the three-day cycle (Day 1 to Day 3 "
+        "23:59).\n"
+        "  - title: a short natural-language action phrase, never the id."
         f"{feedback}"
     )
     user = HumanMessage(
@@ -223,6 +237,46 @@ def _dedupe_steps(plan: Plan) -> Plan:
             old_to_new[d] for d in step.depends_on if d in old_to_new and old_to_new[d] < new_idx
         ]
     plan.steps = kept
+    return plan
+
+
+# ponytail: output guardrail on temporal feasibility. Shrinks LLM windows
+# into the objective's slot; assumes objective.window is the authoritative
+# temporal constraint (true in the vertical slice). Ceiling: also intersect
+# with per-NPC schedules; upgrade when NPC availability differs from the
+# objective windows.
+def _clamp_windows(plan: Plan, objectives: list[Objective]) -> Plan:
+    """Pin each step's window inside its objective's window, deterministically.
+
+    The LLM frequently emits windows that overflow or miss the slot in which
+    the objective can happen (e.g. Day 1 for a Day 2 objective). This cuts
+    each ``step.window`` to the intersection with its objective's window, so
+    trivial time/NPC issues never burn one of the bounded re-plan attempts.
+    When the LLM window is fully outside the slot, fall back to a ``_SLOT``
+    -hour slot at the objective's window start (``_window_inside``).
+
+    Deliberately out of scope: ordering, ``depends_on``, items and masks — the
+    Critic Agent stays authoritative for the plan's semantics. This only
+    constrains *where in time* each step may happen.
+
+    args:
+        plan (Plan): the grounded, deduped LLM plan.
+        objectives (list[Objective]): knowledge objectives to clamp against.
+
+    returns:
+        Plan: the same plan, each grounded step's window inside its slot.
+    """
+    by_id = {o.id: o for o in objectives}
+    for step in plan.steps:
+        obj = by_id.get(step.objective_ref)
+        if obj is None:
+            continue
+        start = _max_clock(step.window.start, obj.window.start)
+        end = min(step.window.end, obj.window.end, key=_clock)
+        if _clock(start) >= _clock(end):
+            step.window = _window_inside(obj, obj.window.start)
+        else:
+            step.window = TimeWindow(start=start, end=end)
     return plan
 
 

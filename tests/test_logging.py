@@ -1,8 +1,16 @@
 import logging
 
 from app.agents import planning_agent, state_agent
+from app.data.mock_knowledge import Objective
 from app.domain import ClockTime, GameState, Goal
+from app.mcp.tools import search_quests
 from app.state import PlanningState
+
+
+def _relevant(description: str) -> list[Objective]:
+    """Objectives matched by the MCP search tool for a goal text."""
+    groups = search_quests(description)
+    return [Objective.model_validate(obj) for group in groups for obj in group["objectives"]]
 
 
 def test_state_agent_logs_rule_based_path(caplog):
@@ -40,16 +48,12 @@ def test_planning_agent_logs_llm_fallback(caplog, monkeypatch):
 
 def test_planning_agent_rule_based_still_emits_plan(caplog, monkeypatch):
     """The rule-based Planning Agent still emits a plan and logs itself."""
-    from app.data.mock_knowledge import build_default_knowledge
-
     monkeypatch.setattr(planning_agent, "get_chat_model", lambda: None)
     gs = GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn")
     state = PlanningState(
         game_state=gs,
         goal=Goal(description="Reunite Anju and Kafei"),
-        relevant_objectives=build_default_knowledge().retrieve(
-            gs, Goal(description="kafei letter")
-        ),
+        relevant_objectives=_relevant("kafei letter"),
     )
     with caplog.at_level(logging.INFO, logger="app.agents.planning_agent"):
         result = planning_agent.run(state)

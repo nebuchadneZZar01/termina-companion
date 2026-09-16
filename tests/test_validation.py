@@ -70,6 +70,21 @@ def test_markdown_windows_wraps_embedded_windows():
     assert _markdown_windows("no window here") == "no window here"
 
 
+def test_italian_critic_message_keeps_backticks_and_window():
+    """In IT, critic messages keep backticked windows untranslated (literal "Day")."""
+    from unittest.mock import patch
+
+    with patch("streamlit.session_state") as sess:
+        sess.get.return_value = "it"
+        from app.i18n import tr_msg
+
+        msg = "Kafei is unavailable during [Day 3, 04:00 \u2192 Day 3, 12:00]."
+        out = tr_msg(_markdown_windows(msg))
+    assert "`[Day 3, 04:00 \u2192 Day 3, 12:00]`" in out
+    assert "Giorno" not in out
+    assert "non \u00e8 disponibile durante" in out
+
+
 def test_valid_plan_passes():
     """A step inside its objective's window validates."""
     start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
@@ -237,33 +252,29 @@ def test_pipeline_gives_up_without_required_mask():
 
 
 def test_knowledge_retrieval_empty_when_no_match():
-    """Retrieval returns nothing for a goal with no matching keywords."""
-    from app.data.mock_knowledge import build_default_knowledge
+    """Search returns nothing for a goal with no matching keywords."""
+    from app.mcp.tools import search_quests
 
-    kb = build_default_knowledge()
-    gs = _gs()
-    assert kb.retrieve(gs, Goal(description="completely unrelated phrase")) == []
+    assert search_quests("completely unrelated phrase") == []
 
 
 def test_knowledge_retrieval_filters_by_keywords():
-    """Retrieval returns all Anju & Kafei objectives for a kafei goal."""
-    from app.data.mock_knowledge import build_default_knowledge
+    """Search returns all Anju & Kafei objectives for a kafei goal."""
+    from app.mcp.tools import search_quests
 
-    kb = build_default_knowledge()
-    gs = _gs()
-    anju = kb.retrieve(gs, Goal(description="find the kafei letter"))
-    assert all("kafei" in o.keywords for o in anju)
-    assert len({o.id for o in anju}) == 4  # all four Anju & Kafei objectives match
+    groups = search_quests("find the kafei letter")
+    ids = [o["id"] for g in groups for o in g["objectives"]]
+    assert len(ids) == 4  # all four Anju & Kafei objectives match
+    assert all("kafei" in o["keywords"] for g in groups for o in g["objectives"])
 
 
 def test_knowledge_retrieval_matches_italian_synonyms():
-    """Retrieval matches Italian synonyms in the goal description."""
-    from app.data.mock_knowledge import build_default_knowledge
+    """Search matches Italian synonyms in the goal description."""
+    from app.mcp.tools import search_quests
 
-    kb = build_default_knowledge()
-    gs = _gs()
-    found = kb.retrieve(gs, Goal(description="come faccio a riunire i due innamorati alla locanda"))
-    assert {o.id for o in found} == {"ak_talk_to_anju", "ak_reunite"}
+    groups = search_quests("come faccio a riunire i due innamorati alla locanda")
+    ids = {o["id"] for g in groups for o in g["objectives"]}
+    assert ids == {"ak_talk_to_anju", "ak_reunite"}
 
 
 def test_knowledge_npc_schedules_and_events():

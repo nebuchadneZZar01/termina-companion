@@ -211,7 +211,7 @@ def _render_issue(scope, issue) -> None:
     )
     col_kind.badge(kind.upper(), color="blue")
     col_step.markdown(f"**{where}**")
-    col_msg.markdown(_markdown_windows(tr_msg(issue.message)))
+    col_msg.markdown(tr_msg(_markdown_windows(issue.message)))
 
 
 def _section(title: str, caption: str = "") -> None:
