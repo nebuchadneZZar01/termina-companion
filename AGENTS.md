@@ -26,6 +26,7 @@ Use:
 * LangGraph
 * Pydantic
 * Streamlit
+* MCP (Model Context Protocol)
 
 ## Architecture
 
@@ -64,7 +65,7 @@ The prototype should run locally and include a simple Streamlit UI.
 
 Mock/demo data is acceptable initially.
 
-Do not implement MCP, RAG, persistent memory, tracing or evaluation prematurely. Leave clear extension points for them.
+Do not implement RAG, persistent memory, tracing or evaluation prematurely. Leave clear extension points for them.
 
 ## Development Principles
 
@@ -88,15 +89,24 @@ Do not implement MCP, RAG, persistent memory, tracing or evaluation prematurely.
 * `app/domain.py` — system-wide Pydantic contracts (GameState,
   ClockTime/TimeWindow, Plan, ValidationResult).
 * `app/data/mock_knowledge.py` — game data (areas, quests, objectives,
-  NPCs, events, windows, mask/item requirements) plus
-  `KnowledgeBase.retrieve()`. The RAG extension point. Data covers several
+  NPCs, events, windows, mask/item requirements). Data covers several
   major areas but is deliberately NOT lore-complete; do not tie the
-  architecture to one quest.
+  architecture to one quest. Agents never access this directly — they go
+  through the MCP tools in `app/mcp/tools.py`.
 * `app/agents/` — one module per agent (state, knowledge,
   planning, critic), each exposing a LangGraph node function `run(state) -> dict`.
-  State, Knowledge and Critic run deterministic rule-based brains; the Planning
+  State and Critic run deterministic rule-based brains; the Planning
   Agent uses an LLM when configured and falls back to its rule-based brain
-  without credentials.
+  without credentials. LLM output is post-processed deterministically: refs,
+  titles and locations are grounded to the knowledge objectives and each
+  step's window is clamped inside its objective's slot (see
+  `app/agents/planning_agent.py`). The Knowledge Agent calls the MCP tools
+  in-process to retrieve game knowledge.
+* `app/mcp/` — MCP tools and server. `app/mcp/tools.py` holds the pure
+  tool functions (search_quests, get_npc_schedule, get_quest_info, get_event,
+  get_location, check_prerequisites) — the single seam between agents and
+  game data. `app/mcp/server.py` wraps them as a `MCPServer` for external
+  MCP clients. The Knowledge Agent imports tools directly for in-process use.
 * `app/llm.py` — LLM provider factory (`get_chat_model()`); returns `None`
   without credentials so the Planning Agent falls back to its rule-based brain.
   The seam for MCP tool-triggered retrieval. `LLM_PROVIDER=rule-based` (the
