@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import re
+
 import streamlit as st
+
+_CODE_SPAN_RE = re.compile(r"(`[^`]+`)")
 
 # -- Game-entity display names: English → Italian ---------------------------
 # Covers locations, NPCs, masks, items, quests, objective titles/descriptions,
@@ -110,8 +114,6 @@ _DISPLAY_IT: dict[str, str] = {
     "Romani": "Romani",
     "Cremia": "Cremia",
     "Shiro": "Shiro",
-    # time label inside agent outputs and plan windows
-    "Day": "Giorno",
 }
 
 _DISPLAY_KEYS_IT = sorted(_DISPLAY_IT, key=len, reverse=True)
@@ -388,12 +390,19 @@ def spinner_lines() -> tuple[str, ...]:
 
 
 def tr(s: str) -> str:
-    """Translate game-entity display names inside *s* (longest-match first)."""
+    """Translate game-entity display names inside *s*, leaving code spans intact."""
     if st.session_state.get("lang", DEFAULT_LANG) == "en":
         return s
-    for en in _DISPLAY_KEYS_IT:
-        s = s.replace(en, _DISPLAY_IT[en])
-    return s
+    parts = _CODE_SPAN_RE.split(s)
+    out: list[str] = []
+    for i, part in enumerate(parts):
+        if i % 2:
+            out.append(part)
+            continue
+        for en in _DISPLAY_KEYS_IT:
+            part = part.replace(en, _DISPLAY_IT[en])
+        out.append(part)
+    return "".join(out)
 
 
 # -- Critic validation-message templates: English → Italian ---------------

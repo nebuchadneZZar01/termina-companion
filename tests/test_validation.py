@@ -70,6 +70,21 @@ def test_markdown_windows_wraps_embedded_windows():
     assert _markdown_windows("no window here") == "no window here"
 
 
+def test_italian_critic_message_keeps_backticks_and_window():
+    """In IT, critic messages keep backticked windows untranslated (literal "Day")."""
+    from unittest.mock import patch
+
+    with patch("streamlit.session_state") as sess:
+        sess.get.return_value = "it"
+        from app.i18n import tr_msg
+
+        msg = "Kafei is unavailable during [Day 3, 04:00 \u2192 Day 3, 12:00]."
+        out = tr_msg(_markdown_windows(msg))
+    assert "`[Day 3, 04:00 \u2192 Day 3, 12:00]`" in out
+    assert "Giorno" not in out
+    assert "non \u00e8 disponibile durante" in out
+
+
 def test_valid_plan_passes():
     """A step inside its objective's window validates."""
     start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
