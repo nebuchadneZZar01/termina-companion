@@ -9,8 +9,13 @@ description = "Multi-agent temporal planning companion for The Legend of Zelda: 
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "langchain-anthropic>=0.3",
+    "langchain-core>=0.3",
+    "langchain-google-genai>=2.0",
+    "langchain-openai>=0.3",
     "langgraph>=1.0",
     "pydantic>=2",
+    "python-dotenv>=1.0",
     "streamlit>=1.40",
 ]
 
