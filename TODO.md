@@ -10,8 +10,10 @@ Status map:
 * Phase 0 — Foundation: complete.
 * Phase 1 — Domain Model: complete.
 * Phase 2 — Multi-Agent Core: complete.
-* Phase 3 — Game Knowledge: complete (Clock Town, NPCs, schedules and
-  events as separate entities, NPC availability validated by the Critic).
+* Phase 3 — Game Knowledge: complete (multi-area data: Clock Town,
+  Southern Swamp, Mountain Village, Great Bay, Ikana Canyon, Romani Ranch;
+  NPCs with schedules, timed events, mask & item requirements; the Critic
+  also validates required masks in addition to NPC availability).
 * Phase 4 — Streamlit UI: complete.
 * Phase 5 — LLM Integration: complete (6 providers; the Planning Agent
   uses the LLM with structured output and a rule-based fallback; State,

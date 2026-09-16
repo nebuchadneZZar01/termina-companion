@@ -87,9 +87,11 @@ Do not implement MCP, RAG, persistent memory, tracing or evaluation prematurely.
 * `main.py` — Streamlit UI entry point at the repository root.
 * `app/domain.py` — system-wide Pydantic contracts (GameState,
   ClockTime/TimeWindow, Plan, ValidationResult).
-* `app/data/mock_knowledge.py` — game data (quests, objectives,
-  windows) plus `KnowledgeBase.retrieve()`. The RAG extension point. Data is
-  deliberately a small vertical slice; do not tie the architecture to one quest.
+* `app/data/mock_knowledge.py` — game data (areas, quests, objectives,
+  NPCs, events, windows, mask/item requirements) plus
+  `KnowledgeBase.retrieve()`. The RAG extension point. Data covers several
+  major areas but is deliberately NOT lore-complete; do not tie the
+  architecture to one quest.
 * `app/agents/` — one module per agent (state, knowledge,
   planning, critic), each exposing a LangGraph node function `run(state) -> dict`.
   State, Knowledge and Critic run deterministic rule-based brains; the Planning

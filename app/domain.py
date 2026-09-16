@@ -21,6 +21,14 @@ class ClockTime(BaseModel):
     minute: int = Field(default=0, ge=0, le=59)
 
     def __str__(self) -> str:
+        """Human-readable clock representation.
+
+        args:
+            (none)
+
+        returns:
+            str: e.g. "Day 2, 08:00".
+        """
         return f"Day {self.day}, {self.hour:02d}:{self.minute:02d}"
 
 
@@ -33,19 +41,54 @@ class TimeWindow(BaseModel):
     @field_validator("end")
     @classmethod
     def end_after_start(cls, end: ClockTime, info) -> ClockTime:
+        """Reject windows whose end is not later than the start.
+
+        args:
+            end (ClockTime): candidate end of the window.
+            info (ValidationInfo): pydantic context with the parsed start.
+
+        returns:
+            ClockTime: the validated end.
+        """
         start = info.data["start"]
         if start and not _clock(start) < _clock(end):
             raise ValueError("end must be after start")
         return end
 
     def __str__(self) -> str:
+        """Human-readable window representation.
+
+        args:
+            (none)
+
+        returns:
+            str: e.g. "[Day 1, 08:00 → Day 1, 09:00]".
+        """
         return f"[{self.start} \u2192 {self.end}]"
 
     def contains(self, t: ClockTime) -> bool:
+        """Check whether a clock time falls inside the window.
+
+        The start is inclusive, the end exclusive, over the three-day cycle.
+
+        args:
+            t (ClockTime): the time to test.
+
+        returns:
+            bool: True when ``start <= t < end``.
+        """
         return _clock(self.start) <= _clock(t) < _clock(self.end)
 
 
 def _clock(t: ClockTime) -> tuple[int, int, int]:
+    """Collapse a clock into a sortable (day, hour, minute) tuple.
+
+    args:
+        t (ClockTime): the time to convert.
+
+    returns:
+        tuple: (day, hour, minute).
+    """
     return (t.day, t.hour, t.minute)
 
 
@@ -75,6 +118,7 @@ class PlanStep(BaseModel):
     window: TimeWindow
     actions: list[str] = Field(default_factory=list)
     requires_items: list[str] = Field(default_factory=list)
+    requires_masks: list[str] = Field(default_factory=list)
     depends_on: list[int] = Field(default_factory=list)  # indices of previous steps
 
 
@@ -100,6 +144,15 @@ class ValidationResult(BaseModel):
 
     @property
     def feedback(self) -> str:
+        """Summarise the validation outcome as a readable message.
+
+        args:
+            (none)
+
+        returns:
+            str: "Plan is feasible." on success, otherwise the issues list
+            prefixed by "Plan is NOT feasible:".
+        """
         if self.valid:
             return "Plan is feasible."
         lines = [f"{i.severity} ({i.kind}): {i.message}" for i in self.issues]

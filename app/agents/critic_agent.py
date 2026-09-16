@@ -29,6 +29,21 @@ def validate_plan(
     objectives: list[Objective],
     npcs: list[NPC] | None = None,
 ) -> ValidationResult:
+    """Check a plan's feasibility against the player's state and knowledge.
+
+    Runs deterministic rules per step: empty plan, unknown objective,
+    location, time window, NPC availability, missing items and masks, and
+    sequence ordering.
+
+    args:
+        plan (Plan | None): the plan to validate.
+        game_state (GameState): the player's inventory, masks and progress.
+        objectives (list[Objective]): knowledge objectives to ground refs.
+        npcs (list[NPC] | None, default None): NPCs to check availability.
+
+    returns:
+        ValidationResult: valid, plus the list of issues found.
+    """
     if not plan or not plan.steps:
         return ValidationResult(
             valid=False,
@@ -51,6 +66,19 @@ def _check_step(
     by_id: dict[str, Objective],
     npc_by_id: dict[str, NPC],
 ) -> list[ValidationIssue]:
+    """Validate a single plan step against all feasibility rules.
+
+    args:
+        step (PlanStep): the step under check.
+        idx (int): the step index in the plan.
+        plan (Plan): the whole plan, for sequence/dependency checks.
+        game_state (GameState): the player's inventory and masks.
+        by_id (dict[str, Objective]): objective id → objective lookup.
+        npc_by_id (dict[str, NPC]): NPC id → NPC lookup.
+
+    returns:
+        list[ValidationIssue]: all issues found for this step.
+    """
     issues: list[ValidationIssue] = []
     objective = by_id.get(step.objective_ref)
 
@@ -89,9 +117,13 @@ def _check_step(
         ):
             issues.append(_issue("npc", idx, f"{npc.name} is unavailable during {step.window}."))
 
-    missing = [item for item in step.requires_items if item not in game_state.inventory]
-    if missing:
-        issues.append(_issue("item", idx, f"Missing item(s): {', '.join(missing)}."))
+    missing_items = [item for item in step.requires_items if item not in game_state.inventory]
+    if missing_items:
+        issues.append(_issue("item", idx, f"Missing item(s): {', '.join(missing_items)}."))
+
+    missing_masks = [mask for mask in step.requires_masks if mask not in game_state.masks]
+    if missing_masks:
+        issues.append(_issue("mask", idx, f"Missing mask(s): {', '.join(missing_masks)}."))
 
     for earlier in step.depends_on:
         if earlier >= idx:
@@ -104,18 +136,54 @@ def _check_step(
 
 
 def _lt(a: ClockTime, b: ClockTime) -> bool:
+    """Strictly-less comparison of two clocks over the three-day cycle.
+
+    args:
+        a (ClockTime): first time.
+        b (ClockTime): second time.
+
+    returns:
+        bool: True when ``a`` is strictly before ``b``.
+    """
     return (a.day, a.hour, a.minute) < (b.day, b.hour, b.minute)
 
 
 def _lte(a: ClockTime, b: ClockTime) -> bool:
+    """Less-or-equal comparison of two clocks over the three-day cycle.
+
+    args:
+        a (ClockTime): first time.
+        b (ClockTime): second time.
+
+    returns:
+        bool: True when ``a`` is before or equal to ``b``.
+    """
     return (a.day, a.hour, a.minute) <= (b.day, b.hour, b.minute)
 
 
 def _issue(kind: str, step_idx: int, message: str) -> ValidationIssue:
+    """Build an error-severity validation issue.
+
+    args:
+        kind (str): the issue kind, e.g. "time" or "item".
+        step_idx (int): the step the issue refers to.
+        message (str): human-readable description.
+
+    returns:
+        ValidationIssue: an error-level issue for the given step.
+    """
     return ValidationIssue(severity="error", step_idx=step_idx, kind=kind, message=message)
 
 
 def run(state: PlanningState) -> dict:
+    """LangGraph node: validate the current plan with rule-based checks.
+
+    args:
+        state (PlanningState): the workflow state with the produced plan.
+
+    returns:
+        dict: the ``validation`` result and ``critic_engine``.
+    """
     npcs = _KB.npcs
     result = validate_plan(state.plan, state.game_state, state.relevant_objectives, npcs)
     _log_result(result)
