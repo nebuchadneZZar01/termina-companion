@@ -19,3 +19,7 @@ class PlanningState(BaseModel):
     plan: Plan | None = None
     validation: ValidationResult | None = None
     replan_attempts: int = 0
+    state_engine: str = ""
+    knowledge_engine: str = ""
+    plan_engine: str = ""
+    critic_engine: str = ""

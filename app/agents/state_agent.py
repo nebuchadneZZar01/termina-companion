@@ -1,13 +1,17 @@
 """State Agent: understands the player's current state.
 
-Mock behaviour: canonicalises the player's location and summarises what the
-system understood. Later this node will parse free-text input and resolve
-ambiguities with an LLM.
+Deterministic (rule-based) brain: canonicalises the player's location through an
+alias table and produces a template summary, so the output is always grounded in
+the actual state and the demo needs no credentials.
 """
 
 from __future__ import annotations
 
+import logging
+
 from app.state import PlanningState
+
+logger = logging.getLogger(__name__)
 
 _ALIASES = {
     "stockpot": "Stockpot Inn",
@@ -21,10 +25,6 @@ _ALIASES = {
 }
 
 
-def _canonical_location(location: str) -> str:
-    return _ALIASES.get(location.strip().lower(), location.strip())
-
-
 def run(state: PlanningState) -> dict:
     gs = state.game_state.model_copy(
         update={"location": _canonical_location(state.game_state.location)}
@@ -34,4 +34,14 @@ def run(state: PlanningState) -> dict:
         f"Items: {', '.join(gs.inventory) or 'none'}. "
         f"Masks: {', '.join(gs.masks) or 'none'}."
     )
-    return {"game_state": gs, "state_summary": summary}
+    logger.info(
+        "State Agent [rule-based]: location %r -> %r — summary=%r",
+        state.game_state.location,
+        gs.location,
+        summary,
+    )
+    return {"game_state": gs, "state_summary": summary, "state_engine": "rule-based"}
+
+
+def _canonical_location(location: str) -> str:
+    return _ALIASES.get(location.strip().lower(), location.strip())

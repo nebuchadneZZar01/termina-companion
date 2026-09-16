@@ -97,7 +97,12 @@ class KnowledgeBase(BaseModel):
         return next((e for e in self.events if e.id == event_id), None)
 
     def retrieve(self, game_state: GameState, goal: Goal) -> list[Objective]:
-        """Return unfinished objectives, best keyword matches first."""
+        """Return unfinished objectives matching the goal's keywords, best first.
+
+        No keyword match means no relevant objective: an empty list tells the
+        planner there is nothing grounded to work from, instead of leaking
+        unrelated objectives from the whole knowledge slice.
+        """
         done_quests = {qid for qid, status in game_state.quest_progress.items() if status == "done"}
         words = set(re.findall(r"[a-z']+", goal.description.lower()))
         scored: list[tuple[int, Objective]] = []
@@ -105,10 +110,9 @@ class KnowledgeBase(BaseModel):
             if any(o in done_quests for o in _containing_quests(self.quests, obj.id)):
                 continue
             score = len(words & set(obj.keywords))
-            scored.append((score, obj))
-        if scored and any(s > 0 for s, _ in scored):
-            scored = [(s, o) for s, o in scored if s > 0]
-            scored.sort(key=lambda pair: pair[0], reverse=True)
+            if score > 0:
+                scored.append((score, obj))
+        scored.sort(key=lambda pair: pair[0], reverse=True)
         return [obj for _, obj in scored]
 
 
@@ -192,7 +196,17 @@ def build_default_knowledge() -> KnowledgeBase:
                 location="Stockpot Inn",
                 window=_tw(2, (8, 0), (21, 0)),
                 npc_id="anju",
-                keywords=["anju", "kafei", "letter", "reunite", "start"],
+                keywords=[
+                    "anju",
+                    "kafei",
+                    "letter",
+                    "reunite",
+                    "start",
+                    "parla",
+                    "fidanzato",
+                    "scomparso",
+                    "locanda",
+                ],
             ),
             Objective(
                 id="ak_get_letter",
@@ -203,7 +217,17 @@ def build_default_knowledge() -> KnowledgeBase:
                 prerequisites=["ak_talk_to_anju"],
                 npc_id="postman",
                 event_ref="ak_letter_delivery",
-                keywords=["kafei", "letter", "mailbox", "post"],
+                keywords=[
+                    "kafei",
+                    "letter",
+                    "mailbox",
+                    "post",
+                    "cassetta",
+                    "posta",
+                    "postale",
+                    "lettera",
+                    "ufficio",
+                ],
             ),
             Objective(
                 id="ak_deliver_letter",
@@ -214,7 +238,17 @@ def build_default_knowledge() -> KnowledgeBase:
                 prerequisites=["ak_get_letter"],
                 requires_items=["Kafei's Letter"],
                 npc_id="kafei",
-                keywords=["kafei", "letter", "shop", "hideout"],
+                keywords=[
+                    "kafei",
+                    "letter",
+                    "shop",
+                    "hideout",
+                    "consegna",
+                    "cantina",
+                    "nascondiglio",
+                    "negozio",
+                    "lettera",
+                ],
             ),
             Objective(
                 id="ak_reunite",
@@ -225,7 +259,20 @@ def build_default_knowledge() -> KnowledgeBase:
                 prerequisites=["ak_deliver_letter"],
                 npc_id="anju",
                 event_ref="ak_reunion_dinner",
-                keywords=["anju", "kafei", "reunite", "inn"],
+                keywords=[
+                    "anju",
+                    "kafei",
+                    "reunite",
+                    "inn",
+                    "riunisci",
+                    "riunire",
+                    "riunione",
+                    "innamorati",
+                    "coppia",
+                    "terzo",
+                    "giorno",
+                    "locanda",
+                ],
             ),
         ],
     )
@@ -240,7 +287,17 @@ def build_default_knowledge() -> KnowledgeBase:
                 location="North Clock Town",
                 window=_tw(1, (6, 0), (20, 0)),
                 npc_id="bombers_leader",
-                keywords=["bombers", "society", "hideout", "plan"],
+                keywords=[
+                    "bombers",
+                    "society",
+                    "hideout",
+                    "plan",
+                    "leader",
+                    "gang",
+                    "ragazzini",
+                    "società",
+                    "nord",
+                ],
             ),
             Objective(
                 id="bm_find_hideout",
@@ -251,7 +308,7 @@ def build_default_knowledge() -> KnowledgeBase:
                 prerequisites=["bm_talk_leader"],
                 requires_items=["Bomber's Notebook"],
                 event_ref="bm_hideout_gathering",
-                keywords=["hideout", "clock", "tower", "bombers"],
+                keywords=["hideout", "clock", "tower", "bombers", "tana", "orologio", "disegno"],
             ),
         ],
     )
