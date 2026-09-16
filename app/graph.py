@@ -22,6 +22,18 @@ logger = logging.getLogger(__name__)
 
 
 def build_graph():
+    """Wire the four agents into the compiled LangGraph workflow.
+
+    The graph runs state → knowledge → plan → critic and routes back to the
+    planner on a failed validation (see :func:`_route`).
+
+    args:
+        (none)
+
+    returns:
+        CompiledStateGraph: the compiled LangGraph ready for ``invoke`` /
+        ``stream``.
+    """
     graph = StateGraph(PlanningState)
     graph.add_node("state", state_agent.run)
     graph.add_node("knowledge", knowledge_agent.run)
@@ -37,6 +49,16 @@ def build_graph():
 
 
 def _route(state: PlanningState) -> str:
+    """Decide the post-critic edge: finish, re-plan, or give up.
+
+    args:
+        state (PlanningState): the workflow state with validation results
+        and the re-plan counter.
+
+    returns:
+        str: "valid" when the plan passes, "replan" when a new attempt is
+        allowed, "give_up" when :data:`MAX_PLANNING_ATTEMPTS` was reached.
+    """
     if state.validation and state.validation.valid:
         logger.info("Graph: valid plan — done")
         return "valid"
@@ -50,5 +72,17 @@ def _route(state: PlanningState) -> str:
 
 
 def run_pipeline(game_state: GameState, goal: Goal) -> PlanningState:
+    """Run the full planning pipeline end to end.
+
+    Convenience wrapper over :func:`build_graph`: invokes the graph with the
+    given player state and goal, and re-validates the result.
+
+    args:
+        game_state (GameState): the player's current state.
+        goal (Goal): what the player wants to achieve.
+
+    returns:
+        PlanningState: the final workflow state with plan and validation.
+    """
     result = build_graph().invoke(PlanningState(game_state=game_state, goal=goal))
     return PlanningState.model_validate(result)

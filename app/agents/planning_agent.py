@@ -29,6 +29,19 @@ logger = logging.getLogger(__name__)
 
 
 def run(state: PlanningState) -> dict:
+    """Build an ordered, time-boxed plan for the player's goal.
+
+    Uses the LLM when configured (grounded against the knowledge base) and
+    falls back to the deterministic rule-based brain otherwise.
+
+    args:
+        state (PlanningState): the workflow state with player state, goal
+        and retrieved objectives.
+
+    returns:
+        dict: the generated ``plan``, incremented ``replan_attempts`` and
+        ``plan_engine`` ("llm" or "rule-based").
+    """
     result: Plan | None = None
     engine = "rule-based"
     model = get_chat_model()
@@ -46,6 +59,16 @@ def run(state: PlanningState) -> dict:
 
 
 def _llm_run(state: PlanningState, model) -> Plan | None:
+    """Ask the LLM for a structured plan, with replan feedback when provided.
+
+    args:
+        state (PlanningState): the workflow state with goal and context.
+        model (BaseChatModel): the configured chat model.
+
+    returns:
+        Plan: the LLM-produced plan, or None on failure/empty output so the
+        caller falls back to the rule-based brain.
+    """
     feedback = ""
     if state.validation and not state.validation.valid:
         feedback = f"\nPrevious validation feedback:\n{state.validation.feedback}"
@@ -87,6 +110,19 @@ def _llm_run(state: PlanningState, model) -> Plan | None:
 
 
 def _rule_based_run(state: PlanningState) -> Plan:
+    """Build a deterministic plan from the retrieved objectives.
+
+    The first attempt is deliberately naive (one-hour slots from now) so the
+    Critic has a conflict to catch; later attempts clamp slots inside each
+    objective's window, ordered by prerequisites.
+
+    args:
+        state (PlanningState): the workflow state with game state and
+        relevant objectives.
+
+    returns:
+        Plan: a step per objective, ordered by prerequisites.
+    """
     ordered = _order_by_prerequisites(state.relevant_objectives)
     naive = state.replan_attempts == 0
     steps: list[PlanStep] = []
@@ -109,6 +145,14 @@ def _rule_based_run(state: PlanningState) -> Plan:
 
 
 def _log_plan(plan: Plan) -> None:
+    """Log each plan step with its window, location and needs.
+
+    args:
+        plan (Plan): the plan to log.
+
+    returns:
+        None: logging only.
+    """
     for i, step in enumerate(plan.steps, 1):
         s, e = step.window.start, step.window.end
         window = f"Day {s.day} {s.hour:02d}:{s.minute:02d}-{e.hour:02d}:{e.minute:02d}"
@@ -117,6 +161,17 @@ def _log_plan(plan: Plan) -> None:
 
 
 def _to_step(obj: Objective, index: int, window: TimeWindow) -> PlanStep:
+    """Convert an objective into a plan step at a given index and window.
+
+    args:
+        obj (Objective): the knowledge objective to wrap.
+        index (int): step index, used to seed ``depends_on``.
+        window (TimeWindow): the scheduled window for this step.
+
+    returns:
+        PlanStep: the resulting step with the objective's actions and
+        item/mask requirements.
+    """
     return PlanStep(
         title=obj.title,
         objective_ref=obj.id,
@@ -124,6 +179,7 @@ def _to_step(obj: Objective, index: int, window: TimeWindow) -> PlanStep:
         window=window,
         actions=[obj.description],
         requires_items=obj.requires_items,
+        requires_masks=obj.requires_masks,
         depends_on=list(range(index)),
     )
 
@@ -146,6 +202,7 @@ def _ground_llm_steps(plan: Plan, objectives: list[Objective]) -> Plan:
             step.title = match.title
             step.location = match.location
             step.requires_items = match.requires_items
+            step.requires_masks = match.requires_masks
     return plan
 
 
@@ -170,6 +227,18 @@ def _dedupe_steps(plan: Plan) -> Plan:
 
 
 def _match_objective(step: PlanStep, objectives: list[Objective]) -> Objective | None:
+    """Resolve a plan step to its matching knowledge objective.
+
+    Tries: unique location + window fit, then id substring overlap, then
+    best title keyword overlap.
+
+    args:
+        step (PlanStep): the step to resolve.
+        objectives (list[Objective]): candidate knowledge objectives.
+
+    returns:
+        Objective: the unique best match, or None when ambiguous.
+    """
     start, end = _clock(step.window.start), _clock(step.window.end)
     fits = [
         o
@@ -193,11 +262,30 @@ def _match_objective(step: PlanStep, objectives: list[Objective]) -> Objective |
 
 
 def _naive_window(start: ClockTime, index: int) -> TimeWindow:
+    """Build the naive one-hour window for the index-th step.
+
+    args:
+        start (ClockTime): the player's current time.
+        index (int): step index to offset from the start.
+
+    returns:
+        TimeWindow: the naive ``_SLOT``-hour window.
+    """
     begin = _add_hours(start, index * _SLOT)
     return TimeWindow(start=begin, end=_add_hours(begin, _SLOT))
 
 
 def _window_inside(obj: Objective, earliest: ClockTime) -> TimeWindow:
+    """Clamp a one-hour slot inside an objective's window, after ``earliest``.
+
+    args:
+        obj (Objective): the objective whose window constrains the slot.
+        earliest (ClockTime): the earliest the slot may start (e.g. the
+        previous step's end).
+
+    returns:
+        TimeWindow: a slot no later than the objective's window.
+    """
     start = _max_clock(earliest, obj.window.start)
     if _clock(start) >= _clock(obj.window.end):
         start = obj.window.start
@@ -208,14 +296,39 @@ def _window_inside(obj: Objective, earliest: ClockTime) -> TimeWindow:
 
 
 def _max_clock(*times: ClockTime) -> ClockTime:
+    """Return the latest clock among the given times.
+
+    args:
+        times (ClockTime): one or more clocks to compare.
+
+    returns:
+        ClockTime: the latest one.
+    """
     return max(times, key=_clock)
 
 
 def _clock(t: ClockTime) -> tuple[int, int, int]:
+    """Collapse a clock into a sortable (day, hour, minute) tuple.
+
+    args:
+        t (ClockTime): the time to convert.
+
+    returns:
+        tuple: (day, hour, minute).
+    """
     return (t.day, t.hour, t.minute)
 
 
 def _add_hours(t: ClockTime, hours: int) -> ClockTime:
+    """Add hours to the three-day clock, clamped to Day 3 23:59.
+
+    args:
+        t (ClockTime): the starting time.
+        hours (int): number of hours to add.
+
+    returns:
+        ClockTime: the resulting time, never past the last playable instant.
+    """
     total = (t.day - 1) * 24 * 60 + t.hour * 60 + t.minute + hours * 60
     total = min(total, (3 - 1) * 24 * 60 + 23 * 60 + 59)  # last playable instant: Day 3 23:59
     day, rem = divmod(total, 24 * 60)
@@ -224,6 +337,17 @@ def _add_hours(t: ClockTime, hours: int) -> ClockTime:
 
 
 def _order_by_prerequisites(objectives: list[Objective]) -> list[Objective]:
+    """Topologically order objectives so prerequisites come first.
+
+    Objectives whose prerequisites are outside the given set are treated as
+    unconstrained. Degenerate cycles fall back to the remaining order.
+
+    args:
+        objectives (list[Objective]): the objectives to order.
+
+    returns:
+        list[Objective]: the same objectives, prerequisites first.
+    """
     known = {o.id for o in objectives}
     placed: list[Objective] = []
     remaining = list(objectives)

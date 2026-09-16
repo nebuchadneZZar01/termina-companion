@@ -9,6 +9,14 @@ _KB = build_default_knowledge()
 
 
 def _state(**kw) -> PlanningState:
+    """Build a PlanningState on the Anju & Kafei quest for tests.
+
+    args:
+        kw (dict): extra GameState fields.
+
+    returns:
+        PlanningState: a state at Day 2 08:00 in the Stockpot Inn.
+    """
     gs = GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn", **kw)
     return PlanningState(
         game_state=gs,
@@ -18,18 +26,22 @@ def _state(**kw) -> PlanningState:
 
 
 def test_state_agent_is_rule_based():
+    """The State Agent reports the rule-based engine."""
     assert state_agent.run(_state())["state_engine"] == "rule-based"
 
 
 def test_knowledge_agent_is_rule_based():
+    """The Knowledge Agent reports the rule-based engine."""
     assert knowledge_agent.run(_state())["knowledge_engine"] == "rule-based"
 
 
 def test_critic_agent_is_rule_based():
+    """The Critic Agent reports the rule-based engine."""
     assert critic_agent.run(_state())["critic_engine"] == "rule-based"
 
 
 def test_planning_agent_rule_based_fallback(monkeypatch):
+    """The Planning Agent falls back to rule-based without an LLM."""
     monkeypatch.setattr(planning_agent, "get_chat_model", lambda: None)
     result = planning_agent.run(_state())
     assert result["plan"] is not None
@@ -37,6 +49,7 @@ def test_planning_agent_rule_based_fallback(monkeypatch):
 
 
 def test_knowledge_context_includes_objective_ids():
+    """The knowledge context lists each retrieved objective by its id."""
     from app.agents.knowledge_agent import _format
 
     objectives = _KB.retrieve(_state().game_state, Goal(description="kafei letter"))
@@ -45,6 +58,16 @@ def test_knowledge_context_includes_objective_ids():
 
 
 def _plan_step(objective_ref, location, window):
+    """Build a one-step Plan for tests.
+
+    args:
+        objective_ref (str): the step's objective reference.
+        location (str): the step's location.
+        window (TimeWindow): the step's window.
+
+    returns:
+        Plan: a Plan with a single step.
+    """
     return Plan(
         goal="x",
         steps=[
@@ -59,6 +82,7 @@ def _plan_step(objective_ref, location, window):
 
 
 def test_ground_repairs_location_and_window_match():
+    """Grounding fixes the ref and title for an alias objective."""
     start = ClockTime(day=2, hour=9)
     window = TimeWindow(start=start, end=ClockTime(day=2, hour=10))
     plan = _plan_step("lettera", "Market District", window)
@@ -68,6 +92,7 @@ def test_ground_repairs_location_and_window_match():
 
 
 def test_ground_replaces_id_title_for_known_ref():
+    """Grounding replaces a bare [id] title with the objective's title."""
     start = ClockTime(day=2, hour=9)
     window = TimeWindow(start=start, end=ClockTime(day=2, hour=10))
     plan = Plan(
@@ -86,6 +111,7 @@ def test_ground_replaces_id_title_for_known_ref():
 
 
 def test_ground_leaves_unknown_untouched():
+    """Grounding leaves unknown objective refs untouched."""
     window = TimeWindow(start=ClockTime(day=2, hour=9), end=ClockTime(day=2, hour=10))
     plan = _plan_step("mystery", "Nowhere", window)
     out = planning_agent._ground_llm_steps(plan, _state().relevant_objectives)
@@ -94,6 +120,7 @@ def test_ground_leaves_unknown_untouched():
 
 
 def test_dedupe_keeps_first_occurrence_and_remaps_depends_on():
+    """Deduplication drops repeated refs and remaps dependencies."""
     w = TimeWindow(start=ClockTime(day=2, hour=9), end=ClockTime(day=2, hour=10))
     plan = Plan(
         goal="x",
@@ -129,9 +156,11 @@ def test_dedupe_keeps_first_occurrence_and_remaps_depends_on():
 
 class _FakeModel:
     def with_structured_output(self, _schema):
+        """Pretend to bind a structured-output schema and return self."""
         return self
 
     def invoke(self, _msgs):
+        """Return a canned grounded Plan with a duplicate step."""
         start = ClockTime(day=2, hour=9)
         window = TimeWindow(start=start, end=ClockTime(day=2, hour=10))
         return Plan(
@@ -162,6 +191,7 @@ class _FakeModel:
 
 
 def test_planning_agent_llm_plan_is_grounded(monkeypatch):
+    """An LLM-produced plan is grounded: refs, titles, locations, deps."""
     monkeypatch.setattr(planning_agent, "get_chat_model", lambda: _FakeModel())
     result = planning_agent.run(_state())
     assert result["plan_engine"] == "llm"
@@ -176,6 +206,7 @@ def test_planning_agent_llm_plan_is_grounded(monkeypatch):
 
 
 def test_ground_replaces_invented_location():
+    """Grounding replaces an invented location and fills requirements."""
     window = TimeWindow(start=ClockTime(day=3, hour=6), end=ClockTime(day=3, hour=7))
     plan = Plan(
         goal="x",
@@ -191,3 +222,25 @@ def test_ground_replaces_invented_location():
     out = planning_agent._ground_llm_steps(plan, _state().relevant_objectives)
     assert out.steps[0].location == "Curiosity Shop"
     assert out.steps[0].requires_items == ["Kafei's Letter"]
+
+
+def test_to_step_carries_requires_masks():
+    """_to_step carries an objective's required masks into the step."""
+    obj = next(o for q in _KB.quests for o in q.objectives if o.id == "dg_talk_elder")
+    step = planning_agent._to_step(
+        obj, 0, TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    )
+    assert step.requires_masks == ["Goron Mask"]
+
+
+def test_knowledge_covers_all_major_areas():
+    """Knowledge locations cover all six major game areas."""
+    areas = {loc.area for loc in _KB.locations}
+    assert {
+        "Clock Town",
+        "Southern Swamp",
+        "Mountain Village",
+        "Great Bay",
+        "Ikana Canyon",
+        "Romani Ranch",
+    } <= areas

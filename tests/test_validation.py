@@ -5,26 +5,57 @@ from app.ui import _markdown_windows
 
 
 def _objective(id_: str, window: TimeWindow, location: str = "Q") -> object:
+    """Build a minimal Objective for tests.
+
+    args:
+        id_ (str): the objective id.
+        window (TimeWindow): the objective's availability window.
+        location (str, default "Q"): the objective's location.
+
+    returns:
+        object: an Objective instance.
+    """
     from app.data.mock_knowledge import Objective
 
     return Objective(id=id_, title=id_, location=location, window=window)
 
 
 def _step(title: str, window: TimeWindow, location: str = "Q", ref: str = "") -> PlanStep:
+    """Build a minimal PlanStep for tests.
+
+    args:
+        title (str): the step title.
+        window (TimeWindow): the step's window.
+        location (str, default "Q"): the step's location.
+        ref (str, default ""): the objective reference.
+
+    returns:
+        PlanStep: the created step.
+    """
     return PlanStep(title=title, objective_ref=ref, location=location, window=window)
 
 
 def _gs(**kw) -> GameState:
+    """Build a GameState at Day 1 08:00 in location "Q".
+
+    args:
+        kw (dict): extra GameState fields.
+
+    returns:
+        GameState: the created state.
+    """
     return GameState(time=ClockTime(day=1, hour=8), location="Q", **kw)
 
 
 def test_empty_plan_invalid():
+    """An empty plan must be invalid with an "empty" issue."""
     result = validate_plan(Plan(goal="x", steps=[]), _gs(), [])
     assert not result.valid
     assert result.issues[0].kind == "empty"
 
 
 def test_timewindow_str_is_readable():
+    """TimeWindow.__str__ renders a readable window, not field names."""
     w = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=2, hour=21))
     s = str(w)
     assert s == "[Day 1, 08:00 \u2192 Day 2, 21:00]"
@@ -32,6 +63,7 @@ def test_timewindow_str_is_readable():
 
 
 def test_markdown_windows_wraps_embedded_windows():
+    """_markdown_windows wraps window strings in backticks, only those."""
     msg = "falls outside the objective's slot [Day 3, 06:00 \u2192 Day 3, 12:00]."
     out = _markdown_windows(msg)
     assert "`[Day 3, 06:00 \u2192 Day 3, 12:00]`" in out
@@ -39,6 +71,7 @@ def test_markdown_windows_wraps_embedded_windows():
 
 
 def test_valid_plan_passes():
+    """A step inside its objective's window validates."""
     start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
     objectives = [_objective("o1", start)]
     plan = Plan(goal="x", steps=[_step("s1", start, ref="o1")])
@@ -46,6 +79,7 @@ def test_valid_plan_passes():
 
 
 def test_step_outside_objective_window_rejected():
+    """A step scheduled outside its objective's window is a time issue."""
     slot = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
     objective_window = TimeWindow(start=ClockTime(day=1, hour=10), end=ClockTime(day=1, hour=11))
     plan = Plan(goal="x", steps=[_step("s1", slot, ref="o1")])
@@ -55,6 +89,7 @@ def test_step_outside_objective_window_rejected():
 
 
 def test_missing_item_rejected():
+    """A step requiring an item the player lacks is an item issue."""
     start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
     step = _step("s1", start, ref="o1")
     step.requires_items = ["Rare Item"]
@@ -64,13 +99,44 @@ def test_missing_item_rejected():
     assert any(i.kind == "item" and "Rare Item" in i.message for i in result.issues)
 
 
+def test_missing_mask_rejected():
+    """A step requiring a mask the player lacks is a mask issue."""
+    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    step = _step("s1", start, ref="o1")
+    step.requires_masks = ["Goron Mask"]
+    plan = Plan(goal="x", steps=[step])
+    result = validate_plan(plan, _gs(), [_objective("o1", start)])
+    assert not result.valid
+    assert any(i.kind == "mask" and "Goron Mask" in i.message for i in result.issues)
+
+
+def test_mask_available_passes():
+    """A step whose required mask is owned validates."""
+    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    step = _step("s1", start, ref="o1")
+    step.requires_masks = ["Goron Mask"]
+    plan = Plan(goal="x", steps=[step])
+    result = validate_plan(plan, _gs(masks=["Goron Mask"]), [_objective("o1", start)])
+    assert result.valid
+
+
 def _npc(id_: str, **kw) -> object:
+    """Build a minimal NPC for tests.
+
+    args:
+        id_ (str): the NPC id.
+        kw (dict): extra NPC fields.
+
+    returns:
+        object: an NPC instance.
+    """
     from app.data.mock_knowledge import NPC
 
     return NPC(id=id_, name=id_, location="Q", **kw)
 
 
 def test_npc_unavailable_rejected():
+    """A step whose NPC is out of schedule is an npc issue."""
     from app.data.mock_knowledge import NPC
 
     start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
@@ -91,6 +157,7 @@ def test_npc_unavailable_rejected():
 
 
 def test_npc_available_passes():
+    """A step whose NPC is available within the step's window validates."""
     start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
     objective = _objective("o1", start)
     objective.npc_id = "anju"
@@ -99,6 +166,7 @@ def test_npc_available_passes():
 
 
 def test_wrong_location_rejected():
+    """A step whose location differs from its objective is a location issue."""
     start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
     plan = Plan(goal="x", steps=[_step("s1", start, location="Wrong Spot", ref="o1")])
     result = validate_plan(plan, _gs(), [_objective("o1", start)])
@@ -106,6 +174,7 @@ def test_wrong_location_rejected():
 
 
 def test_unsatisfied_dependency_rejected():
+    """A step whose prerequisite overlaps in time is a sequence issue."""
     early = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
     later_window = TimeWindow(
         start=ClockTime(day=1, hour=8, minute=30), end=ClockTime(day=1, hour=9, minute=30)
@@ -118,6 +187,7 @@ def test_unsatisfied_dependency_rejected():
 
 
 def test_pipeline_replans_to_feasible_plan_with_letter():
+    """Pipeline re-plans the naive attempt into a valid Anju & Kafei plan."""
     gs = GameState(
         time=ClockTime(day=2, hour=8),
         location="Stockpot Inn",
@@ -131,6 +201,7 @@ def test_pipeline_replans_to_feasible_plan_with_letter():
 
 
 def test_pipeline_gives_up_without_required_item():
+    """Pipeline exhausts replans when the required item is missing."""
     gs = GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn", inventory=[])
     result = run_pipeline(
         gs, Goal(description="Reunite Anju and Kafei before the dawn of the Third Day")
@@ -140,7 +211,33 @@ def test_pipeline_gives_up_without_required_item():
     assert any(i.kind == "item" for i in result.validation.issues)
 
 
+def test_pipeline_valid_with_required_mask():
+    """Pipeline produces a valid mask-gated plan when the mask is owned."""
+    gs = GameState(
+        time=ClockTime(day=1, hour=8),
+        location="Goron Shrine",
+        masks=["Goron Mask"],
+        inventory=["Lens of Truth"],
+    )
+    result = run_pipeline(gs, Goal(description="I want to learn the Goron Lullaby from Darmani"))
+    assert result.validation is not None and result.validation.valid
+
+
+def test_pipeline_gives_up_without_required_mask():
+    """Pipeline exhausts replans when a required mask is missing."""
+    gs = GameState(
+        time=ClockTime(day=1, hour=8),
+        location="Goron Shrine",
+        inventory=["Lens of Truth"],
+    )
+    result = run_pipeline(gs, Goal(description="I want to learn the Goron Lullaby from Darmani"))
+    assert result.validation is not None and not result.validation.valid
+    assert result.replan_attempts == MAX_PLANNING_ATTEMPTS
+    assert any(i.kind == "mask" for i in result.validation.issues)
+
+
 def test_knowledge_retrieval_empty_when_no_match():
+    """Retrieval returns nothing for a goal with no matching keywords."""
     from app.data.mock_knowledge import build_default_knowledge
 
     kb = build_default_knowledge()
@@ -149,6 +246,7 @@ def test_knowledge_retrieval_empty_when_no_match():
 
 
 def test_knowledge_retrieval_filters_by_keywords():
+    """Retrieval returns all Anju & Kafei objectives for a kafei goal."""
     from app.data.mock_knowledge import build_default_knowledge
 
     kb = build_default_knowledge()
@@ -159,6 +257,7 @@ def test_knowledge_retrieval_filters_by_keywords():
 
 
 def test_knowledge_retrieval_matches_italian_synonyms():
+    """Retrieval matches Italian synonyms in the goal description."""
     from app.data.mock_knowledge import build_default_knowledge
 
     kb = build_default_knowledge()
@@ -168,6 +267,7 @@ def test_knowledge_retrieval_matches_italian_synonyms():
 
 
 def test_knowledge_npc_schedules_and_events():
+    """The knowledge base exposes NPC schedules, events and locations."""
     from app.data.mock_knowledge import build_default_knowledge
 
     kb = build_default_knowledge()

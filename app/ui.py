@@ -23,6 +23,14 @@ from app.i18n import spinner_lines, t, tr, tr_msg
 
 @st.cache_resource
 def _graph():
+    """Build (and cache) the compiled LangGraph once per session.
+
+    args:
+        (none)
+
+    returns:
+        object: the compiled graph.
+    """
     return build_graph()
 
 
@@ -57,6 +65,18 @@ _CSS = """
 
 
 def _append_step(status, node: str, result: dict) -> None:
+    """Render the trace line for one streamed agent update.
+
+    args:
+        status (streamlit.delta_generator.DeltaGenerator): the status
+        container to write step details into.
+        node (str): the agent node name ("state", "knowledge", "plan",
+        "critic").
+        result (dict): the node's output dict.
+
+    returns:
+        None: draws into the status container.
+    """
     if node == "state":
         _step_state(status, result)
     elif node == "knowledge":
@@ -68,6 +88,14 @@ def _append_step(status, node: str, result: dict) -> None:
 
 
 def _engine_badge(engine: str | None) -> str:
+    """Format an engine name as a parenthesised badge suffix.
+
+    args:
+        engine (str | None): the engine label, e.g. "rule-based".
+
+    returns:
+        str: " (engine)" or "" when empty.
+    """
     return f" ({engine})" if engine else ""
 
 
@@ -80,6 +108,15 @@ def _markdown_windows(s: str) -> str:
 
 
 def _step_state(status, result: dict) -> None:
+    """Render the State Agent's trace card.
+
+    args:
+        status (DeltaGenerator): the trace container.
+        result (dict): the state node output with location and summary.
+
+    returns:
+        None: draws into the status container.
+    """
     c = status.container()
     c.markdown(f"**\u2713 {t('agent_state')}{_engine_badge(result.get('state_engine'))}**")
     c.write(f"{t('trace_where')} {tr(result['game_state'].location)}")
@@ -87,6 +124,15 @@ def _step_state(status, result: dict) -> None:
 
 
 def _step_knowledge(status, result: dict) -> None:
+    """Render the Knowledge Agent's trace card.
+
+    args:
+        status (DeltaGenerator): the trace container.
+        result (dict): the knowledge node output with retrieved objectives.
+
+    returns:
+        None: draws into the status container.
+    """
     c = status.container()
     c.markdown(f"**\u2713 {t('agent_knowledge')}{_engine_badge(result.get('knowledge_engine'))}**")
     objectives = result["relevant_objectives"]
@@ -98,6 +144,15 @@ def _step_knowledge(status, result: dict) -> None:
 
 
 def _step_plan(status, result: dict) -> None:
+    """Render the Planning Agent's trace card.
+
+    args:
+        status (DeltaGenerator): the trace container.
+        result (dict): the plan node output with plan and attempt number.
+
+    returns:
+        None: draws into the status container.
+    """
     c = status.container()
     plan = result["plan"]
     attempt = result["replan_attempts"]
@@ -116,6 +171,15 @@ def _step_plan(status, result: dict) -> None:
 
 
 def _step_critic(status, result: dict) -> None:
+    """Render the Critic Agent's trace card.
+
+    args:
+        status (DeltaGenerator): the trace container.
+        result (dict): the critic node output with the validation result.
+
+    returns:
+        None: draws into the status container.
+    """
     c = status.container()
     c.markdown(f"**\u2713 {t('agent_critic')}{_engine_badge(result.get('critic_engine'))}**")
     validation = result["validation"]
@@ -128,6 +192,15 @@ def _step_critic(status, result: dict) -> None:
 
 
 def _render_issue(scope, issue) -> None:
+    """Render a single validation issue with severity, kind, step and message.
+
+    args:
+        scope (DeltaGenerator): the container to draw into.
+        issue (ValidationIssue): the issue to display.
+
+    returns:
+        None: draws the issue row.
+    """
     is_error = issue.severity == "error"
     kind = t(f"kind_{issue.kind}")
     where = t("step_n", n=issue.step_idx + 1) if issue.step_idx is not None else t("plan")
@@ -142,20 +215,53 @@ def _render_issue(scope, issue) -> None:
 
 
 def _section(title: str, caption: str = "") -> None:
+    """Draw a styled section header with optional caption.
+
+    args:
+        title (str): the section title.
+        caption (str, default ""): optional hint under the title.
+
+    returns:
+        None: draws into the app.
+    """
     st.markdown(f'<div class="section-title">{title}</div>', unsafe_allow_html=True)
     if caption:
         st.markdown(f'<div class="caption-hint">{caption}</div>', unsafe_allow_html=True)
 
 
 def _fmt_clock(t: ClockTime) -> str:
+    """Format a clock as "Day N HH:MM".
+
+    args:
+        t (ClockTime): the time to format.
+
+    returns:
+        str: the readable representation.
+    """
     return f"Day {t.day} {t.hour:02d}:{t.minute:02d}"
 
 
 def _time_s(t: ClockTime) -> str:
+    """Format a clock as "HH:MM".
+
+    args:
+        t (ClockTime): the time to format.
+
+    returns:
+        str: the hours and minutes, e.g. "08:00".
+    """
     return f"{t.hour:02d}:{t.minute:02d}"
 
 
 def _render_plan(plan) -> None:
+    """Render the final plan: time + location header and step actions.
+
+    args:
+        plan (Plan | None): the plan to display.
+
+    returns:
+        None: draws into the app.
+    """
     if not plan or not plan.steps:
         st.write(t("no_plan"))
         return
@@ -172,6 +278,14 @@ def _render_plan(plan) -> None:
 
 
 def _render_why(plan) -> None:
+    """Render the "why" tab: window, needs and dependencies per step.
+
+    args:
+        plan (Plan | None): the plan to explain.
+
+    returns:
+        None: draws into the app.
+    """
     if not plan or not plan.steps:
         st.write(t("no_plan"))
         return
@@ -185,17 +299,37 @@ def _render_why(plan) -> None:
             if step.requires_items:
                 needs = ", ".join(tr(x) for x in step.requires_items)
                 st.write(f"{t('needs')}: {needs}")
+            if step.requires_masks:
+                needs = ", ".join(tr(x) for x in step.requires_masks)
+                st.write(f"{t('source_masks')} {needs}")
             if step.depends_on:
                 deps = ", ".join(str(d + 1) for d in step.depends_on)
                 st.write(t("depends_on", deps=deps))
 
 
 def _window_range(w: TimeWindow) -> str:
+    """Format a window's start through end hour as one range string.
+
+    args:
+        w (TimeWindow): the window to format.
+
+    returns:
+        str: e.g. "Day 1 08:00–09:00".
+    """
     start = tr(_fmt_clock(w.start))
     return f"{start}\u2013{w.end.hour:02d}:{w.end.minute:02d}"
 
 
 def _render_sources(objectives, kb) -> None:
+    """Render the game-sources tab for the retrieved objectives.
+
+    args:
+        objectives (list[Objective]): the objectives to source.
+        kb (KnowledgeBase): the knowledge base to resolve NPCs/events.
+
+    returns:
+        None: draws into the app.
+    """
     if not objectives:
         st.write(t("no_sources"))
         return
@@ -223,12 +357,23 @@ def _render_sources(objectives, kb) -> None:
             if obj.requires_items:
                 items = ", ".join(tr(x) for x in obj.requires_items)
                 st.write(f"{t('source_needs')} {items}")
+            if obj.requires_masks:
+                masks = ", ".join(tr(x) for x in obj.requires_masks)
+                st.write(f"{t('source_masks')} {masks}")
             prereq_titles = [o.title for o in kb.all_objectives if o.id in obj.prerequisites]
             if prereq_titles:
                 st.write(f"{t('source_after')} {', '.join(tr(x) for x in prereq_titles)}")
 
 
 def _render_trace_state(gs) -> None:
+    """Render the canonicalised state in the trace tab.
+
+    args:
+        gs (GameState): the state understood by the system.
+
+    returns:
+        None: draws into the app.
+    """
     st.markdown(
         f'<p class="section-title">{t("understood")}</p>',
         unsafe_allow_html=True,
@@ -247,6 +392,14 @@ def _render_trace_state(gs) -> None:
 
 
 def _render_trace_attempts(n: int) -> None:
+    """Render the planning-attempt counter in the trace tab.
+
+    args:
+        n (int): the number of planning attempts made.
+
+    returns:
+        None: draws into the app.
+    """
     st.markdown(
         f'<p class="section-title">{t("trace_attempts")}</p>',
         unsafe_allow_html=True,
@@ -264,6 +417,14 @@ def _render_trace_attempts(n: int) -> None:
 
 
 def _render_trace_issues(validation) -> None:
+    """Render validation details and legend in the trace tab.
+
+    args:
+        validation (ValidationResult): the validation outcome to display.
+
+    returns:
+        None: draws into the app.
+    """
     st.markdown(
         f'<p class="section-title">{t("validation_details")}</p>',
         unsafe_allow_html=True,
@@ -301,6 +462,14 @@ def _render_trace_issues(validation) -> None:
 
 
 def render() -> None:
+    """Main Streamlit UI: state editor, planning action and result tabs.
+
+    args:
+        (none)
+
+    returns:
+        None: renders the whole app page.
+    """
     st.set_page_config(
         page_title="Termina Companion", page_icon=":material/nightlight:", layout="wide"
     )
@@ -343,6 +512,7 @@ def render() -> None:
             selection_mode="multi",
             format_func=tr,
             help=t("masks_help"),
+            wrap=True,
         )
         item_options = sorted(
             {i for quest in kb.quests for o in quest.objectives for i in o.requires_items}
@@ -361,6 +531,7 @@ def render() -> None:
             selection_mode="multi",
             format_func=tr,
             help=t("quest_progress_help"),
+            wrap=True,
         )
         st.caption(t("legend"))
 
@@ -392,6 +563,15 @@ def render() -> None:
     result: dict = {}
 
     def _run_stream(q) -> None:
+        """Stream graph updates into the given queue for the UI thread.
+
+        args:
+            q (queue.Queue): the queue receiving ``{node: data}`` updates,
+            terminated with ``None``.
+
+        returns:
+            None: runs in a background thread.
+        """
         try:
             for update in _graph().stream(initial, stream_mode="updates"):
                 q.put(update)
