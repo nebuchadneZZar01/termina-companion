@@ -92,7 +92,13 @@ Do not implement MCP, RAG, persistent memory, tracing or evaluation prematurely.
   deliberately a small vertical slice; do not tie the architecture to one quest.
 * `app/agents/` — one module per agent (state, knowledge,
   planning, critic), each exposing a LangGraph node function `run(state) -> dict`.
-  Mock brains are deterministic; LLM integration happens inside each node.
+  State, Knowledge and Critic run deterministic rule-based brains; the Planning
+  Agent uses an LLM when configured and falls back to its rule-based brain
+  without credentials.
+* `app/llm.py` — LLM provider factory (`get_chat_model()`); returns `None`
+  without credentials so the Planning Agent falls back to its rule-based brain.
+  The seam for MCP tool-triggered retrieval. `LLM_PROVIDER=rule-based` (the
+  default) means "no LLM".
 * `app/state.py` — `PlanningState`, the workflow state threaded
   through the graph (Pydantic model, used as the LangGraph state schema).
 * `app/graph.py` — graph wiring and the bounded re-planning
@@ -131,6 +137,7 @@ Do not implement MCP, RAG, persistent memory, tracing or evaluation prematurely.
   `feat/phase3-game-knowledge`).
 * Open pull requests with `gh` and wait for review; the maintainer reviews
   and merges them (never self-merge).
+* PR titles and descriptions must always be written in English.
 
 ## Maintaining AGENTS.md
 
