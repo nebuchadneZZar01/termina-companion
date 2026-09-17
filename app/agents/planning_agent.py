@@ -200,12 +200,13 @@ def _to_step(obj: Objective, index: int, window: TimeWindow) -> PlanStep:
 
 # ponytail: heuristic ref-resolver. When the LLM emits a plan whose step also
 # fits (location, window) of one known objective, re-point its invented
-# objective_ref so the Critic can validate it. Titles are always re-pointed to
-# the knowledge base's wording so the user never sees raw objective ids.
+# objective_ref so the Critic can validate it. Titles and actions are always
+# re-pointed to the knowledge base's wording so the user never sees raw
+# objective ids or untranslatable free text.
 # Ceiling: true semantic matching; upgrade path: exact ids from the prompt /
 # a stronger model.
 def _ground_llm_steps(plan: Plan, objectives: list[Objective]) -> Plan:
-    """Pin each LLM step to its knowledge objective: exact ref, and human title."""
+    """Pin each LLM step to its knowledge objective: exact ref, human wording."""
     by_id = {o.id: o for o in objectives}
     for step in plan.steps:
         match = by_id.get(step.objective_ref)
@@ -215,6 +216,7 @@ def _ground_llm_steps(plan: Plan, objectives: list[Objective]) -> Plan:
             step.objective_ref = match.id
             step.title = match.title
             step.location = match.location
+            step.actions = [match.description or match.title]
             step.requires_items = match.requires_items
             step.requires_masks = match.requires_masks
     return plan

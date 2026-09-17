@@ -300,3 +300,17 @@ def test_knowledge_covers_all_major_areas():
         "Ikana Canyon",
         "Romani Ranch",
     } <= areas
+
+
+def test_i18n_covers_all_knowledge_strings():
+    """Every objective title, description and location has an IT translation."""
+    from app.i18n import _DISPLAY_IT
+
+    missing = [
+        f"{q.id}: {text!r}"
+        for q in _KB.quests
+        for o in q.objectives
+        for text in (o.title, o.description, o.location)
+        if text and text not in _DISPLAY_IT
+    ]
+    assert not missing, "Missing IT translations:\n" + "\n".join(missing)
