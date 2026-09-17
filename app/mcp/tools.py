@@ -40,6 +40,7 @@ def search_quests(goal_text: str, quest_progress: dict[str, str] | None = None) 
     done = {qid for qid, status in (quest_progress or {}).items() if status == "done"}
     words = set(re.findall(r"[a-z']+", goal_text.lower()))
     scored: list[tuple[int, Objective]] = []
+    matched_quests: set[str] = set()
     for quest in _KB.quests:
         if quest.id in done:
             continue
@@ -47,16 +48,16 @@ def search_quests(goal_text: str, quest_progress: dict[str, str] | None = None) 
             score = len(words & set(obj.keywords))
             if score > 0:
                 scored.append((score, obj))
+                matched_quests.add(quest.id)
     scored.sort(key=lambda pair: pair[0], reverse=True)
-    matched = {obj.id for _, obj in scored}
     return [
         {
             "quest_id": quest.id,
             "quest_name": quest.name,
-            "objectives": [o.model_dump(mode="json") for o in quest.objectives if o.id in matched],
+            "objectives": [o.model_dump(mode="json") for o in quest.objectives],
         }
         for quest in _KB.quests
-        if any(o.id in matched for o in quest.objectives)
+        if quest.id in matched_quests
     ]
 
 

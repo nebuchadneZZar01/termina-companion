@@ -13,6 +13,7 @@ class PlanningState(BaseModel):
 
     game_state: GameState
     goal: Goal
+    llm_config: dict = Field(default_factory=dict)
     state_summary: str = ""
     relevant_objectives: list[Objective] = Field(default_factory=list)
     retrieved_context: str = ""
@@ -22,4 +23,5 @@ class PlanningState(BaseModel):
     state_engine: str = ""
     knowledge_engine: str = ""
     plan_engine: str = ""
+    plan_model: str = ""
     critic_engine: str = ""

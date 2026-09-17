@@ -125,6 +125,12 @@ def _check_step(
     if missing_masks:
         issues.append(_issue("mask", idx, f"Missing mask(s): {', '.join(missing_masks)}."))
 
+    missing_prereqs = _missing_prerequisites(idx, objective, plan, game_state, by_id)
+    if missing_prereqs:
+        issues.append(
+            _issue("prerequisite", idx, f"Missing prerequisite(s): {', '.join(missing_prereqs)}.")
+        )
+
     for earlier in step.depends_on:
         if earlier >= idx:
             continue
@@ -133,6 +139,60 @@ def _check_step(
                 _issue("sequence", idx, "Depends on a step that ends after this one starts.")
             )
     return issues
+
+
+def _missing_prerequisites(
+    idx: int,
+    objective: Objective,
+    plan: Plan,
+    game_state: GameState,
+    by_id: dict[str, Objective],
+) -> list[str]:
+    """Prerequisites of a step absent from the plan and not already satisfied.
+
+    A prerequisite counts as satisfied when it appears earlier in the plan,
+    its quest is marked done, or the player already owns everything the
+    prerequisite objective provides (e.g. Kafei's letter is already in the
+    inventory, so "retrieve the letter" may be skipped).
+
+    args:
+        idx (int): the step's index in the plan.
+        objective (Objective): the step's knowledge objective.
+        plan (Plan): the whole plan, for presence checks.
+        game_state (GameState): the player's inventory, masks and progress.
+        by_id (dict[str, Objective]): objective id → objective lookup for the
+        retrieved set.
+
+    returns:
+        list[str]: the ids of any unfulfilled prerequisites.
+    """
+    present = {s.objective_ref for s in plan.steps[:idx]}
+    done = {qid for qid, status in (game_state.quest_progress or {}).items() if status == "done"}
+    missing = []
+    for prereq in objective.prerequisites:
+        if prereq in present:
+            continue
+        if any(
+            quest.id in done and any(o.id == prereq for o in quest.objectives)
+            for quest in _KB.quests
+        ):
+            continue
+        prereq_obj = by_id.get(prereq) or next(
+            (o for q in _KB.quests for o in q.objectives if o.id == prereq), None
+        )
+        if prereq_obj and _provides_owned(prereq_obj, game_state):
+            continue
+        missing.append(prereq)
+    return missing
+
+
+def _provides_owned(obj: Objective, game_state: GameState) -> bool:
+    """Whether the player already owns everything the objective provides."""
+    items = set(obj.provides_items)
+    masks = set(obj.provides_masks)
+    return (
+        (items or masks) and items <= set(game_state.inventory) and masks <= set(game_state.masks)
+    )
 
 
 def _lt(a: ClockTime, b: ClockTime) -> bool:

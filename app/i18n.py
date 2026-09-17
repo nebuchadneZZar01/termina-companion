@@ -45,6 +45,117 @@ _DISPLAY_IT: dict[str, str] = {
     "The hideout entrance is marked by a odd drawing.": (
         "L'ingresso del nascondiglio è segnato da un disegno strano."
     ),
+    # objective titles — Darmani's Spirit
+    "Listen to the Goron Elder's song": "Ascolta la canzone dell'Anziano Goron",
+    "Speak with Darmani's ghost at the Goron Shrine": (
+        "Parla con il fantasma di Darmani al Santuario Goron"
+    ),
+    "Learn the Goron Lullaby from Darmani": "Impara la Ninna Nanna Goron da Darmani",
+    # objective titles — Mikau's Memory
+    "Ask Tael about Mikau at Zora Hall": "Chiedi a Tael di Mikau alla Sala Zora",
+    "Retrieve Mikau's eggs from Pinnacle Rock": (
+        "Recupera le uova di Mikau dalla Roccia Pinnacolo"
+    ),
+    "Learn the Song of Opening from Mikau": ("Impara la Canzone dell'Apertura da Mikau"),
+    # objective titles — Pamela's Father
+    "Enter the Ancient Castle of Ikana at night": ("Entra nell'Antico Castello di Ikana di notte"),
+    "Free Pamela's father from the Gibdo curse": (
+        "Libera il padre di Pamela dalla maledizione dei Gibdo"
+    ),
+    "Reunite with Pamela after freeing her father": (
+        "Riunisci Pamela e suo padre dopo averlo liberato"
+    ),
+    # objective titles — Deku Princess Rescue
+    "Plead with the Deku King for the princess": ("Implora il Re Deku per la principessa"),
+    "Navigate the swamp to reach Woodfall": ("Attraversa la palude per raggiungere Woodfall"),
+    "Free the Deku Princess from the monkey's cage": (
+        "Libera la principessa Deku dalla gabbia della scimmia"
+    ),
+    # objective titles — Romani Ranch
+    "Help Romani practice shooting aliens at the ranch": (
+        "Aiuta Romani ad allenarsi a sparare agli alieni nella fattoria"
+    ),
+    "Defend the ranch from the alien invasion": ("Difendi la fattoria dall'invasione aliena"),
+    "Ride with Cremia to deliver milk to Clock Town": (
+        "Viaggia con Cremia per consegnare il latte a Clock Town"
+    ),
+    # objective titles — Land Title Deed Chain
+    "Deliver the Swamp Title Deed to the Goron Shrine": (
+        "Consegna la Carta di Proprietà della Palude al Santuario Goron"
+    ),
+    "Deliver the Mountain Title Deed to Zora Hall": (
+        "Consegna la Carta di Proprietà della Montagna alla Sala Zora"
+    ),
+    "Deliver the Ocean Title Deed to Ikana Canyon": (
+        "Consegna la Carta di Proprietà dell'Oceano al Canyon di Ikana"
+    ),
+    "Deliver the Land Title Deed to Clock Town": (
+        "Consegna la Carta di Proprietà della Terra a Clock Town"
+    ),
+    # objective descriptions — Darmani's Spirit
+    "The Elder plays a melody that soothes Darmani's restless spirit.": (
+        "L'Anziano suona una melodia che calma lo spirito inquieto di Darmani."
+    ),
+    "Use the Lens of Truth to see Darmani's spirit.": (
+        "Usa la Lente della Verità per vedere lo spirito di Darmani."
+    ),
+    "Darmani teaches you the lullaby that will put the baby to sleep.": (
+        "Darmani ti insegna la ninna nanna che farà addormentare il bambino."
+    ),
+    # objective descriptions — Mikau's Memory
+    "Tael knows where Mikau's stolen eggs are hidden.": (
+        "Tael sa dove sono nascoste le uova rubate di Mikau."
+    ),
+    "The Gerudo Pirates stole Mikau's eggs and hid them at Pinnacle Rock.": (
+        "I Pirati Gerudo hanno rubato le uova di Mikau e le hanno nascoste alla Roccia Pinnacolo."
+    ),
+    "Mikau teaches you the song that opens the Great Bay Temple.": (
+        "Mikau ti insegna la canzone che apre il Tempio della Grande Baia."
+    ),
+    # objective descriptions — Pamela's Father
+    "The castle is crawling with Gibdos during the night.": (
+        "Il castello brulica di Gibdo durante la notte."
+    ),
+    "Wearing the Gibdo Mask, play the Song of Healing to free him.": (
+        "Indossa la Maschera Gibdo e suona la Canzone della Guarigione per liberarlo."
+    ),
+    "Pamela is overjoyed to have her father back.": (
+        "Pamela è felicissima di avere di nuovo suo padre."
+    ),
+    # objective descriptions — Deku Princess Rescue
+    "The Deku King believes you kidnapped his daughter.": (
+        "Il Re Deku crede che tu abbia rapito sua figlia."
+    ),
+    "Follow the trail through the Southern Swamp to Woodfall.": (
+        "Segui il sentiero attraverso la Palude del Sud fino a Woodfall."
+    ),
+    "The monkey locked the princess in a cage at Woodfall.": (
+        "La scimmia ha rinchiuso la principessa in una gabbia a Woodfall."
+    ),
+    # objective descriptions — Romani Ranch
+    "Romani needs your help defending the ranch from the Bremmmy Gyorgs tonight.": (
+        "Romani ha bisogno del tuo aiuto per difendere la fattoria dai Bremmmy Gyorg stasera."
+    ),
+    "The aliens come at 2 AM. Use Cremia's wagon cannon to fight them off.": (
+        "Gli alieni arrivano alle 2 di notte. Usa il cannone della carrozza di "
+        "Cremia per respingerli."
+    ),
+    "Cremia needs an escort through the canyon on the Second Night.": (
+        "Cremia ha bisogno di una scorta attraverso il canyon nella Seconda Notte."
+    ),
+    # objective descriptions — Land Title Deed Chain
+    "Trade the Swamp Title Deed for the Mountain Title Deed.": (
+        "Scambia la Carta di Proprietà della Palude con quella della Montagna."
+    ),
+    "Trade the Mountain Title Deed for the Ocean Title Deed.": (
+        "Scambia la Carta di Proprietà della Montagna con quella dell'Oceano."
+    ),
+    "Trade the Ocean Title Deed for the Land Title Deed.": (
+        "Scambia la Carta di Proprietà dell'Oceano con quella della Terra."
+    ),
+    "Complete the cycle by returning the Land Title Deed.": (
+        "Completa il ciclo restituendo la Carta di Proprietà della Terra."
+    ),
     # event names
     "Kafei's letter is delivered": ("La lettera di Kafei viene consegnata"),
     "Anju and Kafei reunite": "Anju e Kafei si riuniscono",
@@ -142,6 +253,13 @@ _STRINGS: dict[str, dict[str, str]] = {
         "generate_plan": "\u2728 Plan My Quest",
         "generate_plan_caption": "Builds the plan from your state and goal.",
         "info_edit_state": ("Set your state and goal, then press **Plan My Quest**."),
+        "llm_settings": "LLM Settings",
+        "llm_provider": "Provider",
+        "llm_model": "Model",
+        "llm_api_key": "API Key",
+        "llm_model_required": "Model is required when a provider is selected.",
+        "plan_model_caption": "Powered by {model}",
+        "plan_model_rule": "Rule-based planner",
         "planning": "Planning...",
         "planning_complete": "Planning complete",
         "planning_gave_up": "Planning failed \u2014 attempt limit ({max}) reached",
@@ -201,6 +319,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_mask": "mask",
         "kind_objective": "objective",
         "kind_location": "location",
+        "kind_prerequisite": "prerequisite",
         "no_issues": "No issues.",
         "validation_details": "Validation details",
         "problems": "Problems",
@@ -270,6 +389,13 @@ _STRINGS: dict[str, dict[str, str]] = {
         "generate_plan": "\u2728 Pianifica la mia missione",
         "generate_plan_caption": "Genera il piano dal tuo stato e obiettivo.",
         "info_edit_state": ("Imposta stato e obiettivo, poi premi **Pianifica la mia missione**."),
+        "llm_settings": "Impostazioni LLM",
+        "llm_provider": "Provider",
+        "llm_model": "Modello",
+        "llm_api_key": "Chiave API",
+        "llm_model_required": "Il modello è obbligatorio quando selezioni un provider.",
+        "plan_model_caption": "Generato con {model}",
+        "plan_model_rule": "Pianificatore rule-based",
         "planning": "Pianificazione...",
         "planning_complete": "Pianificazione completata",
         "planning_gave_up": "Pianificazione fallita \u2014 limite tentativi ({max}) raggiunto",
@@ -333,6 +459,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_mask": "maschera",
         "kind_objective": "obiettivo",
         "kind_location": "posizione",
+        "kind_prerequisite": "prerequisito",
         "no_issues": "Nessun problema.",
         "validation_details": "Dettagli validazione",
         "problems": "Problemi",
@@ -418,6 +545,7 @@ _MSGS_IT: dict[str, str] = {
     " is unavailable during ": " non \u00e8 disponibile durante ",
     "Missing item(s): ": "Oggetti mancanti: ",
     "Missing mask(s): ": "Maschere mancanti: ",
+    "Missing prerequisite(s): ": "Prerequisiti mancanti: ",
     "Depends on a step that ends after this one starts.": (
         "Dipende da un passo che termina dopo l'inizio di questo."
     ),

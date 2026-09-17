@@ -44,24 +44,35 @@ def run(state: PlanningState) -> dict:
         and retrieved objectives.
 
     returns:
-        dict: the generated ``plan``, incremented ``replan_attempts`` and
-        ``plan_engine`` ("llm" or "rule-based").
+        dict: the generated ``plan``, incremented ``replan_attempts``,
+        ``plan_engine`` ("llm" or "rule-based") and ``plan_model`` (the model
+        name, empty for the rule-based brain).
     """
     result: Plan | None = None
     engine = "rule-based"
-    model = get_chat_model()
+    plan_model = ""
+    model = get_chat_model(**state.llm_config)
     if model is not None:
+        plan_model = getattr(model, "model_name", "") or model.__class__.__name__
         result = _llm_run(state, model)
         if result is not None:
             engine = "llm"
+        else:
+            plan_model = ""  # LLM failed — rule-based brain takes over
     if result is None:
         result = _rule_based_run(state)
     elif engine == "llm":
         result = _ground_llm_steps(result, state.relevant_objectives)
         result = _dedupe_steps(result)
         result = _clamp_windows(result, state.relevant_objectives)
+    result = _reconcile_plan(result, state)
     _log_plan(result)
-    return {"plan": result, "replan_attempts": state.replan_attempts + 1, "plan_engine": engine}
+    return {
+        "plan": result,
+        "replan_attempts": state.replan_attempts + 1,
+        "plan_engine": engine,
+        "plan_model": plan_model,
+    }
 
 
 def _llm_run(state: PlanningState, model) -> Plan | None:
@@ -200,12 +211,13 @@ def _to_step(obj: Objective, index: int, window: TimeWindow) -> PlanStep:
 
 # ponytail: heuristic ref-resolver. When the LLM emits a plan whose step also
 # fits (location, window) of one known objective, re-point its invented
-# objective_ref so the Critic can validate it. Titles are always re-pointed to
-# the knowledge base's wording so the user never sees raw objective ids.
+# objective_ref so the Critic can validate it. Titles and actions are always
+# re-pointed to the knowledge base's wording so the user never sees raw
+# objective ids or untranslatable free text.
 # Ceiling: true semantic matching; upgrade path: exact ids from the prompt /
 # a stronger model.
 def _ground_llm_steps(plan: Plan, objectives: list[Objective]) -> Plan:
-    """Pin each LLM step to its knowledge objective: exact ref, and human title."""
+    """Pin each LLM step to its knowledge objective: exact ref, human wording."""
     by_id = {o.id: o for o in objectives}
     for step in plan.steps:
         match = by_id.get(step.objective_ref)
@@ -215,6 +227,7 @@ def _ground_llm_steps(plan: Plan, objectives: list[Objective]) -> Plan:
             step.objective_ref = match.id
             step.title = match.title
             step.location = match.location
+            step.actions = [match.description or match.title]
             step.requires_items = match.requires_items
             step.requires_masks = match.requires_masks
     return plan
@@ -238,6 +251,73 @@ def _dedupe_steps(plan: Plan) -> Plan:
         ]
     plan.steps = kept
     return plan
+
+
+# ponytail: deterministic chain enforcement. The LLM may skip chain objectives
+# or keep an "obtain item" step for something the player already owns, and the
+# rule-based brain plans whatever retrieval returned. The relevant-objective
+# chain (prerequisites first) is authoritative, so the final plan is rebuilt
+# around it: fully-owned provide steps are pruned and missing chain steps are
+# re-inserted with rule-based slots. Kept steps (LLM or rule-based) keep their
+# own windows. Ceiling: no per-objective "done" tracking in GameState; upgrade
+# path: model completed objectives so chains can start mid-quest.
+def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
+    """Rebuild the plan around the authoritative objective chain.
+
+    args:
+        plan (Plan): the generated plan (rule-based or grounded LLM).
+        state (PlanningState): the workflow state with game state and the
+        retrieved objectives.
+
+    returns:
+        Plan: the same plan, pruned of owned-provide steps and with every
+        remaining chain objective present, ordered by prerequisites.
+    """
+    owned_items = set(state.game_state.inventory)
+    owned_masks = set(state.game_state.masks)
+    by_ref = {s.objective_ref: s for s in plan.steps}
+    steps: list[PlanStep] = []
+    prev_end: ClockTime | None = None
+    for obj in _order_by_prerequisites(state.relevant_objectives):
+        if _already_owned(obj, owned_items, owned_masks):
+            continue
+        index = len(steps)
+        existing = by_ref.get(obj.id)
+        if existing is not None:
+            existing.depends_on = list(range(index))
+            steps.append(existing)
+            prev_end = existing.window.end
+            continue
+        window = _window_inside(obj, prev_end or state.game_state.time)
+        steps.append(_to_step(obj, index, window))
+        prev_end = window.end
+    plan.steps = steps
+    return plan
+
+
+def _already_owned(obj: Objective, owned_items: set[str], owned_masks: set[str]) -> bool:
+    """Whether the player already holds everything the objective provides.
+
+    An objective that only exists to hand over items/masks (e.g. retrieving
+    Kafei's letter) is redundant once the player owns them, so it can be
+    pruned from the plan without breaking the chain.
+
+    args:
+        obj (Objective): the objective to test.
+        owned_items (set[str]): the player's items.
+        owned_masks (set[str]): the player's masks.
+
+    returns:
+        bool: True when the objective provides nothing but already-owned
+        items/masks.
+    """
+    provides_items = set(obj.provides_items)
+    provides_masks = set(obj.provides_masks)
+    return (
+        (provides_items or provides_masks)
+        and provides_items <= owned_items
+        and provides_masks <= owned_masks
+    )  # noqa: E501
 
 
 # ponytail: output guardrail on temporal feasibility. Shrinks LLM windows

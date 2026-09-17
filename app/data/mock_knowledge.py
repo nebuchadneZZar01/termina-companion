@@ -78,6 +78,8 @@ class Objective(BaseModel):
     prerequisites: list[str] = Field(default_factory=list)
     requires_items: list[str] = Field(default_factory=list)
     requires_masks: list[str] = Field(default_factory=list)
+    provides_items: list[str] = Field(default_factory=list)
+    provides_masks: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     npc_id: str = ""  # id of the NPC the player must interact with, if any
     event_ref: str = ""  # id of the ScheduledEvent this objective tracks, if any
@@ -359,6 +361,7 @@ def build_default_knowledge() -> KnowledgeBase:
                 location="Market District",
                 window=_tw(2, (9, 0), (17, 0)),
                 prerequisites=["ak_talk_to_anju"],
+                provides_items=["Kafei's Letter"],
                 npc_id="postman",
                 event_ref="ak_letter_delivery",
                 keywords=[
