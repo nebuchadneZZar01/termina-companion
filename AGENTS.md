@@ -100,7 +100,12 @@ Do not implement RAG, persistent memory, tracing or evaluation prematurely. Leav
   without credentials. LLM output is post-processed deterministically: refs,
   titles and locations are grounded to the knowledge objectives and each
   step's window is clamped inside its objective's slot (see
-  `app/agents/planning_agent.py`). The Knowledge Agent calls the MCP tools
+  `app/agents/planning_agent.py`). The final plan is then rebuilt against the
+  authoritative objective chain: `search_quests` retrieves a whole quest when
+  any of its objectives matches, "obtain item" steps are pruned when the
+  player already owns what they provide (`provides_items`/`provides_masks` on
+  `Objective`), missing chain steps are re-inserted in prerequisite order and
+  `depends_on` is recomputed. The Knowledge Agent calls the MCP tools
   in-process to retrieve game knowledge.
 * `app/mcp/` — MCP tools and server. `app/mcp/tools.py` holds the pure
   tool functions (search_quests, get_npc_schedule, get_quest_info, get_event,

@@ -269,12 +269,57 @@ def test_knowledge_retrieval_filters_by_keywords():
 
 
 def test_knowledge_retrieval_matches_italian_synonyms():
-    """Search matches Italian synonyms in the goal description."""
+    """Search matches Italian synonyms and returns the full quest chain."""
     from app.mcp.tools import search_quests
 
     groups = search_quests("come faccio a riunire i due innamorati alla locanda")
     ids = {o["id"] for g in groups for o in g["objectives"]}
-    assert ids == {"ak_talk_to_anju", "ak_reunite"}
+    assert ids == {"ak_talk_to_anju", "ak_get_letter", "ak_deliver_letter", "ak_reunite"}
+
+
+def test_knowledge_retrieval_returns_full_quest():
+    """A single objective match pulls in the whole quest, prerequisites first."""
+    from app.mcp.tools import search_quests
+
+    groups = search_quests("parla alla locanda")  # matches only ak_talk_to_anju
+    ids = [o["id"] for g in groups for o in g["objectives"]]
+    assert ids == ["ak_talk_to_anju", "ak_get_letter", "ak_deliver_letter", "ak_reunite"]
+
+
+def test_missing_prerequisite_rejected():
+    """A step whose prerequisite objective is absent is a prerequisite issue."""
+    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    o1 = _objective("o1", start)
+    o2 = _objective("o2", start)
+    o2.prerequisites = ["o1"]
+    plan = Plan(goal="x", steps=[_step("s2", start, ref="o2")])
+    result = validate_plan(plan, _gs(), [o1, o2])
+    assert not result.valid
+    assert any(i.kind == "prerequisite" and "o1" in i.message for i in result.issues)
+
+
+def test_prerequisite_satisfied_by_owned_provide_passes():
+    """A prerequisite is satisfied when its provide is already owned."""
+    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    o1 = _objective("o1", start)
+    o1.provides_items = ["Secret Letter"]
+    o2 = _objective("o2", start)
+    o2.prerequisites = ["o1"]
+    plan = Plan(goal="x", steps=[_step("s2", start, ref="o2")])
+    result = validate_plan(plan, _gs(inventory=["Secret Letter"]), [o1, o2])
+    assert result.valid
+
+
+def test_prerequisite_satisfied_by_done_quest_passes():
+    """A prerequisite in a completed quest counts as satisfied."""
+    from app.data.mock_knowledge import build_default_knowledge
+
+    kb = build_default_knowledge()
+    deliver = next(o for q in kb.quests for o in q.objectives if o.id == "ak_deliver_letter")
+    step = _step("deliver", deliver.window, location=deliver.location, ref="ak_deliver_letter")
+    plan = Plan(goal="x", steps=[step])
+    gs = _gs(inventory=["Kafei's Letter"], quest_progress={"anju_kafei": "done"})
+    assert validate_plan(plan, gs, [deliver], kb.npcs).valid
 
 
 def test_knowledge_npc_schedules_and_events():

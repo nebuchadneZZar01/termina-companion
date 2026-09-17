@@ -49,10 +49,27 @@ def test_critic_agent_is_rule_based():
 
 def test_planning_agent_rule_based_fallback(monkeypatch):
     """The Planning Agent falls back to rule-based without an LLM."""
-    monkeypatch.setattr(planning_agent, "get_chat_model", lambda: None)
+    monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: None)
     result = planning_agent.run(_state())
     assert result["plan"] is not None
     assert result["plan_engine"] == "rule-based"
+    assert result["plan_model"] == ""
+
+
+def test_planning_agent_threads_llm_config(monkeypatch):
+    """The LLM config set on the state is forwarded to get_chat_model."""
+    captured: dict = {}
+
+    def _spy(**kw):
+        captured.update(kw)
+        return None
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", _spy)
+    state = _state().model_copy(
+        update={"llm_config": {"provider": "openai", "model": "gpt-x", "api_key": "k"}}
+    )
+    planning_agent.run(state)
+    assert captured == {"provider": "openai", "model": "gpt-x", "api_key": "k"}
 
 
 def test_knowledge_context_includes_objective_ids():
@@ -166,6 +183,7 @@ def test_dedupe_keeps_first_occurrence_and_remaps_depends_on():
 
 class _FakeModel:
     _invoked: list = []
+    model_name = "fake-model"
 
     def with_structured_output(self, _schema):
         """Pretend to bind a structured-output schema and return self."""
@@ -203,24 +221,50 @@ class _FakeModel:
         )
 
 
+def test_planning_agent_skips_owned_provide_step(monkeypatch):
+    """ "Retrieve the letter" is pruned once the player already owns it."""
+    monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: None)
+    result = planning_agent.run(_state(inventory=["Kafei's Letter"]))
+    refs = [s.objective_ref for s in result["plan"].steps]
+    assert refs == ["ak_talk_to_anju", "ak_deliver_letter", "ak_reunite"]
+    assert result["plan"].steps[1].depends_on == [0]  # deps remapped to the new chain
+
+
+def test_reconcile_orders_and_completes_chain():
+    """Reconciling inserts chain steps the generator skipped, in prerequisite order."""
+    window = TimeWindow(start=ClockTime(day=3, hour=6), end=ClockTime(day=3, hour=7))
+    plan = Plan(
+        goal="x", steps=[_plan_step("ak_deliver_letter", "Curiosity Shop", window).steps[0]]
+    )
+    out = planning_agent._reconcile_plan(plan, _state())
+    refs = [s.objective_ref for s in out.steps]
+    assert refs == [
+        "ak_talk_to_anju",
+        "ak_get_letter",
+        "ak_deliver_letter",
+        "ak_reunite",
+    ]
+    assert all(s.depends_on == list(range(i)) for i, s in enumerate(out.steps))
+
+
 def test_planning_agent_llm_plan_is_grounded(monkeypatch):
-    """An LLM-produced plan is grounded: refs, titles, locations, deps."""
-    monkeypatch.setattr(planning_agent, "get_chat_model", lambda: _FakeModel())
+    """An LLM-produced plan is grounded and completed to the full chain."""
+    monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: _FakeModel())
     result = planning_agent.run(_state())
     assert result["plan_engine"] == "llm"
-    step = result["plan"].steps[0]
-    assert step.objective_ref == "ak_get_letter"
+    assert result["plan_model"] == "fake-model"
+    refs = [s.objective_ref for s in result["plan"].steps]
+    assert refs == ["ak_talk_to_anju", "ak_get_letter", "ak_deliver_letter", "ak_reunite"]
+    step = result["plan"].steps[1]
     assert step.title == "Retrieve Kafei's letter from the mailbox"
     assert step.location == "Market District"
     assert step.requires_items == []  # ak_get_letter needs nothing from the player
-    refs = [s.objective_ref for s in result["plan"].steps]
-    assert refs == ["ak_get_letter", "ak_talk_to_anju"]
-    assert result["plan"].steps[1].depends_on == [0]
+    assert step.depends_on == [0]
 
 
 def test_planning_prompt_enforces_window_containment(monkeypatch):
     """The LLM prompt binds each step's window inside the objective's window."""
-    monkeypatch.setattr(planning_agent, "get_chat_model", lambda: _FakeModel())
+    monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: _FakeModel())
     planning_agent.run(_state())
     system = next(m.content for m in _FakeModel._invoked if m.type == "system")
     assert "objective's bracketed window" in system

@@ -87,8 +87,8 @@ deterministic rule-based brain, keeping the demo runnable with no API keys.
 | Agent | Input | Output | Engine |
 |---|---|---|---|
 | **State Agent** | `GameState`, `Goal` | canonical `GameState`, `state_summary` | **Rule-based** — alias canonicalization + template summary, always derived from the actual player state. |
-| **Knowledge Agent** | `GameState`, `Goal` | `relevant_objectives`, `retrieved_context` | **Rule-based** — drives the MCP tools (`search_quests` → `get_npc_schedule`/`get_event`), returning only objectives that match the goal (no match = none). The RAG seam. |
-| **Planning Agent** | `state_summary`, `retrieved_context` | `Plan` | **LLM** — produces the plan as structured Pydantic output (`Plan`), feeding previous validation feedback on re-planning. LLM output is post-processed deterministically: refs/titles/locations are grounded to the knowledge objectives, duplicates removed, and each step's window is clamped inside its objective's slot (temporal output guardrail); the Critic stays authoritative on order, items and feasibility. Fallback: deterministic window-slotting that exercises the re-planning loop. |
+| **Knowledge Agent** | `GameState`, `Goal` | `relevant_objectives`, `retrieved_context` | **Rule-based** — drives the MCP tools (`search_quests` → `get_npc_schedule`/`get_event`): returns the whole quest whenever any of its objectives matches the goal (no match = none), so prerequisite chains travel together. The RAG seam. |
+| **Planning Agent** | `state_summary`, `retrieved_context` | `Plan` | **LLM** — produces the plan as structured Pydantic output (`Plan`), feeding previous validation feedback on re-planning. LLM output is post-processed deterministically: refs/titles/locations are grounded to the knowledge objectives, duplicates removed, and each step's window is clamped inside its objective's slot (temporal output guardrail). The final plan is then rebuilt against the authoritative prerequisite chain: "obtain item" steps are pruned when the player already owns what they provide (`provides_items`/`provides_masks` on `Objective`), missing chain steps are re-inserted in order and `depends_on` recomputed. Fallback: deterministic window-slotting that exercises the re-planning loop. |
 | **Critic Agent** | `Plan`, `GameState`, objectives, NPCs | `ValidationResult` | **Rule-based on purpose** — deterministic feasibility rules (time windows, location, NPC availability, items, prerequisites, sequence). Being deterministic makes validation unit-testable and lets it reliably drive the bounded re-planning loop. |
 
 The re-planning loop: if the Critic returns FAIL, the Planning Agent re-runs
@@ -109,8 +109,9 @@ keeps the last plan after the limit.
 | `main.py` | UI entry point (`streamlit run main.py`) |
 | `tests/` | Domain model, validation and re-planning tests |
 
-Mock data is a deliberately small vertical slice (Anju & Kafei plus a second
-generic quest); the domain model and agents are not tied to a single quest.
+Mock data spans several major areas (Clock Town, Southern Swamp, Mountain
+Village, Great Bay, Ikana Canyon, Romani Ranch) but is deliberately NOT
+lore-complete; the domain model and agents are not tied to a single quest.
 
 ## Extension points
 
