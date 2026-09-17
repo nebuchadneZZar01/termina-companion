@@ -36,32 +36,9 @@ def _graph():
 
 _SPINNER_INTERVAL = 3.0
 
+_PROVIDERS = ("", "openai", "openrouter", "ollama", "lmstudio", "anthropic", "google")
 
-_CSS = """
-<style>
-.section-title {
-    color: #F5B301;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    font-size: 0.9rem;
-    border-bottom: 1px solid #33415C;
-    padding-bottom: 0.3rem;
-    margin: 0.6rem 0 0.6rem 0;
-}
-.caption-hint {
-    color: #8A93A6;
-    font-size: 0.82rem;
-    margin: -0.2rem 0 0.5rem 0;
-}
-.step-time {
-    color: #F5B301;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    margin: 0.5rem 0 0.1rem 0;
-}
-</style>
-"""
+_LANGS = {"en": "\U0001f1ec\U0001f1e7 English", "it": "\U0001f1ee\U0001f1f9 Italiano"}
 
 
 def _append_step(status, node: str, result: dict) -> None:
@@ -87,16 +64,20 @@ def _append_step(status, node: str, result: dict) -> None:
         _step_critic(status, result)
 
 
-def _engine_badge(engine: str | None) -> str:
+def _engine_badge(engine: str | None, model: str = "") -> str:
     """Format an engine name as a parenthesised badge suffix.
 
     args:
         engine (str | None): the engine label, e.g. "rule-based".
+        model (str, default ""): the model name, shown when present.
 
     returns:
-        str: " (engine)" or "" when empty.
+        str: " (engine)" or " (engine · model)" or "" when empty.
     """
-    return f" ({engine})" if engine else ""
+    if not engine:
+        return ""
+    suffix = f" \u00b7 {model}" if model else ""
+    return f" ({engine}{suffix})"
 
 
 _WINDOW_RE = re.compile(r"\[(Day \d, \d{2}:\d{2} \u2192 Day \d, \d{2}:\d{2})\]")
@@ -157,7 +138,8 @@ def _step_plan(status, result: dict) -> None:
     plan = result["plan"]
     attempt = result["replan_attempts"]
     header = (
-        f"**\u2713 {t('agent_planning')}{_engine_badge(result.get('plan_engine'))} \u2014 "
+        f"**\u2713 {t('agent_planning')}"
+        f"{_engine_badge(result.get('plan_engine'), result.get('plan_model'))} \u2014 "
         f"{t('step_attempt', n=attempt, max=MAX_PLANNING_ATTEMPTS)}**"
     )
     c.markdown(header)
@@ -205,17 +187,15 @@ def _render_issue(scope, issue) -> None:
     kind = t(f"kind_{issue.kind}")
     where = t("step_n", n=issue.step_idx + 1) if issue.step_idx is not None else t("plan")
     col_sev, col_kind, col_step, col_msg = scope.columns([1, 1, 1, 4], vertical_alignment="center")
-    col_sev.badge(
-        (t("sev_error") if is_error else t("sev_warning")).upper(),
-        color="red" if is_error else "orange",
-    )
+    sev = (t("sev_error") if is_error else t("sev_warning")).upper()
+    col_sev.badge(sev, color="red" if is_error else "orange")
     col_kind.badge(kind.upper(), color="blue")
     col_step.markdown(f"**{where}**")
     col_msg.markdown(tr_msg(_markdown_windows(issue.message)))
 
 
 def _section(title: str, caption: str = "") -> None:
-    """Draw a styled section header with optional caption.
+    """Draw a section header with optional caption.
 
     args:
         title (str): the section title.
@@ -224,9 +204,9 @@ def _section(title: str, caption: str = "") -> None:
     returns:
         None: draws into the app.
     """
-    st.markdown(f'<div class="section-title">{title}</div>', unsafe_allow_html=True)
+    st.subheader(title, anchor=False)
     if caption:
-        st.markdown(f'<div class="caption-hint">{caption}</div>', unsafe_allow_html=True)
+        st.caption(caption)
 
 
 def _fmt_clock(t: ClockTime) -> str:
@@ -239,18 +219,6 @@ def _fmt_clock(t: ClockTime) -> str:
         str: the readable representation.
     """
     return f"Day {t.day} {t.hour:02d}:{t.minute:02d}"
-
-
-def _time_s(t: ClockTime) -> str:
-    """Format a clock as "HH:MM".
-
-    args:
-        t (ClockTime): the time to format.
-
-    returns:
-        str: the hours and minutes, e.g. "08:00".
-    """
-    return f"{t.hour:02d}:{t.minute:02d}"
 
 
 def _render_plan(plan) -> None:
@@ -267,10 +235,7 @@ def _render_plan(plan) -> None:
         return
     for step in plan.steps:
         wl = step.window.start
-        st.markdown(
-            f'<div class="step-time">{_time_s(wl)} \u2500 {tr(step.location)}</div>',
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"**{_fmt_clock(wl)} \u2500 {tr(step.location)}**")
         with st.container(border=True):
             st.markdown(f"**{tr(step.title)}**")
             for action in step.actions:
@@ -374,14 +339,7 @@ def _render_trace_state(gs) -> None:
     returns:
         None: draws into the app.
     """
-    st.markdown(
-        f'<p class="section-title">{t("understood")}</p>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        f'<p class="caption-hint">{t("understood_caption")}</p>',
-        unsafe_allow_html=True,
-    )
+    _section(t("understood"), t("understood_caption"))
     with st.container(border=True):
         st.write(f"**{t('trace_where')}** {tr(gs.location)}")
         st.write(f"**{t('trace_when')}** {tr(_fmt_clock(gs.time))}")
@@ -400,14 +358,7 @@ def _render_trace_attempts(n: int) -> None:
     returns:
         None: draws into the app.
     """
-    st.markdown(
-        f'<p class="section-title">{t("trace_attempts")}</p>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        f'<p class="caption-hint">{t("trace_attempts_caption")}</p>',
-        unsafe_allow_html=True,
-    )
+    _section(t("trace_attempts"), t("trace_attempts_caption"))
     if n == 0:
         st.success(t("no_replan"))
     elif n >= MAX_PLANNING_ATTEMPTS:
@@ -425,30 +376,17 @@ def _render_trace_issues(validation) -> None:
     returns:
         None: draws into the app.
     """
-    st.markdown(
-        f'<p class="section-title">{t("validation_details")}</p>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        f'<p class="caption-hint">{t("validation_caption")}</p>',
-        unsafe_allow_html=True,
-    )
+    _section(t("validation_details"), t("validation_caption"))
     col_problems, col_legend = st.columns([2, 1], vertical_alignment="top", gap="large")
     with col_problems:
-        st.markdown(
-            f'<p class="section-title">{t("problems")}</p>',
-            unsafe_allow_html=True,
-        )
+        _section(t("problems"))
         if not validation.issues:
             st.success(t("no_issues"))
         for issue in validation.issues:
             with st.container(border=True):
                 _render_issue(st, issue)
     with col_legend:
-        st.markdown(
-            f'<p class="section-title">{t("legend_severity")}</p>',
-            unsafe_allow_html=True,
-        )
+        _section(t("legend_severity"))
         r1a, r1b = st.columns([1, 3])
         with r1a:
             st.badge(t("sev_error").upper(), color="red")
@@ -470,27 +408,35 @@ def render() -> None:
     returns:
         None: renders the whole app page.
     """
-    st.set_page_config(
-        page_title="Termina Companion", page_icon=":material/nightlight:", layout="wide"
-    )
-    st.markdown(_CSS, unsafe_allow_html=True)
-
     if "lang" not in st.session_state:
         st.session_state["lang"] = "en"
 
-    top_left, top_right = st.columns([6, 1])
-    with top_left:
-        st.markdown(
-            f'<div style="font-size:2.2rem;font-weight:800;color:#F5B301;">'
-            f"\U0001f319 {t('title')}</div>",
-            unsafe_allow_html=True,
+    st.set_page_config(
+        page_title="Termina Companion",
+        page_icon="\U0001f319",
+        layout="wide",
+    )
+
+    with st.sidebar:
+        st.selectbox(t("language"), list(_LANGS), key="lang", format_func=lambda c: _LANGS[c])
+        st.divider()
+        _section(t("llm_settings"))
+        llm_provider = st.selectbox(
+            t("llm_provider"),
+            list(_PROVIDERS),
+            format_func=lambda p: p or "rule-based",
         )
-        st.markdown(
-            f'<div style="color:#8A93A6;margin-top:-0.7rem;">{t("subtitle")}</div>',
-            unsafe_allow_html=True,
-        )
-    with top_right:
-        st.selectbox(t("language"), ["en", "it"], key="lang", label_visibility="visible")
+        if llm_provider:
+            llm_model = st.text_input(t("llm_model"), placeholder="gpt-4o-mini")
+            llm_api_key = st.text_input(t("llm_api_key"), type="password")
+            if not llm_model.strip():
+                st.caption(t("llm_model_required"))
+        else:
+            llm_model = ""
+            llm_api_key = ""
+
+    st.title(f"\U0001f319 {t('title')}")
+    st.caption(t("subtitle"))
 
     kb = build_default_knowledge()
 
@@ -544,7 +490,12 @@ def render() -> None:
             label_visibility="collapsed",
         )
         st.markdown('<div style="padding:0.4rem;"></div>', unsafe_allow_html=True)
-        run = st.button(t("generate_plan"), type="primary", use_container_width=True)
+        run = st.button(
+            t("generate_plan"),
+            type="primary",
+            use_container_width=True,
+            disabled=bool(llm_provider) and not llm_model.strip(),
+        )
 
     if not run:
         st.info(t("info_edit_state"))
@@ -559,7 +510,15 @@ def render() -> None:
     )
     goal = Goal(description=goal_text)
 
-    initial = {"game_state": game_state, "goal": goal}
+    llm_config: dict[str, str] = {}
+    if llm_provider:
+        llm_config["provider"] = llm_provider
+    if llm_model:
+        llm_config["model"] = llm_model
+    if llm_api_key:
+        llm_config["api_key"] = llm_api_key
+
+    initial = {"game_state": game_state, "goal": goal, "llm_config": llm_config}
     result: dict = {}
 
     def _run_stream(q) -> None:
@@ -634,27 +593,21 @@ def render() -> None:
     else:
         st.error(t("plan_not_valid"))
 
+    plan_model = result.get("plan_model")
+    st.caption(t("plan_model_caption", model=plan_model) if plan_model else t("plan_model_rule"))
+
     _render_plan(result["plan"])
 
     tab_why, tab_sources, tab_trace = st.tabs([t("tab_why"), t("tab_sources"), t("tab_trace")])
 
     with tab_why:
-        st.markdown(
-            f'<p class="caption-hint">{t("tab_why_caption")}</p>',
-            unsafe_allow_html=True,
-        )
+        st.caption(t("tab_why_caption"))
         _render_why(result["plan"])
     with tab_sources:
-        st.markdown(
-            f'<p class="caption-hint">{t("tab_sources_caption")}</p>',
-            unsafe_allow_html=True,
-        )
+        st.caption(t("tab_sources_caption"))
         _render_sources(result["relevant_objectives"], kb)
     with tab_trace:
-        st.markdown(
-            f'<p class="caption-hint">{t("tab_trace_caption")}</p>',
-            unsafe_allow_html=True,
-        )
+        st.caption(t("tab_trace_caption"))
         _render_trace_state(result["game_state"])
         _render_trace_attempts(result["replan_attempts"])
         _render_trace_issues(validation)
