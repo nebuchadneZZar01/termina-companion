@@ -33,14 +33,23 @@ _ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-5"
 _GOOGLE_DEFAULT_MODEL = "gemini-2.5-flash"
 
 
-def get_chat_model() -> BaseChatModel | None:
-    """Return a configured chat model, or None when nothing is configured."""
-    provider = os.getenv("LLM_PROVIDER", "").strip().lower()
+def get_chat_model(
+    provider: str | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+) -> BaseChatModel | None:
+    """Return a configured chat model, or None when nothing is configured.
+
+    All parameters override the corresponding ``LLM_*`` env vars when
+    provided (non-empty string).
+    """
+    provider = (provider or os.getenv("LLM_PROVIDER", "")).strip().lower()
     if not provider or provider == "rule-based":
         logger.info("No LLM configured (provider=%r) — rule-based brains active", provider)
         return None
-    model = os.getenv("LLM_MODEL", "").strip() or None
-    api_key = os.getenv("LLM_API_KEY", "").strip() or None
+    model = (model or os.getenv("LLM_MODEL", "")).strip() or None
+    api_key = (api_key or os.getenv("LLM_API_KEY", "")).strip() or None
 
     if provider in _OPENAI_COMPATIBLE:
         default_url, default_model = _OPENAI_COMPATIBLE[provider]
@@ -50,7 +59,7 @@ def get_chat_model() -> BaseChatModel | None:
         chat = ChatOpenAI(
             model=model or default_model,
             api_key=api_key or "not-needed",
-            base_url=os.getenv("LLM_BASE_URL", "").strip() or default_url,
+            base_url=(base_url or os.getenv("LLM_BASE_URL", "")).strip() or default_url,
         )
         logger.info(
             "LLM provider=%s model=%s base_url=%s", provider, chat.model_name, chat.openai_api_base
