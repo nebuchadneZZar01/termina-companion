@@ -389,6 +389,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         "source_masks": "Masks:",
         "source_after": "Comes after:",
         "no_sources": "No relevant sources found.",
+        "rag_sources": "Supplemental RAG evidence",
+        "rag_sources_caption": (
+            "Curated local text passages. They support the narrative explanation; "
+            "structured MCP objectives remain authoritative."
+        ),
+        "rag_engine": "Retrieval engine",
+        "rag_score": "Score",
+        "rag_source": "Source",
+        "rag_warning": "Retrieval warning",
+        "rag_no_evidence": "No supplemental passage matched this goal.",
         # tabs
         "tab_why": "Why this plan?",
         "tab_why_caption": (
@@ -397,10 +407,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         "tab_sources": "Game sources",
         "tab_sources_caption": (
-            "What the Knowledge Agent pulled from the game database for your goal: "
-            "the objectives, NPCs and events used to build the plan. "
-            "No RAG yet \u2014 retrieval is keyword matching; RAG slots into the "
-            "MCP search tool later."
+            "What the Knowledge Agent pulled from the structured game data and "
+            "the local curated RAG corpus for your goal: objectives, NPCs, events "
+            "and supplemental source passages. MCP data remains authoritative."
         ),
         "tab_trace": "How it was planned",
         "tab_trace_caption": (
@@ -531,6 +540,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         "source_masks": "Maschere:",
         "source_after": "Dopo:",
         "no_sources": "Nessuna fonte rilevante trovata.",
+        "rag_sources": "Evidenze RAG supplementari",
+        "rag_sources_caption": (
+            "Passaggi di testo locali e verificati. Supportano la spiegazione "
+            "narrativa; gli obiettivi MCP restano autoritativi."
+        ),
+        "rag_engine": "Motore di recupero",
+        "rag_score": "Punteggio",
+        "rag_source": "Fonte",
+        "rag_warning": "Avviso di recupero",
+        "rag_no_evidence": "Nessun passaggio supplementare corrisponde all'obiettivo.",
         # tabs
         "tab_why": "Perch\u00e9 questo piano?",
         "tab_why_caption": (
@@ -539,10 +558,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         "tab_sources": "Fonti di gioco",
         "tab_sources_caption": (
-            "Cosa l'Agente della Conoscenza ha estratto dal database di gioco "
-            "per il tuo obiettivo: obiettivi, NPC ed eventi usati per costruire il piano. "
-            "Nessuna RAG \u2014 il recupero \u00e8 per parole chiave; la RAG "
-            "si inserir\u00e0 nel tool di ricerca MCP in seguito."
+            "Cosa l'Agente della Conoscenza ha estratto dai dati strutturati "
+            "e dal corpus RAG locale per il tuo obiettivo: obiettivi, NPC, eventi "
+            "e passaggi supplementari. I dati MCP restano autoritativi."
         ),
         "tab_trace": "Come \u00e8 stato pianificato",
         "tab_trace_caption": (

@@ -122,6 +122,11 @@ def _step_knowledge(status, result: dict) -> None:
         c.write(f"\u2022 {tr(obj.title)}")
     if not objectives:
         c.caption(t("knowledge_empty_hint"))
+    retrieval_engine = result.get("retrieval_engine")
+    if retrieval_engine:
+        c.caption(f"{t('rag_engine')}: {retrieval_engine}")
+    if result.get("retrieval_warning"):
+        c.warning(result["retrieval_warning"])
 
 
 def _step_plan(status, result: dict) -> None:
@@ -328,6 +333,40 @@ def _render_sources(objectives, kb) -> None:
             prereq_titles = [o.title for o in kb.all_objectives if o.id in obj.prerequisites]
             if prereq_titles:
                 st.write(f"{t('source_after')} {', '.join(tr(x) for x in prereq_titles)}")
+
+
+def _render_rag_evidence(evidence, engine: str = "", warning: str = "") -> None:
+    """Render supplemental RAG passages and their source provenance.
+
+    args:
+        evidence: retrieved evidence items from the Knowledge Agent.
+        engine: retrieval engine label.
+        warning: optional degraded-retrieval warning.
+
+    returns:
+        None: draws the evidence section.
+    """
+    st.markdown(f"**{t('rag_sources')}**")
+    st.caption(t("rag_sources_caption"))
+    if engine:
+        st.caption(f"{t('rag_engine')}: {engine}")
+    if warning:
+        st.warning(f"{t('rag_warning')}: {warning}")
+    if not evidence:
+        st.caption(t("rag_no_evidence"))
+        return
+    for item in evidence:
+        metadata = item.chunk.metadata
+        source = metadata.source_url or (
+            metadata.source_urls[0] if metadata.source_urls else "local corpus"
+        )
+        excerpt = " ".join(item.chunk.text.split())
+        if len(excerpt) > 600:
+            excerpt = excerpt[:597].rstrip() + "..."
+        with st.container(border=True):
+            st.markdown(f"**{tr(metadata.title)}** · {t('rag_score')}: {item.score:.3f}")
+            st.write(excerpt)
+            st.caption(f"{t('rag_source')}: {source}")
 
 
 def _render_trace_state(gs) -> None:
@@ -610,6 +649,11 @@ def render() -> None:
     with tab_sources:
         st.caption(t("tab_sources_caption"))
         _render_sources(result["relevant_objectives"], kb)
+        _render_rag_evidence(
+            result.get("retrieved_evidence", []),
+            result.get("retrieval_engine", ""),
+            result.get("retrieval_warning", ""),
+        )
     with tab_trace:
         st.caption(t("tab_trace_caption"))
         _render_trace_state(result["game_state"])

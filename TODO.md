@@ -25,7 +25,11 @@ Status map:
   external MCP clients; 6 tools: search_quests, get_npc_schedule,
   get_quest_info, get_event, get_location, check_prerequisites; in-process
   Client integration test passes).
-* Phases 7–12: not started yet.
+* Phase 7 — RAG: in progress (curated Clock Town corpus, local ingestion,
+  keyword retrieval, hashed embedding/vector baseline, Knowledge Agent
+  integration and source evidence implemented; larger retrieval-quality
+  evaluation remains).
+* Phases 8–12: not started yet.
 * Phase 13 — Deployment: not started yet.
 
 ### Target flow
@@ -147,18 +151,27 @@ Game State → Goal → Plan → Validation
 
 # Phase 7 — RAG
 
-* [ ] Identify knowledge appropriate for RAG
-* [ ] Prepare textual game knowledge
-* [ ] Implement document ingestion
-* [ ] Implement chunking
-* [ ] Add embeddings
-* [ ] Add vector store
-* [ ] Implement retrieval
-* [ ] Integrate retrieval with Knowledge Agent
-* [ ] Add source/evidence information
-* [ ] Evaluate retrieval quality
+Phase 7 is split into a local corpus/keyword baseline and a later semantic
+retrieval/evaluation slice. The current slice is complete except for a larger
+quality evaluation.
 
-Structured game constraints such as schedules and prerequisites should remain structured data/tools rather than being forced into RAG.
+* [x] Identify knowledge appropriate for RAG
+* [x] Prepare original, web-researched textual game knowledge (nine Clock Town
+  documents with English/Italian aliases and provenance)
+* [x] Implement document ingestion (`app/rag/loader.py`)
+* [x] Implement deterministic chunking (`app/rag/chunking.py`)
+* [x] Add an embedding adapter and deterministic local hash baseline
+* [x] Add an in-memory vector store
+* [x] Implement keyword, vector and hybrid retrieval with fallback
+* [x] Integrate optional retrieval with the Knowledge Agent
+* [x] Add source/evidence information to workflow state, UI and headless output
+* [ ] Evaluate retrieval quality on a larger scenario set and compare semantic
+  embeddings against the keyword baseline
+
+Structured game constraints such as schedules and prerequisites remain in MCP
+data/tools. RAG is supplemental narrative evidence and must not create or
+override objectives. Retrieval failure degrades to structured context only;
+set `RAG_ENABLED=0` to disable it while debugging.
 
 # Phase 8 — Memory
 
@@ -173,17 +186,17 @@ Structured game constraints such as schedules and prerequisites should remain st
 
 # Phase 9 — Guardrails & Reliability
 
-* [ ] Validate structured plan output
-* [ ] Validate prerequisites
-* [ ] Validate inventory requirements
-* [ ] Validate temporal ordering
-* [ ] Validate NPC availability
-* [ ] Validate deadlines
-* [ ] Return explicit PASS/FAIL
-* [ ] Trigger replanning on FAIL
+* [x] Validate structured plan output
+* [x] Validate prerequisites
+* [x] Validate inventory requirements
+* [x] Validate temporal ordering
+* [x] Validate NPC availability
+* [x] Validate deadlines
+* [x] Return explicit PASS/FAIL
+* [x] Trigger replanning on FAIL
 * [ ] Handle tool failures
-* [ ] Prevent infinite replanning loops
-* [ ] Add reliability tests
+* [x] Prevent infinite replanning loops
+* [x] Add reliability tests
 
 # Phase 10 — Tracing & Audit
 

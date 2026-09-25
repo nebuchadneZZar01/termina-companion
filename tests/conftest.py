@@ -11,7 +11,13 @@ from app.agents import planning_agent
 from app.data.mock_knowledge import build_default_knowledge
 from app.domain import Plan, PlanStep
 
-_ENV = ("LLM_PROVIDER", "LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL")
+_ENV = (
+    "LLM_PROVIDER",
+    "LLM_API_KEY",
+    "LLM_MODEL",
+    "LLM_BASE_URL",
+    "RAG_ENABLED",
+)
 _KB = build_default_knowledge()
 _OBJECTIVES = {objective.id: objective for quest in _KB.quests for objective in quest.objectives}
 
@@ -56,7 +62,7 @@ def fake_planner_model(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _clear_llm_env():
-    """Clear LLM environment variables and restore them after each test.
+    """Clear LLM/RAG environment variables and restore them after each test.
 
     args:
         (none)

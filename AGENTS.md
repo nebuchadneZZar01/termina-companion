@@ -65,7 +65,10 @@ The prototype should run locally and include a simple Streamlit UI.
 
 Mock/demo data is acceptable initially.
 
-Do not implement RAG, persistent memory, tracing or evaluation prematurely. Leave clear extension points for them.
+RAG is now a local, supplemental Knowledge Agent seam. Keep it separate from
+MCP and do not let textual evidence override structured objectives, schedules,
+events, prerequisites, items or masks. Persistent memory, broader tracing and
+formal evaluation remain future work; leave clear extension points for them.
 
 ## Development Principles
 
@@ -107,24 +110,37 @@ Do not implement RAG, persistent memory, tracing or evaluation prematurely. Leav
   `Objective`), missing chain steps are re-inserted in prerequisite order and
   `depends_on` is recomputed; on replan attempts kept steps are re-slotted onto
   a 1h window after their dependencies end, where the LLM's windows are only
-  advisory. The Knowledge Agent calls the MCP tools
-  in-process to retrieve game knowledge.
+  advisory. The Knowledge Agent calls MCP tools in-process for authoritative
+  structured data, then calls `app.rag.retriever.retrieve` for optional local
+  evidence. RAG failure is logged and degrades to structured context; it never
+  changes the objective chain.
 * `app/mcp/` — MCP tools and server. `app/mcp/tools.py` holds the pure
   tool functions (search_quests, get_npc_schedule, get_quest_info, get_event,
   get_location, check_prerequisites) — the single seam between agents and
   game data. `app/mcp/server.py` wraps them as a `MCPServer` for external
-  MCP clients. The Knowledge Agent imports tools directly for in-process use.
+  MCP clients. The Knowledge Agent imports tools directly for in-process use;
+  RAG is not exposed as an MCP tool.
+* `app/rag/` — local supplemental RAG package: Pydantic document/chunk/evidence
+  contracts, Markdown frontmatter loader, deterministic chunking, keyword
+  retrieval, embedding adapter, in-memory vector store and hybrid retrieval.
+  `retrieve(query, top_k=4)` is the Knowledge Agent seam and fails soft.
+* `app/data/knowledge/clock_town/` — nine original, web-researched Clock Town
+  documents with English/Italian aliases, source URLs, retrieval dates and
+  attribution/license notes. This corpus supplements, but never replaces, MCP
+  structured data.
 * `app/llm.py` — LLM provider factory (`get_chat_model()`); raises
   `LLMConfigurationError` when no usable provider is configured. The Planning
   Agent has no rule-based fallback.
 * `app/state.py` — `PlanningState`, the workflow state threaded
-  through the graph (Pydantic model, used as the LangGraph state schema).
+  through the graph (Pydantic model, used as the LangGraph state schema),
+  including retrieved evidence and retrieval status.
 * `app/graph.py` — graph wiring and the bounded re-planning
   loop (max `MAX_PLANNING_ATTEMPTS = 3`) driven by the Critic Agent.
 * `app/ui.py` — Streamlit frontend logic (`render()`); requires a configured
   LLM provider, with local providers supported for offline runs.
 * `app/__main__.py` — headless pipeline demo (`python -m app`).
-* `tests/` — domain model, validation and re-planning tests.
+* `tests/` — domain model, validation, re-planning, RAG corpus/retrieval and
+  Knowledge Agent integration tests.
 
 ## Tooling
 

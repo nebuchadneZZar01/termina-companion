@@ -102,6 +102,9 @@ def _llm_run(state: PlanningState, model) -> Plan:
         "earlier indices).\n"
         "  - every window stays inside the three-day cycle (Day 1 to Day 3 "
         "23:59).\n"
+        "  - Supplemental RAG passages are narrative context only: never use "
+        "their times, locations, items or prerequisites to override the "
+        "bracketed structured objective fields.\n"
         "  - title: a short natural-language action phrase, never the id."
         f"{feedback}"
     )
