@@ -122,6 +122,11 @@ def _step_knowledge(status, result: dict) -> None:
         c.write(f"\u2022 {tr(obj.title)}")
     if not objectives:
         c.caption(t("knowledge_empty_hint"))
+    retrieval_engine = result.get("retrieval_engine")
+    if retrieval_engine:
+        c.caption(f"{t('rag_engine')}: {retrieval_engine}")
+    if result.get("retrieval_warning"):
+        c.warning(result["retrieval_warning"])
 
 
 def _step_plan(status, result: dict) -> None:
@@ -330,6 +335,40 @@ def _render_sources(objectives, kb) -> None:
                 st.write(f"{t('source_after')} {', '.join(tr(x) for x in prereq_titles)}")
 
 
+def _render_rag_evidence(evidence, engine: str = "", warning: str = "") -> None:
+    """Render supplemental RAG passages and their source provenance.
+
+    args:
+        evidence: retrieved evidence items from the Knowledge Agent.
+        engine: retrieval engine label.
+        warning: optional degraded-retrieval warning.
+
+    returns:
+        None: draws the evidence section.
+    """
+    st.markdown(f"**{t('rag_sources')}**")
+    st.caption(t("rag_sources_caption"))
+    if engine:
+        st.caption(f"{t('rag_engine')}: {engine}")
+    if warning:
+        st.warning(f"{t('rag_warning')}: {warning}")
+    if not evidence:
+        st.caption(t("rag_no_evidence"))
+        return
+    for item in evidence:
+        metadata = item.chunk.metadata
+        source = metadata.source_url or (
+            metadata.source_urls[0] if metadata.source_urls else "local corpus"
+        )
+        excerpt = " ".join(item.chunk.text.split())
+        if len(excerpt) > 600:
+            excerpt = excerpt[:597].rstrip() + "..."
+        with st.container(border=True):
+            st.markdown(f"**{tr(metadata.title)}** · {t('rag_score')}: {item.score:.3f}")
+            st.write(excerpt)
+            st.caption(f"{t('rag_source')}: {source}")
+
+
 def _render_trace_state(gs) -> None:
     """Render the canonicalised state in the trace tab.
 
@@ -513,19 +552,26 @@ def render() -> None:
 
     initial = {"game_state": game_state, "goal": goal, "llm_config": llm_config}
     result: dict = {}
+    # Build the cached graph in the main thread: `_graph()` is wrapped in
+    # @st.cache_resource, whose dispatcher needs the script run context, so
+    # calling it from the streaming thread would raise "missing
+    # ScriptRunContext". The thread only streams updates afterwards.
+    graph = _graph()
 
-    def _run_stream(q) -> None:
+    def _run_stream(q, graph) -> None:
         """Stream graph updates or an execution error into the queue.
 
         args:
             q (queue.Queue): the queue receiving ``{node: data}`` updates or
             an exception, terminated with ``None``.
+            graph (object): the compiled LangGraph, built under the script
+            context.
 
         returns:
             None: runs in a background thread.
         """
         try:
-            for update in _graph().stream(initial, stream_mode="updates"):
+            for update in graph.stream(initial, stream_mode="updates"):
                 q.put(update)
         except Exception as exc:
             q.put(exc)
@@ -540,7 +586,7 @@ def render() -> None:
     }
     phrases = itertools.cycle(spinner_lines())
     q: queue.Queue = queue.Queue()
-    threading.Thread(target=_run_stream, args=(q,), daemon=True).start()
+    threading.Thread(target=_run_stream, args=(q, graph), daemon=True).start()
 
     with st.status(f"{next(phrases)}...", type="step", state="running", expanded=True) as outer:
         next_flip = time.monotonic()
@@ -610,6 +656,11 @@ def render() -> None:
     with tab_sources:
         st.caption(t("tab_sources_caption"))
         _render_sources(result["relevant_objectives"], kb)
+        _render_rag_evidence(
+            result.get("retrieved_evidence", []),
+            result.get("retrieval_engine", ""),
+            result.get("retrieval_warning", ""),
+        )
     with tab_trace:
         st.caption(t("tab_trace_caption"))
         _render_trace_state(result["game_state"])

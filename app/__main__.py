@@ -45,6 +45,16 @@ def demo() -> None:
 
     print("\n--- Knowledge Agent retrieved ---")
     print(result.retrieved_context)
+    print(f"\nRAG engine: {result.retrieval_engine or 'disabled'}")
+    if result.retrieval_warning:
+        print(f"RAG warning: {result.retrieval_warning}")
+    for evidence in result.retrieved_evidence:
+        metadata = evidence.chunk.metadata
+        source = metadata.source_url or (
+            metadata.source_urls[0] if metadata.source_urls else "local corpus"
+        )
+        print(f"  - {metadata.title} [{evidence.chunk.id}] score={evidence.score:.3f}")
+        print(f"    {source}")
 
     plan_label = f"{result.replan_attempts} planning attempt(s) of max {MAX_PLANNING_ATTEMPTS}"
     print(f"\n--- Plan ({plan_label}) ---")

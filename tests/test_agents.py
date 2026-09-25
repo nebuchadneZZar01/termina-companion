@@ -408,6 +408,139 @@ def test_reconcile_re_slots_kept_steps_after_dependencies():
     assert (start.day, start.hour, start.minute) >= (end.day, end.hour, end.minute)
 
 
+def test_sanitize_window_passes_valid_window_through():
+    """A valid raw window is kept as-is, not rescheduled."""
+    w = planning_agent._DraftTimeWindow(
+        start=ClockTime(day=3, hour=22), end=ClockTime(day=3, hour=23)
+    )
+    out = planning_agent._sanitize_window(w, None)
+    assert out == TimeWindow(start=ClockTime(day=3, hour=22), end=ClockTime(day=3, hour=23))
+
+
+def test_sanitize_window_anchors_degenerate_window_to_slot():
+    """A zero-length window at Day 3 23:59 is pinned to the whole objective slot."""
+    w = planning_agent._DraftTimeWindow(
+        start=ClockTime(day=3, hour=23, minute=59),
+        end=ClockTime(day=3, hour=23, minute=59),
+    )
+    obj = next(o for q in _KB.quests for o in q.objectives if o.id == "ak_reunite")
+    out = planning_agent._sanitize_window(w, obj)
+    assert out == obj.window  # [Day 3 22:00 -> Day 3 23:59]
+
+
+def test_sanitize_window_returns_valid_window_when_ungrounded():
+    """An ungrounded degenerate window still yields a structurally valid one."""
+    w = planning_agent._DraftTimeWindow(
+        start=ClockTime(day=3, hour=23, minute=59),
+        end=ClockTime(day=3, hour=23, minute=59),
+    )
+    out = planning_agent._sanitize_window(w, None)
+    assert (out.start.day, out.start.hour, out.start.minute) < (
+        out.end.day,
+        out.end.hour,
+        out.end.minute,
+    )
+
+
+def test_materialize_plan_builds_strict_plan_from_draft():
+    """Materializing a draft plan copies fields and repairs degenerate windows."""
+    draft = planning_agent._DraftPlan(
+        goal="g",
+        steps=[
+            planning_agent._DraftPlanStep(
+                title="Reunite",
+                objective_ref="ak_reunite",
+                location="Stockpot Inn",
+                window=planning_agent._DraftTimeWindow(
+                    start=ClockTime(day=3, hour=23, minute=59),
+                    end=ClockTime(day=3, hour=23, minute=59),
+                ),
+                depends_on=[0],
+            ),
+            planning_agent._DraftPlanStep(
+                title="Erratic",
+                objective_ref="mystery",
+                location="Nowhere",
+                window=planning_agent._DraftTimeWindow(
+                    start=ClockTime(day=1, hour=0), end=ClockTime(day=1, hour=0)
+                ),
+            ),
+        ],
+    )
+    out = planning_agent._materialize_plan(draft, _state())
+    assert isinstance(out, Plan)
+    obj = next(o for q in _KB.quests for o in q.objectives if o.id == "ak_reunite")
+    assert out.steps[0].window == obj.window
+    assert out.steps[0].depends_on == [0]
+    assert (
+        out.steps[1].window.start.day,
+        out.steps[1].window.start.hour,
+        out.steps[1].window.start.minute,
+    ) < (
+        out.steps[1].window.end.day,
+        out.steps[1].window.end.hour,
+        out.steps[1].window.end.minute,
+    )
+    assert all(
+        (s.window.start.day, s.window.start.hour, s.window.start.minute)
+        < (s.window.end.day, s.window.end.hour, s.window.end.minute)
+        for s in out.steps
+    )
+
+
+def test_window_inside_handles_earliest_at_cycle_end():
+    """A dep ending at Day 3 23:59 never yields an invalid window."""
+    obj = next(o for q in _KB.quests for o in q.objectives if o.id == "ak_reunite")
+    out = planning_agent._window_inside(obj, ClockTime(day=3, hour=23, minute=59))
+    assert (out.start.day, out.start.hour, out.start.minute) < (
+        out.end.day,
+        out.end.hour,
+        out.end.minute,
+    )
+    assert (out.start.day, out.start.hour, out.start.minute) >= (
+        obj.window.start.day,
+        obj.window.start.hour,
+        obj.window.start.minute,
+    )
+
+
+class _DegenerateWindowModel:
+    """Fake model returning a degenerate cycle-end window as raw JSON."""
+
+    model_name = "degenerate-window-model"
+
+    def with_structured_output(self, _schema):
+        return self
+
+    def invoke(self, _msgs):
+        return {
+            "goal": "Reunite Anju and Kafei",
+            "steps": [
+                {
+                    "title": "Reunite",
+                    "objective_ref": "ak_reunite",
+                    "location": "Stockpot Inn",
+                    "window": {
+                        "start": {"day": 3, "hour": 23, "minute": 59},
+                        "end": {"day": 3, "hour": 23, "minute": 59},
+                    },
+                    "depends_on": [],
+                }
+            ],
+        }
+
+
+def test_planning_agent_repairs_degenerate_cycle_end_window(monkeypatch):
+    """A zero-length window at Day 3 23:59 plans instead of failing validation."""
+    monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: _DegenerateWindowModel())
+    result = planning_agent.run(_state())
+    step = next(s for s in result["plan"].steps if s.objective_ref == "ak_reunite")
+    start, end = step.window.start, step.window.end
+    assert (start.day, start.hour, start.minute) < (end.day, end.hour, end.minute)
+    assert start == ClockTime(day=3, hour=22)  # pinned to the slot start
+    assert end == ClockTime(day=3, hour=23, minute=59)
+
+
 def test_to_step_carries_requires_masks():
     """_to_step carries an objective's required masks into the step."""
     obj = next(o for q in _KB.quests for o in q.objectives if o.id == "dg_talk_elder")

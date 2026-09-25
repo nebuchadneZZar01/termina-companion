@@ -1,9 +1,10 @@
-"""Knowledge Agent: gathers game knowledge through the MCP tools.
+"""Knowledge Agent: gathers structured MCP data and supplemental RAG evidence.
 
-Deterministic (rule-based) brain: calls the MCP tools to search objectives
-matching the goal, then pulls the NPC schedules and events the planner needs.
-Tools are imported in-process from ``app.mcp.tools``; swapping them for the
-protocol client (or another data source) is a drop-in change.
+The structured path is deterministic: MCP tools search objectives and return
+NPC schedules and events. A local retriever adds curated narrative evidence;
+it is optional and never changes the authoritative objective chain. Tools are
+imported in-process from ``app.mcp.tools``; swapping them for the protocol
+client (or another data source) is a drop-in change.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import logging
 
 from app.data.mock_knowledge import Objective
 from app.mcp.tools import get_event, get_npc_schedule, search_quests
+from app.rag.retriever import RetrievalResult, retrieve
 from app.state import PlanningState
 
 logger = logging.getLogger(__name__)
@@ -33,11 +35,97 @@ def run(state: PlanningState) -> dict:
     _log_objectives(objectives)
     npc_schedules = {obj.npc_id: get_npc_schedule(obj.npc_id) for obj in objectives if obj.npc_id}
     events = {obj.event_ref: get_event(obj.event_ref) for obj in objectives if obj.event_ref}
+    structured_context = _format(objectives, npc_schedules, events)
+    retrieval = _retrieve_evidence(state, objectives)
     return {
         "relevant_objectives": objectives,
-        "retrieved_context": _format(objectives, npc_schedules, events),
+        "retrieved_context": _append_rag_context(structured_context, retrieval),
+        "retrieved_evidence": retrieval.evidence,
+        "retrieval_engine": retrieval.engine,
+        "retrieval_warning": retrieval.warning,
         "knowledge_engine": "rule-based",
     }
+
+
+def _retrieve_evidence(state: PlanningState, objectives: list[Objective]) -> RetrievalResult:
+    """Retrieve optional narrative evidence for the goal and matched objectives.
+
+    Retrieval is intentionally isolated behind the public ``retrieve`` seam.
+    Any corpus or indexing failure becomes a warning, while structured MCP
+    context remains usable and the graph can continue.
+
+    args:
+        state: workflow state containing the player goal.
+        objectives: structured objectives already selected by MCP.
+
+    returns:
+        RetrievalResult: evidence, engine label and optional warning.
+    """
+    query_parts = [state.goal.description]
+    for objective in objectives:
+        query_parts.extend([objective.title, objective.location, *objective.keywords])
+    query = " ".join(dict.fromkeys(part for part in query_parts if part))
+    try:
+        return retrieve(query, top_k=4)
+    except Exception as exc:
+        logger.warning("Knowledge Agent: supplemental retrieval failed: %s", exc)
+        return RetrievalResult(
+            query=query,
+            evidence=[],
+            engine="unavailable",
+            warning=str(exc),
+        )
+
+
+def _append_rag_context(structured_context: str, retrieval: RetrievalResult) -> str:
+    """Append a clearly labeled RAG section to structured planner context.
+
+    args:
+        structured_context: authoritative MCP-derived context.
+        retrieval: optional local retrieval result.
+
+    returns:
+        str: structured context followed by bounded source excerpts.
+    """
+    if retrieval.engine == "disabled":
+        return structured_context
+    if not retrieval.evidence:
+        if retrieval.warning:
+            return f"{structured_context}\n\n[RAG unavailable: {retrieval.warning}]"
+        return f"{structured_context}\n\n[RAG evidence: no matching passage.]"
+    lines = [
+        structured_context,
+        "",
+        "[Supplemental RAG evidence — narrative context only; its times and "
+        "requirements are not planning constraints; MCP data remains authoritative]",
+    ]
+    lines.extend(_format_evidence(retrieval))
+    return "\n".join(lines)
+
+
+def _format_evidence(retrieval: RetrievalResult) -> list[str]:
+    """Format retrieved chunks with compact provenance information.
+
+    args:
+        retrieval: local retrieval result.
+
+    returns:
+        list[str]: one bounded evidence block per retrieved chunk.
+    """
+    lines: list[str] = []
+    for item in retrieval.evidence:
+        metadata = item.chunk.metadata
+        source = metadata.source_url or (
+            metadata.source_urls[0] if metadata.source_urls else "local corpus"
+        )
+        excerpt = " ".join(item.chunk.text.split())
+        if len(excerpt) > 700:
+            excerpt = excerpt[:697].rstrip() + "..."
+        lines.append(
+            f"- RAG evidence {item.chunk.id} | {metadata.title} | score={item.score:.3f}: {excerpt}"
+        )
+        lines.append(f"  Source: {source}")
+    return lines
 
 
 def _log_objectives(objectives) -> None:
