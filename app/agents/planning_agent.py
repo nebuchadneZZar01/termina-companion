@@ -1,13 +1,17 @@
 """Planning Agent: builds an ordered, time-boxed plan from relevant objectives.
 
-The agent always asks the configured LLM for a :class:`~app.domain.Plan` via
-structured Pydantic output. It receives the state summary, retrieved objectives
-and, on re-planning, the previous validation feedback.
+The agent always asks the configured LLM via structured Pydantic output. It
+receives the state summary, retrieved objectives and, on re-planning, the
+previous validation feedback. The LLM answers against a permissive draft
+schema (``_DraftPlan``) so degenerate windows (e.g. zero-length at Day 3
+23:59) parse instead of failing the strict cross-field window check during
+invocation.
 
-LLM output is post-processed deterministically: step refs, titles and
-locations are grounded to the knowledge objectives, duplicate steps are
-removed, each step's window is clamped inside its objective's window, and the
-authoritative prerequisite chain is rebuilt before validation.
+LLM output is post-processed deterministically: raw draft windows are
+sanitized into strict :class:`~app.domain.TimeWindow` objects; step refs,
+titles and locations are grounded to the knowledge objectives; duplicate steps
+are removed; each step's window is clamped inside its objective's window; and
+the authoritative prerequisite chain is rebuilt before validation.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ import logging
 import time
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
 
 from app.data.mock_knowledge import Objective
 from app.domain import ClockTime, Plan, PlanStep, TimeWindow
@@ -29,6 +34,34 @@ logger = logging.getLogger(__name__)
 
 class PlanningAgentError(RuntimeError):
     """Raised when the Planning Agent cannot obtain a usable LLM plan."""
+
+
+# The `_Draft*` models are the LLM-facing structured-output schema. They mirror
+# the authoritative `Plan`/`PlanStep`/`TimeWindow` contracts but WITHOUT the
+# cross-field `end must be after start` validator: raw LLM windows may be
+# degenerate (e.g. a zero-length window at the last cycle instant, Day 3
+# 23:59), and rejecting them during parsing would bypass the deterministic
+# repair below. Every draft window is sanitized by `_sanitize_window` before a
+# strict `Plan` is built.
+class _DraftTimeWindow(BaseModel):
+    start: ClockTime
+    end: ClockTime
+
+
+class _DraftPlanStep(BaseModel):
+    title: str
+    objective_ref: str = ""
+    location: str
+    window: _DraftTimeWindow
+    actions: list[str] = Field(default_factory=list)
+    requires_items: list[str] = Field(default_factory=list)
+    requires_masks: list[str] = Field(default_factory=list)
+    depends_on: list[int] = Field(default_factory=list)
+
+
+class _DraftPlan(BaseModel):
+    goal: str
+    steps: list[_DraftPlanStep] = Field(default_factory=list)
 
 
 def run(state: PlanningState) -> dict:
@@ -69,6 +102,12 @@ def run(state: PlanningState) -> dict:
 
 def _llm_run(state: PlanningState, model) -> Plan:
     """Ask the LLM for a structured plan, with replan feedback when provided.
+
+    The model answers against the permissive ``_DraftPlan`` schema, so raw
+    degenerate windows (e.g. a zero-length window at Day 3 23:59) parse
+    instead of failing the cross-field ``end must be after start`` check inside
+    ``with_structured_output``. The draft is then materialized into a strict
+    :class:`~app.domain.Plan` whose windows are sanitized deterministically.
 
     args:
         state (PlanningState): the workflow state with goal and context.
@@ -115,19 +154,14 @@ def _llm_run(state: PlanningState, model) -> Plan:
     )
     started = time.perf_counter()
     try:
-        plan = model.with_structured_output(Plan).invoke([prompt, user])
+        raw = model.with_structured_output(_DraftPlan).invoke([prompt, user])
+        plan = None if raw is None else _materialize_plan(raw, state)
     except Exception as exc:
         logger.error("Planning Agent: LLM invocation failed: %s", exc)
         raise PlanningAgentError(f"LLM invocation failed: {exc}") from exc
 
     elapsed = time.perf_counter() - started
-    if plan is None:
-        logger.error("Planning Agent: LLM returned an empty plan")
-        raise PlanningAgentError("LLM returned an empty plan")
-    if not isinstance(plan, Plan):
-        logger.error("Planning Agent: LLM returned %s, expected Plan", type(plan).__name__)
-        raise PlanningAgentError("LLM returned an invalid plan object")
-    if not plan.steps:
+    if plan is None or not plan.steps:
         logger.error("Planning Agent: LLM returned an empty plan")
         raise PlanningAgentError("LLM returned an empty plan")
     logger.info(
@@ -153,6 +187,116 @@ def _log_plan(plan: Plan) -> None:
         window = f"Day {s.day} {s.hour:02d}:{s.minute:02d}-{e.hour:02d}:{e.minute:02d}"
         items = f" needs={step.requires_items}" if step.requires_items else ""
         logger.info("  %2d. [%s] %s @ %s%s", i, window, step.title, step.location, items)
+
+
+def _materialize_plan(raw, state: PlanningState) -> Plan:
+    """Turn raw LLM output into a strict Plan with structurally valid windows.
+
+    Accepts a strict ``Plan`` (already valid, e.g. from test doubles or simple
+    reroutes), a ``_DraftPlan`` or a plain dict/JSON object. Draft steps are
+    copied field-by-field and every window is sanitized by ``_sanitize_window``
+    so the authoritative ``Plan``/``TimeWindow`` contracts never reject the
+    LLM output.
+
+    args:
+        raw: the structured-output result from the model.
+        state (PlanningState): used only for the relevant objectives, which
+        anchor degenerate windows into their slot.
+
+    returns:
+        Plan: a strict, valid plan.
+
+    raises:
+        pydantic.ValidationError: when ``raw`` is not a usable plan shape.
+    """
+    if isinstance(raw, Plan):
+        return raw
+    if not isinstance(raw, _DraftPlan):
+        raw = _DraftPlan.model_validate(raw)
+    by_id = {o.id: o for o in state.relevant_objectives}
+    steps = [
+        PlanStep(
+            title=step.title,
+            objective_ref=step.objective_ref,
+            location=step.location,
+            window=_sanitize_window(step.window, by_id.get(step.objective_ref)),
+            actions=step.actions,
+            requires_items=step.requires_items,
+            requires_masks=step.requires_masks,
+            depends_on=step.depends_on,
+        )
+        for step in raw.steps
+    ]
+    return Plan(goal=raw.goal, steps=steps)
+
+
+def _sanitize_window(window: _DraftTimeWindow, obj: Objective | None) -> TimeWindow:
+    """Repair a raw LLM window into a strict ``TimeWindow``, deterministically.
+
+    Valid windows pass through unchanged. Degenerate windows (end not later
+    than start, e.g. a zero-length window at the last instant of the cycle)
+    are anchored back inside their objective's slot; steps without a resolvable
+    objective get a minimal valid window and are pruned later by
+    ``_reconcile_plan`` anyway.
+
+    args:
+        window (_DraftTimeWindow): the raw window from the LLM.
+        obj (Objective): the objective the step's ref points at, or None.
+
+    returns:
+        TimeWindow: a window with ``end`` strictly after ``start``.
+    """
+    if _clock(window.start) < _clock(window.end):
+        return TimeWindow(start=window.start, end=window.end)
+    if obj is not None:
+        start = _max_clock(window.start, obj.window.start)
+        end = min(window.end, obj.window.end, key=_clock)
+        if _clock(start) < _clock(end):
+            return TimeWindow(start=start, end=end)
+        # Degenerate even inside the slot (the LLM crammed the step into the
+        # last instant of a slot that ends Day 3 23:59): fall back to the whole
+        # authoritative slot, which is always valid in the knowledge base.
+        return TimeWindow(start=obj.window.start, end=obj.window.end)
+    return _draft_fallback_window(window.start)
+
+
+def _draft_fallback_window(start: ClockTime) -> TimeWindow:
+    """Minimal valid window for an ungrounded, degenerate draft window.
+
+    args:
+        start (ClockTime): the raw (degenerate) window start.
+
+    returns:
+        TimeWindow: a one-minute window at the edge of the raw window.
+    """
+    later = _add_minutes(start, 1)
+    if _clock(later) > _clock(start):
+        return TimeWindow(start=start, end=later)
+    earlier = _add_minutes(start, -1)
+    if _clock(earlier) < _clock(start):
+        return TimeWindow(start=earlier, end=start)
+    # Both bounds pinned at the same single cycle instant; back off one minute.
+    return TimeWindow(
+        start=ClockTime(day=1, hour=0, minute=0),
+        end=ClockTime(day=1, hour=0, minute=1),
+    )
+
+
+def _add_minutes(t: ClockTime, minutes: int) -> ClockTime:
+    """Shift a clock by minutes, clamped to the playable cycle.
+
+    args:
+        t (ClockTime): the starting time.
+        minutes (int): signed minute offset.
+
+    returns:
+        ClockTime: the resulting time, inside Day 1 00:00 to Day 3 23:59.
+    """
+    total = (t.day - 1) * 24 * 60 + t.hour * 60 + t.minute + minutes
+    total = min(max(total, 0), (3 - 1) * 24 * 60 + 23 * 60 + 59)
+    day, rem = divmod(total, 24 * 60)
+    hour, minute = divmod(rem, 60)
+    return ClockTime(day=day + 1, hour=hour, minute=minute)
 
 
 def _to_step(obj: Objective, window: TimeWindow, prior: list[PlanStep]) -> PlanStep:
@@ -403,14 +547,26 @@ def _window_inside(obj: Objective, earliest: ClockTime) -> TimeWindow:
         previous step's end).
 
     returns:
-        TimeWindow: a slot no later than the objective's window.
+        TimeWindow: a slot no later than the objective's window, always with
+        ``end`` strictly after ``start``.
     """
     start = _max_clock(earliest, obj.window.start)
     if _clock(start) >= _clock(obj.window.end):
         start = obj.window.start
     end = min(_add_hours(start, _SLOT), obj.window.end, key=_clock)
     if _clock(end) <= _clock(start):
-        end = ClockTime(day=3, hour=23, minute=59)
+        # The slot is too short for a whole hour (e.g. the LLM anchored the
+        # previous step at the last playable instant, Day 3 23:59). Forcing
+        # ``end`` to Day 3 23:59 would reproduce the LLM's degenerate window,
+        # so pin the whole authoritative slot instead.
+        if _clock(obj.window.start) < _clock(obj.window.end):
+            return TimeWindow(start=obj.window.start, end=obj.window.end)
+        logger.warning(
+            "Planning Agent: objective %s has a zero-length slot %s; no step can fit inside it",
+            obj.id,
+            obj.window,
+        )
+        return _draft_fallback_window(obj.window.start)
     return TimeWindow(start=start, end=end)
 
 
