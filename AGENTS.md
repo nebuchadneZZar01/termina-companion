@@ -105,7 +105,9 @@ Do not implement RAG, persistent memory, tracing or evaluation prematurely. Leav
   any of its objectives matches, "obtain item" steps are pruned when the
   player already owns what they provide (`provides_items`/`provides_masks` on
   `Objective`), missing chain steps are re-inserted in prerequisite order and
-  `depends_on` is recomputed. The Knowledge Agent calls the MCP tools
+  `depends_on` is recomputed; on replan attempts kept steps are re-slotted onto
+  a 1h window after their dependencies end, where the LLM's windows are only
+  advisory. The Knowledge Agent calls the MCP tools
   in-process to retrieve game knowledge.
 * `app/mcp/` — MCP tools and server. `app/mcp/tools.py` holds the pure
   tool functions (search_quests, get_npc_schedule, get_quest_info, get_event,

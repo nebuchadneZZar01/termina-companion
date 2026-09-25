@@ -158,7 +158,7 @@ def _rule_based_run(state: PlanningState) -> Plan:
             if naive
             else _window_inside(obj, prev_end or state.game_state.time)
         )
-        steps.append(_to_step(obj, index, window))
+        steps.append(_to_step(obj, window, steps))
         prev_end = window.end
     logger.info(
         "Planning Agent [rule-based]: attempt %d (naive=%s), %d step(s)",
@@ -185,13 +185,16 @@ def _log_plan(plan: Plan) -> None:
         logger.info("  %2d. [%s] %s @ %s%s", i, window, step.title, step.location, items)
 
 
-def _to_step(obj: Objective, index: int, window: TimeWindow) -> PlanStep:
-    """Convert an objective into a plan step at a given index and window.
+def _to_step(obj: Objective, window: TimeWindow, prior: list[PlanStep]) -> PlanStep:
+    """Convert an objective into a plan step at a given window.
+
+    ``depends_on`` only points at the earlier steps whose objectives are this
+    one's prerequisites, never at unrelated steps from other quests.
 
     args:
         obj (Objective): the knowledge objective to wrap.
-        index (int): step index, used to seed ``depends_on``.
         window (TimeWindow): the scheduled window for this step.
+        prior (list[PlanStep]): steps built so far, prerequisites first.
 
     returns:
         PlanStep: the resulting step with the objective's actions and
@@ -205,8 +208,26 @@ def _to_step(obj: Objective, index: int, window: TimeWindow) -> PlanStep:
         actions=[obj.description],
         requires_items=obj.requires_items,
         requires_masks=obj.requires_masks,
-        depends_on=list(range(index)),
+        depends_on=_depends_on_indices(obj, prior),
     )
+
+
+def _depends_on_indices(obj: Objective, steps: list[PlanStep]) -> list[int]:
+    """Indices of earlier steps whose objectives are ``obj``'s prerequisites.
+
+    Only prerequisites present in the plan count; a prerequisite pruned as
+    already owned imposes no dependency. Steps of different quests therefore
+    never chain to each other, which keeps the Critic's sequence rule
+    meaningful across multi-quest goals.
+
+    args:
+        obj (Objective): the objective whose prerequisites matter.
+        steps (list[PlanStep]): steps built so far, prerequisites first.
+
+    returns:
+        list[int]: the ascending indices of matching prerequisite steps.
+    """
+    return [i for i, s in enumerate(steps) if s.objective_ref in obj.prerequisites]
 
 
 # ponytail: heuristic ref-resolver. When the LLM emits a plan whose step also
@@ -253,14 +274,17 @@ def _dedupe_steps(plan: Plan) -> Plan:
     return plan
 
 
-# ponytail: deterministic chain enforcement. The LLM may skip chain objectives
-# or keep an "obtain item" step for something the player already owns, and the
+# ponytail: deterministic chain enforcement. The LLM may skip chain objectives,
+# keep an "obtain item" step for something the player already owns, or schedule
+# steps as whole objective slots that overlap their prerequisites; the
 # rule-based brain plans whatever retrieval returned. The relevant-objective
 # chain (prerequisites first) is authoritative, so the final plan is rebuilt
-# around it: fully-owned provide steps are pruned and missing chain steps are
-# re-inserted with rule-based slots. Kept steps (LLM or rule-based) keep their
-# own windows. Ceiling: no per-objective "done" tracking in GameState; upgrade
-# path: model completed objectives so chains can start mid-quest.
+# around it: fully-owned provide steps are pruned, missing chain steps are
+# re-inserted with rule-based slots, and on replan attempts kept steps are
+# re-slotted onto a 1h window after their dependencies end (LLM replanning
+# alone never fixes timing). Ceiling: no per-objective "done" tracking in
+# GameState; upgrade path: model completed objectives so chains can start
+# mid-quest.
 def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
     """Rebuild the plan around the authoritative objective chain.
 
@@ -271,7 +295,8 @@ def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
 
     returns:
         Plan: the same plan, pruned of owned-provide steps and with every
-        remaining chain objective present, ordered by prerequisites.
+        remaining chain objective present, ordered by prerequisites and
+        timed after its dependencies.
     """
     owned_items = set(state.game_state.inventory)
     owned_masks = set(state.game_state.masks)
@@ -281,15 +306,21 @@ def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
     for obj in _order_by_prerequisites(state.relevant_objectives):
         if _already_owned(obj, owned_items, owned_masks):
             continue
-        index = len(steps)
         existing = by_ref.get(obj.id)
         if existing is not None:
-            existing.depends_on = list(range(index))
+            existing.depends_on = _depends_on_indices(obj, steps)
+            if state.replan_attempts > 0:
+                earliest = max(
+                    (steps[d].window.end for d in existing.depends_on),
+                    key=_clock,
+                    default=state.game_state.time,
+                )
+                existing.window = _window_inside(obj, earliest)
             steps.append(existing)
             prev_end = existing.window.end
             continue
         window = _window_inside(obj, prev_end or state.game_state.time)
-        steps.append(_to_step(obj, index, window))
+        steps.append(_to_step(obj, window, steps))
         prev_end = window.end
     plan.steps = steps
     return plan

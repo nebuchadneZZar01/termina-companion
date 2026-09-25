@@ -37,6 +37,30 @@ def test_state_agent_is_rule_based():
     assert state_agent.run(_state())["state_engine"] == "rule-based"
 
 
+def test_state_agent_summary_includes_active_quest():
+    """At the Stockpot Inn the summary names the Anju & Kafei quest."""
+    summary = state_agent.run(_state())["state_summary"]
+    assert "Active: Anju and Kafei" in summary
+    assert "Talk to Anju at the Stockpot Inn" in summary
+
+
+def test_progress_summary_lists_completed_quest():
+    """A quest marked done in quest_progress is reported as completed."""
+    from app.agents.state_agent import _progress_summary
+
+    kb = build_default_knowledge()
+    out = _progress_summary({"anju_kafei": "done"}, kb, "Stockpot Inn")
+    assert "Completed quests: Anju and Kafei" in out
+
+
+def test_progress_summary_empty_away_from_objectives():
+    """No progress is reported when the location has no objectives."""
+    from app.agents.state_agent import _progress_summary
+
+    kb = build_default_knowledge()
+    assert _progress_summary({}, kb, "Snowhead") == ""
+
+
 def test_knowledge_agent_is_rule_based():
     """The Knowledge Agent reports the rule-based engine."""
     assert knowledge_agent.run(_state())["knowledge_engine"] == "rule-based"
@@ -227,7 +251,7 @@ def test_planning_agent_skips_owned_provide_step(monkeypatch):
     result = planning_agent.run(_state(inventory=["Kafei's Letter"]))
     refs = [s.objective_ref for s in result["plan"].steps]
     assert refs == ["ak_talk_to_anju", "ak_deliver_letter", "ak_reunite"]
-    assert result["plan"].steps[1].depends_on == [0]  # deps remapped to the new chain
+    assert result["plan"].steps[1].depends_on == []  # its prerequisite was pruned
 
 
 def test_reconcile_orders_and_completes_chain():
@@ -244,7 +268,7 @@ def test_reconcile_orders_and_completes_chain():
         "ak_deliver_letter",
         "ak_reunite",
     ]
-    assert all(s.depends_on == list(range(i)) for i, s in enumerate(out.steps))
+    assert [s.depends_on for s in out.steps] == [[], [0], [1], [2]]
 
 
 def test_planning_agent_llm_plan_is_grounded(monkeypatch):
@@ -324,11 +348,53 @@ def test_ground_replaces_invented_location():
     assert out.steps[0].requires_items == ["Kafei's Letter"]
 
 
+def test_reconcile_re_slots_kept_steps_after_dependencies():
+    """On replan, LLM slot-width windows are re-slotted into 1h, dep-ordered."""
+    state = _state().model_copy(update={"replan_attempts": 1})
+    plan = Plan(
+        goal="x",
+        steps=[
+            _plan_step(
+                "ak_talk_to_anju",
+                "Stockpot Inn",
+                TimeWindow(start=ClockTime(day=2, hour=8), end=ClockTime(day=2, hour=21)),
+            ).steps[0],
+            _plan_step(
+                "ak_get_letter",
+                "Market District",
+                TimeWindow(start=ClockTime(day=2, hour=9), end=ClockTime(day=2, hour=17)),
+            ).steps[0],
+            _plan_step(
+                "ak_deliver_letter",
+                "Curiosity Shop",
+                TimeWindow(start=ClockTime(day=3, hour=6), end=ClockTime(day=3, hour=12)),
+            ).steps[0],
+            _plan_step(
+                "ak_reunite",
+                "Stockpot Inn",
+                TimeWindow(start=ClockTime(day=3, hour=22), end=ClockTime(day=3, hour=23)),
+            ).steps[0],
+        ],
+    )
+    out = planning_agent._reconcile_plan(plan, state)
+    assert [s.depends_on for s in out.steps] == [[], [0], [1], [2]]
+    assert out.steps[0].window == TimeWindow(
+        start=ClockTime(day=2, hour=8), end=ClockTime(day=2, hour=9)
+    )
+    assert out.steps[1].window == TimeWindow(
+        start=ClockTime(day=2, hour=9), end=ClockTime(day=2, hour=10)
+    )
+    assert out.steps[2].window.start == ClockTime(day=3, hour=6)
+    start = out.steps[3].window.start
+    end = out.steps[2].window.end
+    assert (start.day, start.hour, start.minute) >= (end.day, end.hour, end.minute)
+
+
 def test_to_step_carries_requires_masks():
     """_to_step carries an objective's required masks into the step."""
     obj = next(o for q in _KB.quests for o in q.objectives if o.id == "dg_talk_elder")
     step = planning_agent._to_step(
-        obj, 0, TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+        obj, TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9)), []
     )
     assert step.requires_masks == ["Goron Mask"]
 
