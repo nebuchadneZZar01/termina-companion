@@ -32,8 +32,9 @@ def validate_plan(
     """Check a plan's feasibility against the player's state and knowledge.
 
     Runs deterministic rules per step: empty plan, unknown objective,
-    location, time window, NPC availability, missing items and masks, and
-    sequence ordering.
+    location, time window, NPC availability, missing items and masks (items
+    and masks provided by earlier plan steps are credited), and sequence
+    ordering.
 
     args:
         plan (Plan | None): the plan to validate.
@@ -117,11 +118,20 @@ def _check_step(
         ):
             issues.append(_issue("npc", idx, f"{npc.name} is unavailable during {step.window}."))
 
-    missing_items = [item for item in step.requires_items if item not in game_state.inventory]
+    provided_items, provided_masks = _provided_upstream(idx, plan, by_id)
+    missing_items = [
+        item
+        for item in step.requires_items
+        if item not in game_state.inventory and item not in provided_items
+    ]
     if missing_items:
         issues.append(_issue("item", idx, f"Missing item(s): {', '.join(missing_items)}."))
 
-    missing_masks = [mask for mask in step.requires_masks if mask not in game_state.masks]
+    missing_masks = [
+        mask
+        for mask in step.requires_masks
+        if mask not in game_state.masks and mask not in provided_masks
+    ]
     if missing_masks:
         issues.append(_issue("mask", idx, f"Missing mask(s): {', '.join(missing_masks)}."))
 
@@ -139,6 +149,34 @@ def _check_step(
                 _issue("sequence", idx, "Depends on a step that ends after this one starts.")
             )
     return issues
+
+
+def _provided_upstream(
+    idx: int, plan: Plan, by_id: dict[str, Objective]
+) -> tuple[set[str], set[str]]:
+    """Items and masks that earlier plan steps hand the player.
+
+    A step that retrieves an item or a mask (an objective with
+    ``provides_items`` / ``provides_masks``) makes that reward available to
+    every later step, so a later requirement on it is satisfied even when the
+    player does not yet own it at the start of the plan.
+
+    args:
+        idx (int): the step index whose upstream rewards are collected.
+        plan (Plan): the whole plan, for earlier steps.
+        by_id (dict[str, Objective]): objective id to objective lookup.
+
+    returns:
+        tuple[set[str], set[str]]: the provided items and masks, as sets.
+    """
+    items: set[str] = set()
+    masks: set[str] = set()
+    for prior in plan.steps[:idx]:
+        obj = by_id.get(prior.objective_ref)
+        if obj is not None:
+            items.update(obj.provides_items)
+            masks.update(obj.provides_masks)
+    return items, masks
 
 
 def _missing_prerequisites(
