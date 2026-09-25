@@ -16,9 +16,10 @@ Status map:
   also validates required masks in addition to NPC availability).
 * Phase 4 — Streamlit UI: complete.
 * Phase 5 — LLM Integration: complete (6 providers; the Planning Agent
-  uses the LLM with structured output and a rule-based fallback; State,
-  Knowledge and Critic stay rule-based and deterministic; demo mode
-  preserved with no API keys).
+  always uses the LLM with structured output and fails explicitly when
+  configuration, invocation or output is unusable; State, Knowledge and Critic
+  stay rule-based and deterministic; local providers support demo mode without
+  external API keys).
 * Phase 6 — MCP: complete (MCP tools replace KB.retrieve(); the Knowledge
   Agent calls them in-process; the MCPServer exposes the same tools for
   external MCP clients; 6 tools: search_quests, get_npc_schedule,
@@ -44,7 +45,8 @@ PASS → Plan
 FAIL → Replanning
 ```
 
-The first version should run locally without external API keys and use mock/demo data.
+The first version should run locally with a configured LLM and mock/demo data.
+Local providers such as Ollama can run without an external API key.
 
 ---
 
@@ -124,8 +126,9 @@ Game State → Goal → Plan → Validation
 * [x] Configure providers through environment variables
 * [x] Integrate real LLM calls
 * [x] Use structured Pydantic output
+* [x] Remove planner rule-based fallback; fail on missing, failed or empty LLM output
 * [x] Keep Knowledge retrieval deterministic (keyword matcher; MCP tool seam)
-* [x] Preserve demo mode without API keys
+* [x] Support local demo mode without external API keys (Ollama/LM Studio)
 * [x] Add tests for LLM-dependent components where practical
 * [x] Ground LLM plans against the knowledge base (refs, titles, locations,
   required items) and dedupe steps

@@ -1,12 +1,15 @@
-"""Headless demo of the full pipeline, no API keys needed.
+"""Headless demo of the full pipeline.
 
-Run with ``uv run python -m app``.
+Run with ``uv run python -m app`` after configuring an LLM provider. Ollama
+can be used for a local run without an external API key.
 """
 
 from __future__ import annotations
 
+from app.agents.planning_agent import PlanningAgentError
 from app.domain import ClockTime, GameState, Goal
 from app.graph import MAX_PLANNING_ATTEMPTS, run_pipeline
+from app.llm import LLMConfigurationError
 from app.log import configure_logging
 
 
@@ -31,7 +34,11 @@ def demo() -> None:
     print("Goal:", goal.description)
     print("Player:", game_state.model_dump())
 
-    result = run_pipeline(game_state, goal)
+    try:
+        result = run_pipeline(game_state, goal)
+    except (LLMConfigurationError, PlanningAgentError) as exc:
+        print(f"\nPlanning failed: {exc}")
+        return
 
     print("\n--- State Agent understood ---")
     print(result.state_summary)
