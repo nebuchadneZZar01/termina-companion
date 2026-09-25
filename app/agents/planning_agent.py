@@ -1,19 +1,13 @@
 """Planning Agent: builds an ordered, time-boxed plan from relevant objectives.
 
-With an LLM configured it produces the :class:`~app.domain.Plan` via structured
-Pydantic output, given the state summary, retrieved objectives and (on
-re-planning) the previous validation feedback. Otherwise it falls back to the
-deterministic slot-filling brain below.
+The agent always asks the configured LLM for a :class:`~app.domain.Plan` via
+structured Pydantic output. It receives the state summary, retrieved objectives
+and, on re-planning, the previous validation feedback.
 
 LLM output is post-processed deterministically: step refs, titles and
 locations are grounded to the knowledge objectives, duplicate steps are
-removed, and each step's window is clamped inside its objective's window so
-temporal feasibility never depends on the model (see ``_clamp_windows``).
-
-The rule-based brain still drives the re-planning loop in demo mode: the first
-attempt schedules naive one-hour slots from the player's current time (so the
-Critic Agent has a real conflict to catch), later attempts schedule sequential
-slots clamped inside each objective's window.
+removed, each step's window is clamped inside its objective's window, and the
+authoritative prerequisite chain is rebuilt before validation.
 """
 
 from __future__ import annotations
@@ -33,11 +27,12 @@ _SLOT = 1  # hours per step
 logger = logging.getLogger(__name__)
 
 
-def run(state: PlanningState) -> dict:
-    """Build an ordered, time-boxed plan for the player's goal.
+class PlanningAgentError(RuntimeError):
+    """Raised when the Planning Agent cannot obtain a usable LLM plan."""
 
-    Uses the LLM when configured (grounded against the knowledge base) and
-    falls back to the deterministic rule-based brain otherwise.
+
+def run(state: PlanningState) -> dict:
+    """Build an ordered, time-boxed plan with the configured LLM.
 
     args:
         state (PlanningState): the workflow state with player state, goal
@@ -45,37 +40,34 @@ def run(state: PlanningState) -> dict:
 
     returns:
         dict: the generated ``plan``, incremented ``replan_attempts``,
-        ``plan_engine`` ("llm" or "rule-based") and ``plan_model`` (the model
-        name, empty for the rule-based brain).
+        ``plan_engine`` (``"llm"``) and ``plan_model``.
+
+    raises:
+        PlanningAgentError: if no model is available or the LLM returns no
+            usable plan.
     """
-    result: Plan | None = None
-    engine = "rule-based"
-    plan_model = ""
     model = get_chat_model(**state.llm_config)
-    if model is not None:
-        plan_model = getattr(model, "model_name", "") or model.__class__.__name__
-        result = _llm_run(state, model)
-        if result is not None:
-            engine = "llm"
-        else:
-            plan_model = ""  # LLM failed — rule-based brain takes over
-    if result is None:
-        result = _rule_based_run(state)
-    elif engine == "llm":
-        result = _ground_llm_steps(result, state.relevant_objectives)
-        result = _dedupe_steps(result)
-        result = _clamp_windows(result, state.relevant_objectives)
+    if model is None:
+        raise PlanningAgentError(
+            "Planning Agent requires a configured LLM. Set LLM_PROVIDER and its credentials."
+        )
+
+    plan_model = getattr(model, "model_name", "") or model.__class__.__name__
+    result = _llm_run(state, model)
+    result = _ground_llm_steps(result, state.relevant_objectives)
+    result = _dedupe_steps(result)
+    result = _clamp_windows(result, state.relevant_objectives)
     result = _reconcile_plan(result, state)
     _log_plan(result)
     return {
         "plan": result,
         "replan_attempts": state.replan_attempts + 1,
-        "plan_engine": engine,
+        "plan_engine": "llm",
         "plan_model": plan_model,
     }
 
 
-def _llm_run(state: PlanningState, model) -> Plan | None:
+def _llm_run(state: PlanningState, model) -> Plan:
     """Ask the LLM for a structured plan, with replan feedback when provided.
 
     args:
@@ -83,8 +75,11 @@ def _llm_run(state: PlanningState, model) -> Plan | None:
         model (BaseChatModel): the configured chat model.
 
     returns:
-        Plan: the LLM-produced plan, or None on failure/empty output so the
-        caller falls back to the rule-based brain.
+        Plan: the LLM-produced plan.
+
+    raises:
+        PlanningAgentError: if invocation fails or the model returns an empty
+            or malformed plan.
     """
     feedback = ""
     if state.validation and not state.validation.valid:
@@ -119,12 +114,19 @@ def _llm_run(state: PlanningState, model) -> Plan | None:
     try:
         plan = model.with_structured_output(Plan).invoke([prompt, user])
     except Exception as exc:
-        logger.warning("Planning Agent: LLM path failed, falling back to rule-based: %s", exc)
-        return None
+        logger.error("Planning Agent: LLM invocation failed: %s", exc)
+        raise PlanningAgentError(f"LLM invocation failed: {exc}") from exc
+
     elapsed = time.perf_counter() - started
+    if plan is None:
+        logger.error("Planning Agent: LLM returned an empty plan")
+        raise PlanningAgentError("LLM returned an empty plan")
+    if not isinstance(plan, Plan):
+        logger.error("Planning Agent: LLM returned %s, expected Plan", type(plan).__name__)
+        raise PlanningAgentError("LLM returned an invalid plan object")
     if not plan.steps:
-        logger.warning("Planning Agent: LLM returned an empty plan, falling back to rule-based")
-        return None
+        logger.error("Planning Agent: LLM returned an empty plan")
+        raise PlanningAgentError("LLM returned an empty plan")
     logger.info(
         "Planning Agent [LLM]: %d step(s) (%.2fs), replan feedback=%s",
         len(plan.steps),
@@ -132,41 +134,6 @@ def _llm_run(state: PlanningState, model) -> Plan | None:
         "yes" if feedback else "no",
     )
     return plan
-
-
-def _rule_based_run(state: PlanningState) -> Plan:
-    """Build a deterministic plan from the retrieved objectives.
-
-    The first attempt is deliberately naive (one-hour slots from now) so the
-    Critic has a conflict to catch; later attempts clamp slots inside each
-    objective's window, ordered by prerequisites.
-
-    args:
-        state (PlanningState): the workflow state with game state and
-        relevant objectives.
-
-    returns:
-        Plan: a step per objective, ordered by prerequisites.
-    """
-    ordered = _order_by_prerequisites(state.relevant_objectives)
-    naive = state.replan_attempts == 0
-    steps: list[PlanStep] = []
-    prev_end: ClockTime | None = None
-    for index, obj in enumerate(ordered):
-        window = (
-            _naive_window(state.game_state.time, index)
-            if naive
-            else _window_inside(obj, prev_end or state.game_state.time)
-        )
-        steps.append(_to_step(obj, window, steps))
-        prev_end = window.end
-    logger.info(
-        "Planning Agent [rule-based]: attempt %d (naive=%s), %d step(s)",
-        state.replan_attempts + 1,
-        naive,
-        len(steps),
-    )
-    return Plan(goal=state.goal.description, steps=steps)
 
 
 def _log_plan(plan: Plan) -> None:
@@ -276,20 +243,18 @@ def _dedupe_steps(plan: Plan) -> Plan:
 
 # ponytail: deterministic chain enforcement. The LLM may skip chain objectives,
 # keep an "obtain item" step for something the player already owns, or schedule
-# steps as whole objective slots that overlap their prerequisites; the
-# rule-based brain plans whatever retrieval returned. The relevant-objective
-# chain (prerequisites first) is authoritative, so the final plan is rebuilt
-# around it: fully-owned provide steps are pruned, missing chain steps are
-# re-inserted with rule-based slots, and on replan attempts kept steps are
-# re-slotted onto a 1h window after their dependencies end (LLM replanning
-# alone never fixes timing). Ceiling: no per-objective "done" tracking in
-# GameState; upgrade path: model completed objectives so chains can start
-# mid-quest.
+# steps as whole objective slots that overlap their prerequisites. The
+# relevant-objective chain (prerequisites first) is authoritative, so the final
+# plan is rebuilt around it: fully-owned provide steps are pruned, missing chain
+# steps are re-inserted with deterministic slots, and on replan attempts kept
+# steps are re-slotted onto a 1h window after their dependencies end. Ceiling:
+# no per-objective "done" tracking in GameState; upgrade path: model completed
+# objectives so chains can start mid-quest.
 def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
     """Rebuild the plan around the authoritative objective chain.
 
     args:
-        plan (Plan): the generated plan (rule-based or grounded LLM).
+        plan (Plan): the grounded LLM plan.
         state (PlanningState): the workflow state with game state and the
         retrieved objectives.
 
@@ -424,20 +389,6 @@ def _match_objective(step: PlanStep, objectives: list[Objective]) -> Objective |
         o for o, score in scored if score == max((s for _, s in scored), default=0) and score > 0
     ]
     return best[0] if len(best) == 1 else None
-
-
-def _naive_window(start: ClockTime, index: int) -> TimeWindow:
-    """Build the naive one-hour window for the index-th step.
-
-    args:
-        start (ClockTime): the player's current time.
-        index (int): step index to offset from the start.
-
-    returns:
-        TimeWindow: the naive ``_SLOT``-hour window.
-    """
-    begin = _add_hours(start, index * _SLOT)
-    return TimeWindow(start=begin, end=_add_hours(begin, _SLOT))
 
 
 def _window_inside(obj: Objective, earliest: ClockTime) -> TimeWindow:

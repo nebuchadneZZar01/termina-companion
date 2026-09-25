@@ -1,7 +1,21 @@
+import pytest
+
+from app.agents import critic_agent
 from app.agents.critic_agent import validate_plan
-from app.domain import ClockTime, GameState, Goal, Plan, PlanStep, TimeWindow
+from app.domain import (
+    ClockTime,
+    GameState,
+    Goal,
+    Plan,
+    PlanStep,
+    TimeWindow,
+    ValidationIssue,
+    ValidationResult,
+)
 from app.graph import run_pipeline
 from app.ui import _markdown_windows
+
+pytestmark = pytest.mark.usefixtures("fake_planner_model")
 
 
 def _objective(id_: str, window: TimeWindow, location: str = "Q") -> object:
@@ -201,8 +215,8 @@ def test_unsatisfied_dependency_rejected():
     assert any(i.kind == "sequence" for i in validate_plan(plan, _gs(), objectives).issues)
 
 
-def test_pipeline_replans_to_feasible_plan_with_letter():
-    """Pipeline re-plans the naive attempt into a valid Anju & Kafei plan."""
+def test_pipeline_builds_feasible_plan_with_letter():
+    """The LLM plan is reconciled into a valid Anju & Kafei plan."""
     gs = GameState(
         time=ClockTime(day=2, hour=8),
         location="Stockpot Inn",
@@ -212,7 +226,42 @@ def test_pipeline_replans_to_feasible_plan_with_letter():
         gs, Goal(description="Reunite Anju and Kafei before the dawn of the Third Day")
     )
     assert result.validation is not None and result.validation.valid
-    assert result.replan_attempts == 2  # naive attempt invalid -> re-plan under objective windows
+    assert result.replan_attempts == 1
+
+
+def test_pipeline_replans_after_critic_failure(monkeypatch):
+    """A Critic failure sends the graph back to the LLM planner."""
+    critic_calls = 0
+    real_critic = critic_agent.run
+
+    def _critic_with_one_forced_failure(state):
+        nonlocal critic_calls
+        critic_calls += 1
+        if critic_calls == 1:
+            return {
+                "validation": ValidationResult(
+                    valid=False,
+                    issues=[
+                        ValidationIssue(
+                            severity="error",
+                            kind="forced",
+                            message="Forced test failure.",
+                        )
+                    ],
+                ),
+                "critic_engine": "rule-based",
+            }
+        return real_critic(state)
+
+    monkeypatch.setattr(critic_agent, "run", _critic_with_one_forced_failure)
+    result = run_pipeline(
+        GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn"),
+        Goal(description="Reunite Anju and Kafei before the dawn of the Third Day"),
+    )
+
+    assert result.validation is not None and result.validation.valid
+    assert result.replan_attempts == 2
+    assert critic_calls == 2
 
 
 def test_pipeline_valid_when_item_is_provided_by_plan():

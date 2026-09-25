@@ -36,7 +36,7 @@ def _graph():
 
 _SPINNER_INTERVAL = 3.0
 
-_PROVIDERS = ("", "openai", "openrouter", "ollama", "lmstudio", "anthropic", "google")
+_PROVIDERS = ("openai", "openrouter", "ollama", "lmstudio", "anthropic", "google")
 
 _LANGS = {"en": "\U0001f1ec\U0001f1e7 English", "it": "\U0001f1ee\U0001f1f9 Italiano"}
 
@@ -68,7 +68,7 @@ def _engine_badge(engine: str | None, model: str = "") -> str:
     """Format an engine name as a parenthesised badge suffix.
 
     args:
-        engine (str | None): the engine label, e.g. "rule-based".
+        engine (str | None): the engine label, e.g. "llm".
         model (str, default ""): the model name, shown when present.
 
     returns:
@@ -409,7 +409,7 @@ def render() -> None:
         None: renders the whole app page.
     """
     if "lang" not in st.session_state:
-        st.session_state["lang"] = "en"
+        st.session_state["lang"] = "it"
 
     st.set_page_config(
         page_title="Termina Companion",
@@ -421,19 +421,11 @@ def render() -> None:
         st.selectbox(t("language"), list(_LANGS), key="lang", format_func=lambda c: _LANGS[c])
         st.divider()
         _section(t("llm_settings"))
-        llm_provider = st.selectbox(
-            t("llm_provider"),
-            list(_PROVIDERS),
-            format_func=lambda p: p or "rule-based",
-        )
-        if llm_provider:
-            llm_model = st.text_input(t("llm_model"), placeholder="gpt-4o-mini")
-            llm_api_key = st.text_input(t("llm_api_key"), type="password")
-            if not llm_model.strip():
-                st.caption(t("llm_model_required"))
-        else:
-            llm_model = ""
-            llm_api_key = ""
+        llm_provider = st.selectbox(t("llm_provider"), list(_PROVIDERS))
+        llm_model = st.text_input(t("llm_model"), placeholder="gpt-4o-mini")
+        llm_api_key = st.text_input(t("llm_api_key"), type="password")
+        if not llm_model.strip():
+            st.caption(t("llm_model_required"))
 
     st.title(f"\U0001f319 {t('title')}")
     st.caption(t("subtitle"))
@@ -468,6 +460,7 @@ def render() -> None:
             item_options or ["Kafei's Letter"],
             format_func=tr,
             help=t("inventory_help"),
+            placeholder=t("inventory_placeholder"),
             accept_new_options=True,
         )
         quest_names = {q.name: q.id for q in kb.quests}
@@ -485,7 +478,7 @@ def render() -> None:
         _section(t("goal"), t("goal_caption"))
         goal_text = st.text_area(
             t("goal_placeholder"),
-            value="Reunite Anju and Kafei before the dawn of the Third Day",
+            placeholder=t("goal_example"),
             height=180,
             label_visibility="collapsed",
         )
@@ -494,7 +487,7 @@ def render() -> None:
             t("generate_plan"),
             type="primary",
             use_container_width=True,
-            disabled=bool(llm_provider) and not llm_model.strip(),
+            disabled=not llm_model.strip(),
         )
 
     if not run:
@@ -522,11 +515,11 @@ def render() -> None:
     result: dict = {}
 
     def _run_stream(q) -> None:
-        """Stream graph updates into the given queue for the UI thread.
+        """Stream graph updates or an execution error into the queue.
 
         args:
-            q (queue.Queue): the queue receiving ``{node: data}`` updates,
-            terminated with ``None``.
+            q (queue.Queue): the queue receiving ``{node: data}`` updates or
+            an exception, terminated with ``None``.
 
         returns:
             None: runs in a background thread.
@@ -534,6 +527,8 @@ def render() -> None:
         try:
             for update in _graph().stream(initial, stream_mode="updates"):
                 q.put(update)
+        except Exception as exc:
+            q.put(exc)
         finally:
             q.put(None)
 
@@ -559,6 +554,14 @@ def render() -> None:
                 continue
             if item is None:
                 break
+            if isinstance(item, Exception):
+                outer.update(
+                    label=t("planning_error", error=str(item)),
+                    state="error",
+                    expanded=True,
+                )
+                st.error(t("planning_error", error=str(item)))
+                return
             for node, data in item.items():
                 result.update(data)
                 name = agent_name[node]
@@ -594,7 +597,8 @@ def render() -> None:
         st.error(t("plan_not_valid"))
 
     plan_model = result.get("plan_model")
-    st.caption(t("plan_model_caption", model=plan_model) if plan_model else t("plan_model_rule"))
+    if plan_model:
+        st.caption(t("plan_model_caption", model=plan_model))
 
     _render_plan(result["plan"])
 

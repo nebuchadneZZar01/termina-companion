@@ -1,8 +1,8 @@
 """LLM provider factory.
 
-Reads provider configuration from environment variables. Returns ``None``
-without credentials so every agent falls back to its deterministic rule-based
-brain and the demo stays runnable with no API keys.
+Reads provider configuration from environment variables. A usable LLM is
+required by the Planning Agent; invalid or incomplete configuration raises
+:class:`LLMConfigurationError` instead of selecting an alternate planner.
 """
 
 from __future__ import annotations
@@ -33,29 +33,41 @@ _ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-5"
 _GOOGLE_DEFAULT_MODEL = "gemini-2.5-flash"
 
 
+class LLMConfigurationError(RuntimeError):
+    """Raised when no usable LLM provider is configured."""
+
+
 def get_chat_model(
     provider: str | None = None,
     model: str | None = None,
     api_key: str | None = None,
     base_url: str | None = None,
-) -> BaseChatModel | None:
-    """Return a configured chat model, or None when nothing is configured.
+) -> BaseChatModel:
+    """Return a configured chat model.
 
     All parameters override the corresponding ``LLM_*`` env vars when
     provided (non-empty string).
+
+    raises:
+        LLMConfigurationError: if the provider is missing, unsupported or lacks
+            required credentials.
     """
     provider = (provider or os.getenv("LLM_PROVIDER", "")).strip().lower()
-    if not provider or provider == "rule-based":
-        logger.info("No LLM configured (provider=%r) — rule-based brains active", provider)
-        return None
+    if not provider:
+        raise LLMConfigurationError(
+            "No LLM provider configured. Set LLM_PROVIDER to a supported provider."
+        )
+    if provider == "rule-based":
+        raise LLMConfigurationError(
+            "The rule-based provider is no longer supported; configure an LLM provider."
+        )
     model = (model or os.getenv("LLM_MODEL", "")).strip() or None
     api_key = (api_key or os.getenv("LLM_API_KEY", "")).strip() or None
 
     if provider in _OPENAI_COMPATIBLE:
         default_url, default_model = _OPENAI_COMPATIBLE[provider]
         if api_key is None and provider in {"openai", "openrouter"}:
-            logger.warning("Provider %r requires LLM_API_KEY — rule-based brains active", provider)
-            return None
+            raise LLMConfigurationError(f"Provider {provider!r} requires LLM_API_KEY")
         chat = ChatOpenAI(
             model=model or default_model,
             api_key=api_key or "not-needed",
@@ -67,13 +79,10 @@ def get_chat_model(
         return chat
     if provider == "anthropic":
         if api_key is None:
-            logger.warning("Provider %r requires LLM_API_KEY — rule-based brains active", provider)
-            return None
+            raise LLMConfigurationError("Provider 'anthropic' requires LLM_API_KEY")
         return ChatAnthropic(model=model or _ANTHROPIC_DEFAULT_MODEL, api_key=api_key)
     if provider == "google":
         if api_key is None:
-            logger.warning("Provider %r requires LLM_API_KEY — rule-based brains active", provider)
-            return None
+            raise LLMConfigurationError("Provider 'google' requires LLM_API_KEY")
         return ChatGoogleGenerativeAI(model=model or _GOOGLE_DEFAULT_MODEL, api_key=api_key)
-    logger.warning("Unknown LLM_PROVIDER %r — rule-based brains active", provider)
-    return None
+    raise LLMConfigurationError(f"Unknown LLM_PROVIDER {provider!r}")

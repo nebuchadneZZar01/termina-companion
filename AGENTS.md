@@ -95,12 +95,12 @@ Do not implement RAG, persistent memory, tracing or evaluation prematurely. Leav
   through the MCP tools in `app/mcp/tools.py`.
 * `app/agents/` — one module per agent (state, knowledge,
   planning, critic), each exposing a LangGraph node function `run(state) -> dict`.
-  State and Critic run deterministic rule-based brains; the Planning
-  Agent uses an LLM when configured and falls back to its rule-based brain
-  without credentials. LLM output is post-processed deterministically: refs,
-  titles and locations are grounded to the knowledge objectives and each
-  step's window is clamped inside its objective's slot (see
-  `app/agents/planning_agent.py`). The final plan is then rebuilt against the
+  State, Knowledge and Critic run deterministic rule-based logic. The Planning
+  Agent always calls the configured LLM; missing configuration, invocation
+  errors and empty output fail explicitly. LLM output is post-processed
+  deterministically: refs, titles and locations are grounded to the knowledge
+  objectives and each step's window is clamped inside its objective's slot
+  (see `app/agents/planning_agent.py`). The final plan is then rebuilt against the
   authoritative objective chain: `search_quests` retrieves a whole quest when
   any of its objectives matches, "obtain item" steps are pruned when the
   player already owns what they provide (`provides_items`/`provides_masks` on
@@ -114,15 +114,15 @@ Do not implement RAG, persistent memory, tracing or evaluation prematurely. Leav
   get_location, check_prerequisites) — the single seam between agents and
   game data. `app/mcp/server.py` wraps them as a `MCPServer` for external
   MCP clients. The Knowledge Agent imports tools directly for in-process use.
-* `app/llm.py` — LLM provider factory (`get_chat_model()`); returns `None`
-  without credentials so the Planning Agent falls back to its rule-based brain.
-  The seam for MCP tool-triggered retrieval. `LLM_PROVIDER=rule-based` (the
-  default) means "no LLM".
+* `app/llm.py` — LLM provider factory (`get_chat_model()`); raises
+  `LLMConfigurationError` when no usable provider is configured. The Planning
+  Agent has no rule-based fallback.
 * `app/state.py` — `PlanningState`, the workflow state threaded
   through the graph (Pydantic model, used as the LangGraph state schema).
 * `app/graph.py` — graph wiring and the bounded re-planning
   loop (max `MAX_PLANNING_ATTEMPTS = 3`) driven by the Critic Agent.
-* `app/ui.py` — Streamlit frontend logic (`render()`); no API keys needed.
+* `app/ui.py` — Streamlit frontend logic (`render()`); requires a configured
+  LLM provider, with local providers supported for offline runs.
 * `app/__main__.py` — headless pipeline demo (`python -m app`).
 * `tests/` — domain model, validation and re-planning tests.
 

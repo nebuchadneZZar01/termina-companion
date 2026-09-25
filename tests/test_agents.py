@@ -1,6 +1,9 @@
 """Every agent reports which engine produced its output."""
 
+import pytest
+
 from app.agents import critic_agent, knowledge_agent, planning_agent, state_agent
+from app.agents.planning_agent import PlanningAgentError
 from app.data.mock_knowledge import Objective, build_default_knowledge
 from app.domain import ClockTime, GameState, Goal, Plan, PlanStep, TimeWindow
 from app.mcp.tools import search_quests
@@ -71,13 +74,11 @@ def test_critic_agent_is_rule_based():
     assert critic_agent.run(_state())["critic_engine"] == "rule-based"
 
 
-def test_planning_agent_rule_based_fallback(monkeypatch):
-    """The Planning Agent falls back to rule-based without an LLM."""
+def test_planning_agent_requires_llm(monkeypatch):
+    """The Planning Agent fails explicitly when no LLM is available."""
     monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: None)
-    result = planning_agent.run(_state())
-    assert result["plan"] is not None
-    assert result["plan_engine"] == "rule-based"
-    assert result["plan_model"] == ""
+    with pytest.raises(PlanningAgentError, match="requires a configured LLM"):
+        planning_agent.run(_state())
 
 
 def test_planning_agent_threads_llm_config(monkeypatch):
@@ -86,7 +87,7 @@ def test_planning_agent_threads_llm_config(monkeypatch):
 
     def _spy(**kw):
         captured.update(kw)
-        return None
+        return _FakeModel()
 
     monkeypatch.setattr(planning_agent, "get_chat_model", _spy)
     state = _state().model_copy(
@@ -245,9 +246,26 @@ class _FakeModel:
         )
 
 
+class _EmptyModel:
+    model_name = "empty-model"
+
+    def with_structured_output(self, _schema):
+        return self
+
+    def invoke(self, _msgs):
+        return Plan(goal="x", steps=[])
+
+
+def test_planning_agent_rejects_empty_llm_plan(monkeypatch):
+    """An empty LLM response is an explicit planning failure."""
+    monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: _EmptyModel())
+    with pytest.raises(PlanningAgentError, match="empty plan"):
+        planning_agent.run(_state())
+
+
 def test_planning_agent_skips_owned_provide_step(monkeypatch):
     """ "Retrieve the letter" is pruned once the player already owns it."""
-    monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: None)
+    monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: _FakeModel())
     result = planning_agent.run(_state(inventory=["Kafei's Letter"]))
     refs = [s.objective_ref for s in result["plan"].steps]
     assert refs == ["ak_talk_to_anju", "ak_deliver_letter", "ak_reunite"]
