@@ -552,19 +552,26 @@ def render() -> None:
 
     initial = {"game_state": game_state, "goal": goal, "llm_config": llm_config}
     result: dict = {}
+    # Build the cached graph in the main thread: `_graph()` is wrapped in
+    # @st.cache_resource, whose dispatcher needs the script run context, so
+    # calling it from the streaming thread would raise "missing
+    # ScriptRunContext". The thread only streams updates afterwards.
+    graph = _graph()
 
-    def _run_stream(q) -> None:
+    def _run_stream(q, graph) -> None:
         """Stream graph updates or an execution error into the queue.
 
         args:
             q (queue.Queue): the queue receiving ``{node: data}`` updates or
             an exception, terminated with ``None``.
+            graph (object): the compiled LangGraph, built under the script
+            context.
 
         returns:
             None: runs in a background thread.
         """
         try:
-            for update in _graph().stream(initial, stream_mode="updates"):
+            for update in graph.stream(initial, stream_mode="updates"):
                 q.put(update)
         except Exception as exc:
             q.put(exc)
@@ -579,7 +586,7 @@ def render() -> None:
     }
     phrases = itertools.cycle(spinner_lines())
     q: queue.Queue = queue.Queue()
-    threading.Thread(target=_run_stream, args=(q,), daemon=True).start()
+    threading.Thread(target=_run_stream, args=(q, graph), daemon=True).start()
 
     with st.status(f"{next(phrases)}...", type="step", state="running", expanded=True) as outer:
         next_flip = time.monotonic()
