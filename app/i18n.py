@@ -20,6 +20,9 @@ _DISPLAY_IT: dict[str, str] = {
     "Locate the hidden hideout behind the clock tower": (
         "Trova il nascondiglio nascosto dietro la torre dell'orologio"
     ),
+    "Earn the Bomber's Notebook from the Bombers' leader": (
+        "Guadagna il Taccuino del Bomber dal leader dei Bombers"
+    ),
     "Retrieve Kafei's letter from the mailbox": (
         "Recupera la lettera di Kafei dalla cassetta postale"
     ),
@@ -45,19 +48,34 @@ _DISPLAY_IT: dict[str, str] = {
     "The hideout entrance is marked by a odd drawing.": (
         "L'ingresso del nascondiglio è segnato da un disegno strano."
     ),
+    "The leader gives the notebook to a member he trusts.": (
+        "Il leader consegna il taccuino a un membro di cui si fida."
+    ),
     # objective titles — Darmani's Spirit
+    "Obtain the Goron Mask from the Happy Mask Salesman": (
+        "Ottieni la Maschera Goron dal Venditore di Maschere"
+    ),
     "Listen to the Goron Elder's song": "Ascolta la canzone dell'Anziano Goron",
+    "Obtain the Lens of Truth at the Curiosity Shop": (
+        "Ottieni la Lente della Verità al Negozio di Curiosità"
+    ),
     "Speak with Darmani's ghost at the Goron Shrine": (
         "Parla con il fantasma di Darmani al Santuario Goron"
     ),
     "Learn the Goron Lullaby from Darmani": "Impara la Ninna Nanna Goron da Darmani",
     # objective titles — Mikau's Memory
+    "Recover the Zora Mask from the Great Bay Coast": (
+        "Recupera la Maschera Zora sulla Costa della Grande Baia"
+    ),
     "Ask Tael about Mikau at Zora Hall": "Chiedi a Tael di Mikau alla Sala Zora",
     "Retrieve Mikau's eggs from Pinnacle Rock": (
         "Recupera le uova di Mikau dalla Roccia Pinnacolo"
     ),
     "Learn the Song of Opening from Mikau": ("Impara la Canzone dell'Apertura da Mikau"),
     # objective titles — Pamela's Father
+    "Buy the Gibdo Mask at the Curiosity Shop": (
+        "Compra la Maschera Gibdo al Negozio di Curiosità"
+    ),
     "Enter the Ancient Castle of Ikana at night": ("Entra nell'Antico Castello di Ikana di notte"),
     "Free Pamela's father from the Gibdo curse": (
         "Libera il padre di Pamela dalla maledizione dei Gibdo"
@@ -66,12 +84,18 @@ _DISPLAY_IT: dict[str, str] = {
         "Riunisci Pamela e suo padre dopo averlo liberato"
     ),
     # objective titles — Deku Princess Rescue
+    "Receive the Deku Mask from the Happy Mask Salesman": (
+        "Ricevi la Maschera Deku dal Venditore di Maschere"
+    ),
     "Plead with the Deku King for the princess": ("Implora il Re Deku per la principessa"),
     "Navigate the swamp to reach Woodfall": ("Attraversa la palude per raggiungere Woodfall"),
     "Free the Deku Princess from the monkey's cage": (
         "Libera la principessa Deku dalla gabbia della scimmia"
     ),
     # objective titles — Romani Ranch
+    "Buy the Powder Keg for the alien defense": (
+        "Compra la Botte di Polvere per la difesa dagli alieni"
+    ),
     "Help Romani practice shooting aliens at the ranch": (
         "Aiuta Romani ad allenarsi a sparare agli alieni nella fattoria"
     ),
@@ -80,6 +104,9 @@ _DISPLAY_IT: dict[str, str] = {
         "Viaggia con Cremia per consegnare il latte a Clock Town"
     ),
     # objective titles — Land Title Deed Chain
+    "Receive the Swamp Title Deed in the Southern Swamp": (
+        "Ricevi la Carta di Proprietà della Palude nella Palude del Sud"
+    ),
     "Deliver the Swamp Title Deed to the Goron Shrine": (
         "Consegna la Carta di Proprietà della Palude al Santuario Goron"
     ),
@@ -93,8 +120,14 @@ _DISPLAY_IT: dict[str, str] = {
         "Consegna la Carta di Proprietà della Terra a Clock Town"
     ),
     # objective descriptions — Darmani's Spirit
+    "The Happy Mask Salesman trades the mask to a traveller he trusts.": (
+        "Il Venditore di Maschere cede la maschera a un viaggiatore di cui si fida."
+    ),
     "The Elder plays a melody that soothes Darmani's restless spirit.": (
         "L'Anziano suona una melodia che calma lo spirito inquieto di Darmani."
+    ),
+    "The Curiosity Shop sells the lens that sees the unseen.": (
+        "Il Negozio di Curiosità vende la lente che vede l'invisibile."
     ),
     "Use the Lens of Truth to see Darmani's spirit.": (
         "Usa la Lente della Verità per vedere lo spirito di Darmani."
@@ -103,6 +136,9 @@ _DISPLAY_IT: dict[str, str] = {
         "Darmani ti insegna la ninna nanna che farà addormentare il bambino."
     ),
     # objective descriptions — Mikau's Memory
+    "The Zora Mask lies buried in the tide-washed shore.": (
+        "La Maschera Zora giace sepolta sulla riva lavata dalla marea."
+    ),
     "Tael knows where Mikau's stolen eggs are hidden.": (
         "Tael sa dove sono nascoste le uova rubate di Mikau."
     ),
@@ -113,6 +149,9 @@ _DISPLAY_IT: dict[str, str] = {
         "Mikau ti insegna la canzone che apre il Tempio della Grande Baia."
     ),
     # objective descriptions — Pamela's Father
+    "The Curiosity Shop sells the mask before nightfall.": (
+        "Il Negozio di Curiosità vende la maschera prima del calare della notte."
+    ),
     "The castle is crawling with Gibdos during the night.": (
         "Il castello brulica di Gibdo durante la notte."
     ),
@@ -123,6 +162,9 @@ _DISPLAY_IT: dict[str, str] = {
         "Pamela è felicissima di avere di nuovo suo padre."
     ),
     # objective descriptions — Deku Princess Rescue
+    "The salesman loans the travelling hero the Deku Mask.": (
+        "Il venditore presta la Maschera Deku all'eroe viaggiatore."
+    ),
     "The Deku King believes you kidnapped his daughter.": (
         "Il Re Deku crede che tu abbia rapito sua figlia."
     ),
@@ -133,6 +175,9 @@ _DISPLAY_IT: dict[str, str] = {
         "La scimmia ha rinchiuso la principessa in una gabbia a Woodfall."
     ),
     # objective descriptions — Romani Ranch
+    "The keg shop sells the blast that drives the aliens away.": (
+        "Il negozio di polvere vende l'esplosivo che scaccia gli alieni."
+    ),
     "Romani needs your help defending the ranch from the Bremmmy Gyorgs tonight.": (
         "Romani ha bisogno del tuo aiuto per difendere la fattoria dai Bremmmy Gyorg stasera."
     ),
@@ -144,6 +189,9 @@ _DISPLAY_IT: dict[str, str] = {
         "Cremia ha bisogno di una scorta attraverso il canyon nella Seconda Notte."
     ),
     # objective descriptions — Land Title Deed Chain
+    "The swamp owner hands over the deed to a worthy bearer.": (
+        "Il proprietario della palude consegna la carta a un possessore degno."
+    ),
     "Trade the Swamp Title Deed for the Mountain Title Deed.": (
         "Scambia la Carta di Proprietà della Palude con quella della Montagna."
     ),

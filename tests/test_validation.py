@@ -1,6 +1,6 @@
 from app.agents.critic_agent import validate_plan
 from app.domain import ClockTime, GameState, Goal, Plan, PlanStep, TimeWindow
-from app.graph import MAX_PLANNING_ATTEMPTS, run_pipeline
+from app.graph import run_pipeline
 from app.ui import _markdown_windows
 
 
@@ -215,15 +215,15 @@ def test_pipeline_replans_to_feasible_plan_with_letter():
     assert result.replan_attempts == 2  # naive attempt invalid -> re-plan under objective windows
 
 
-def test_pipeline_gives_up_without_required_item():
-    """Pipeline exhausts replans when the required item is missing."""
+def test_pipeline_valid_when_item_is_provided_by_plan():
+    """A required item is credited when an earlier step provides it."""
     gs = GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn", inventory=[])
     result = run_pipeline(
         gs, Goal(description="Reunite Anju and Kafei before the dawn of the Third Day")
     )
-    assert result.validation is not None and not result.validation.valid
-    assert result.replan_attempts == MAX_PLANNING_ATTEMPTS
-    assert any(i.kind == "item" for i in result.validation.issues)
+    assert result.validation is not None and result.validation.valid
+    refs = [s.objective_ref for s in result.plan.steps]
+    assert refs == ["ak_talk_to_anju", "ak_get_letter", "ak_deliver_letter", "ak_reunite"]
 
 
 def test_pipeline_valid_with_required_mask():
@@ -238,17 +238,46 @@ def test_pipeline_valid_with_required_mask():
     assert result.validation is not None and result.validation.valid
 
 
-def test_pipeline_gives_up_without_required_mask():
-    """Pipeline exhausts replans when a required mask is missing."""
+def test_pipeline_valid_when_mask_is_acquired_in_plan():
+    """Pipeline acquires a missing mask before the steps that need it."""
     gs = GameState(
         time=ClockTime(day=1, hour=8),
         location="Goron Shrine",
         inventory=["Lens of Truth"],
     )
     result = run_pipeline(gs, Goal(description="I want to learn the Goron Lullaby from Darmani"))
-    assert result.validation is not None and not result.validation.valid
-    assert result.replan_attempts == MAX_PLANNING_ATTEMPTS
-    assert any(i.kind == "mask" for i in result.validation.issues)
+    assert result.validation is not None and result.validation.valid
+    assert result.plan.steps[0].objective_ref == "dg_get_goron_mask"
+
+
+def test_pipeline_valid_when_item_is_acquired_in_plan():
+    """Pipeline acquires a missing item before the steps that need it."""
+    gs = GameState(
+        time=ClockTime(day=1, hour=6),
+        location="North Clock Town",
+    )
+    result = run_pipeline(gs, Goal(description="I want the Bomber's Notebook from the gang"))
+    assert result.validation is not None and result.validation.valid
+    refs = [s.objective_ref for s in result.plan.steps]
+    assert refs == ["bm_talk_leader", "bm_get_notebook", "bm_find_hideout"]
+
+
+def test_pipeline_valid_across_multi_quest_goal():
+    """A goal matching several quests chains each quest only to itself."""
+    gs = GameState(time=ClockTime(day=1, hour=8), location="Termina Field")
+    result = run_pipeline(
+        gs, Goal(description="I want to enter the Ancient Castle of Ikana at night")
+    )
+    assert result.validation is not None and result.validation.valid
+    steps = result.plan.steps
+    obj_by_id = {o.id: o for o in result.relevant_objectives}
+    present = {s.objective_ref for s in steps}
+    for step in steps:
+        obj = obj_by_id.get(step.objective_ref)
+        if obj is None:
+            continue
+        expected = set(obj.prerequisites) & present
+        assert {steps[d].objective_ref for d in step.depends_on} == expected
 
 
 def test_knowledge_retrieval_empty_when_no_match():
@@ -320,6 +349,32 @@ def test_prerequisite_satisfied_by_done_quest_passes():
     plan = Plan(goal="x", steps=[step])
     gs = _gs(inventory=["Kafei's Letter"], quest_progress={"anju_kafei": "done"})
     assert validate_plan(plan, gs, [deliver], kb.npcs).valid
+
+
+def test_required_item_provided_by_earlier_step_passes():
+    """A required item is not flagged missing when an earlier step provides it."""
+    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    o1 = _objective("o1", start)
+    o1.provides_items = ["Secret Letter"]
+    o2 = _objective("o2", start)
+    s1 = _step("s1", start, ref="o1")
+    s2 = _step("s2", start, ref="o2").model_copy(update={"requires_items": ["Secret Letter"]})
+    plan = Plan(goal="x", steps=[s1, s2])
+    assert validate_plan(plan, _gs(), [o1, o2]).valid
+
+
+def test_required_item_not_credited_when_provider_is_later():
+    """A provider step after the need does not satisfy the requirement."""
+    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    o1 = _objective("o1", start)
+    o2 = _objective("o2", start)
+    o2.provides_items = ["Secret Letter"]
+    s1 = _step("s1", start, ref="o1").model_copy(update={"requires_items": ["Secret Letter"]})
+    s2 = _step("s2", start, ref="o2")
+    plan = Plan(goal="x", steps=[s1, s2])
+    result = validate_plan(plan, _gs(), [o1, o2])
+    assert not result.valid
+    assert any(i.kind == "item" for i in result.issues)
 
 
 def test_knowledge_npc_schedules_and_events():
