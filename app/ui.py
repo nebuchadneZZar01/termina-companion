@@ -125,6 +125,9 @@ def _step_knowledge(status, result: dict) -> None:
     retrieval_engine = result.get("retrieval_engine")
     if retrieval_engine:
         c.caption(f"{t('rag_engine')}: {retrieval_engine}")
+    retrieval_status = result.get("retrieval_status")
+    if retrieval_status:
+        c.caption(f"{t('rag_status')}: {retrieval_status}")
     if result.get("retrieval_warning"):
         c.warning(result["retrieval_warning"])
 
@@ -335,12 +338,13 @@ def _render_sources(objectives, kb) -> None:
                 st.write(f"{t('source_after')} {', '.join(tr(x) for x in prereq_titles)}")
 
 
-def _render_rag_evidence(evidence, engine: str = "", warning: str = "") -> None:
-    """Render supplemental RAG passages and their source provenance.
+def _render_rag_evidence(evidence, engine: str = "", status: str = "", warning: str = "") -> None:
+    """Render supplemental wiki passages and their source provenance.
 
     args:
         evidence: retrieved evidence items from the Knowledge Agent.
         engine: retrieval engine label.
+        status: cache-aside outcome (``cache_hit``, ``wiki_ingested``, etc.).
         warning: optional degraded-retrieval warning.
 
     returns:
@@ -350,6 +354,8 @@ def _render_rag_evidence(evidence, engine: str = "", warning: str = "") -> None:
     st.caption(t("rag_sources_caption"))
     if engine:
         st.caption(f"{t('rag_engine')}: {engine}")
+    if status:
+        st.caption(f"{t('rag_status')}: {status}")
     if warning:
         st.warning(f"{t('rag_warning')}: {warning}")
     if not evidence:
@@ -357,9 +363,7 @@ def _render_rag_evidence(evidence, engine: str = "", warning: str = "") -> None:
         return
     for item in evidence:
         metadata = item.chunk.metadata
-        source = metadata.source_url or (
-            metadata.source_urls[0] if metadata.source_urls else "local corpus"
-        )
+        source = metadata.source_url or metadata.canonical_url or "Zelda Wiki"
         excerpt = " ".join(item.chunk.text.split())
         if len(excerpt) > 600:
             excerpt = excerpt[:597].rstrip() + "..."
@@ -367,6 +371,11 @@ def _render_rag_evidence(evidence, engine: str = "", warning: str = "") -> None:
             st.markdown(f"**{tr(metadata.title)}** · {t('rag_score')}: {item.score:.3f}")
             st.write(excerpt)
             st.caption(f"{t('rag_source')}: {source}")
+            if metadata.source_revision_id:
+                st.caption(
+                    f"{t('rag_revision')}: {metadata.source_revision_id} "
+                    f"({metadata.source_revision_timestamp})"
+                )
 
 
 def _render_trace_state(gs) -> None:
@@ -659,6 +668,7 @@ def render() -> None:
         _render_rag_evidence(
             result.get("retrieved_evidence", []),
             result.get("retrieval_engine", ""),
+            result.get("retrieval_status", ""),
             result.get("retrieval_warning", ""),
         )
     with tab_trace:

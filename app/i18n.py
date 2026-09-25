@@ -391,14 +391,17 @@ _STRINGS: dict[str, dict[str, str]] = {
         "no_sources": "No relevant sources found.",
         "rag_sources": "Supplemental RAG evidence",
         "rag_sources_caption": (
-            "Curated local text passages. They support the narrative explanation; "
-            "structured MCP objectives remain authoritative."
+            "Zelda Wiki passages retrieved through the persistent cache. They "
+            "support the narrative explanation; structured MCP objectives remain "
+            "authoritative."
         ),
         "rag_engine": "Retrieval engine",
+        "rag_status": "Retrieval status",
         "rag_score": "Score",
         "rag_source": "Source",
+        "rag_revision": "Wiki revision",
         "rag_warning": "Retrieval warning",
-        "rag_no_evidence": "No supplemental passage matched this goal.",
+        "rag_no_evidence": "No supplemental wiki passage matched this goal.",
         # tabs
         "tab_why": "Why this plan?",
         "tab_why_caption": (
@@ -408,7 +411,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "tab_sources": "Game sources",
         "tab_sources_caption": (
             "What the Knowledge Agent pulled from the structured game data and "
-            "the local curated RAG corpus for your goal: objectives, NPCs, events "
+            "the Zelda Wiki RAG cache for your goal: objectives, NPCs, events "
             "and supplemental source passages. MCP data remains authoritative."
         ),
         "tab_trace": "How it was planned",
@@ -542,14 +545,17 @@ _STRINGS: dict[str, dict[str, str]] = {
         "no_sources": "Nessuna fonte rilevante trovata.",
         "rag_sources": "Evidenze RAG supplementari",
         "rag_sources_caption": (
-            "Passaggi di testo locali e verificati. Supportano la spiegazione "
-            "narrativa; gli obiettivi MCP restano autoritativi."
+            "Passaggi della Zelda Wiki recuperati tramite cache persistente. "
+            "Supportano la spiegazione narrativa; gli obiettivi MCP restano "
+            "autoritativi."
         ),
         "rag_engine": "Motore di recupero",
+        "rag_status": "Stato del recupero",
         "rag_score": "Punteggio",
         "rag_source": "Fonte",
+        "rag_revision": "Revisione wiki",
         "rag_warning": "Avviso di recupero",
-        "rag_no_evidence": "Nessun passaggio supplementare corrisponde all'obiettivo.",
+        "rag_no_evidence": "Nessun passaggio wiki supplementare corrisponde all'obiettivo.",
         # tabs
         "tab_why": "Perch\u00e9 questo piano?",
         "tab_why_caption": (

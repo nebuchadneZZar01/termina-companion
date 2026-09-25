@@ -1,0 +1,231 @@
+"""Hermetic MediaWiki client tests for provenance and HTML cleanup."""
+
+from __future__ import annotations
+
+import httpx
+import pytest
+
+from app.rag.wiki import MediaWikiClient, WikiError, WikiPageReference
+
+
+def _client(handler) -> MediaWikiClient:
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.Client(transport=transport)
+    return MediaWikiClient(client=http_client, timeout_seconds=2, max_retries=0)
+
+
+def test_search_uses_focused_terms_and_preserves_page_ids():
+    searches: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        assert request.headers["User-Agent"].startswith("Termina-Companion/")
+        if params["action"] == "query" and params.get("list") == "search":
+            searches.append(params["srsearch"])
+            return httpx.Response(
+                200,
+                json={
+                    "query": {
+                        "search": [
+                            {
+                                "pageid": 4819,
+                                "title": "Anju's Anguish",
+                                "snippet": "Kafei and Anju",
+                                "timestamp": "2026-01-01T00:00:00Z",
+                                "wordcount": 100,
+                            }
+                        ]
+                    }
+                },
+            )
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    client = _client(handler)
+    try:
+        result = client.search(
+            "Reunite Anju and Kafei before dawn",
+            limit=1,
+            terms=["Anju", "Kafei"],
+        )
+    finally:
+        client.close()
+
+    assert result == [
+        WikiPageReference(
+            page_id=4819,
+            title="Anju's Anguish",
+            snippet="Kafei and Anju",
+            timestamp="2026-01-01T00:00:00Z",
+            wordcount=100,
+        )
+    ]
+    assert searches == ["Anju", "Kafei"]
+
+
+def test_search_decomposes_long_query_without_structured_terms():
+    searches: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        searches.append(request.url.params["srsearch"])
+        return httpx.Response(
+            200,
+            json={
+                "query": {"search": [{"pageid": 4819, "title": "Anju's Anguish", "wordcount": 100}]}
+            },
+        )
+
+    client = _client(handler)
+    try:
+        client.search("Find Anju and Kafei before dawn", limit=1)
+    finally:
+        client.close()
+
+    assert searches == ["Anju", "Kafei", "dawn"]
+
+
+def test_fetch_pages_resolves_redirect_and_preserves_revision_license():
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        if params["action"] == "query" and params.get("meta") == "siteinfo":
+            return httpx.Response(
+                200,
+                json={
+                    "query": {
+                        "general": {"lang": "en"},
+                        "rightsinfo": {
+                            "text": "GNU Free Documentation License 1.3",
+                            "url": "https://zeldawiki.wiki/wiki/Zelda_Wiki:GNU_Free_Documentation_License",
+                        },
+                    }
+                },
+            )
+        if params["action"] == "query" and params.get("pageids"):
+            assert params["redirects"] == "1"
+            return httpx.Response(
+                200,
+                json={
+                    "query": {
+                        "redirects": [
+                            {
+                                "from": "Redirect to Anju's Anguish",
+                                "to": "Anju's Anguish",
+                            }
+                        ],
+                        "pages": [
+                            {
+                                "pageid": 200,
+                                "title": "Anju's Anguish",
+                                "revisions": [
+                                    {
+                                        "revid": 777,
+                                        "timestamp": "2026-02-03T04:05:06Z",
+                                    }
+                                ],
+                                "categories": [{"title": "Category:Quests"}],
+                            }
+                        ],
+                    }
+                },
+            )
+        if params["action"] == "parse":
+            assert params["pageid"] == "200"
+            return httpx.Response(
+                200,
+                json={
+                    "parse": {
+                        "title": "Anju's Anguish",
+                        "revid": 777,
+                        "text": """
+                        <div class=\"mw-parser-output\">
+                          <style>.noise { color: red; }</style>
+                          <h2>Plot</h2>
+                          <p>Kafei and Anju reunite.</p>
+                          <div class=\"references\"><sup>1</sup> noise</div>
+                          <div class=\"mbox\">This article may be deleted.</div>
+                        </div>
+                        """,
+                    }
+                },
+            )
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    client = _client(handler)
+    try:
+        documents = client.fetch_pages(
+            [WikiPageReference(page_id=100, title="Redirect to Anju's Anguish")]
+        )
+    finally:
+        client.close()
+
+    assert len(documents) == 1
+    document = documents[0]
+    assert document.id == "wiki:200"
+    assert document.metadata.source_page_id == 200
+    assert document.metadata.source_revision_id == 777
+    assert document.metadata.source_revision_timestamp == "2026-02-03T04:05:06Z"
+    assert document.metadata.source_url.endswith("oldid=777")
+    assert document.metadata.source_urls == [document.metadata.source_url]
+    assert document.metadata.canonical_url.endswith("/wiki/Anju's_Anguish")
+    assert document.metadata.license_note == "GNU Free Documentation License 1.3"
+    assert document.metadata.license_url
+    assert document.metadata.language == "en"
+    assert document.metadata.retrieved_at
+    assert "## Plot" in document.content
+    assert "Kafei and Anju reunite." in document.content
+    assert "noise" not in document.content
+    assert "deleted" not in document.content
+
+
+def test_fetch_pages_reports_api_error_as_wiki_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"error": {"code": "badrequest", "info": "invalid page"}},
+        )
+
+    client = _client(handler)
+    try:
+        with pytest.raises(WikiError, match="invalid page"):
+            client.fetch_pages([WikiPageReference(page_id=1, title="Missing")])
+    finally:
+        client.close()
+
+
+def test_fetch_pages_handles_empty_redirect_page_as_no_document():
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        if params.get("meta") == "siteinfo":
+            return httpx.Response(
+                200,
+                json={
+                    "query": {
+                        "general": {"lang": "en"},
+                        "rightsinfo": {"text": "GFDL"},
+                    }
+                },
+            )
+        if params.get("pageids"):
+            return httpx.Response(
+                200,
+                json={
+                    "query": {
+                        "pages": [
+                            {
+                                "pageid": 1,
+                                "title": "Empty",
+                                "revisions": [{"revid": 2, "timestamp": "2026-01-01T00:00:00Z"}],
+                            }
+                        ]
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={"parse": {"title": "Empty", "revid": 2, "text": "<div></div>"}},
+        )
+
+    client = _client(handler)
+    try:
+        assert client.fetch_pages([WikiPageReference(page_id=1, title="Empty")]) == []
+    finally:
+        client.close()

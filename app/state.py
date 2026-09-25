@@ -20,7 +20,9 @@ class PlanningState(BaseModel):
     retrieved_context: str = ""
     retrieved_evidence: list[Evidence] = Field(default_factory=list)
     retrieval_engine: str = ""
+    retrieval_status: str = ""
     retrieval_warning: str = ""
+    retrieval_ingested_pages: list[str] = Field(default_factory=list)
     plan: Plan | None = None
     validation: ValidationResult | None = None
     replan_attempts: int = 0

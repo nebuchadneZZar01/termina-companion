@@ -1,4 +1,4 @@
-"""Deterministic text chunking for locally loaded RAG documents."""
+"""Deterministic, heading-aware text chunking for wiki documents."""
 
 from __future__ import annotations
 
@@ -7,27 +7,15 @@ import re
 from app.rag.models import Chunk, Document
 
 _WHITESPACE_RE = re.compile(r"[ \t]+")
-_PARAGRAPH_RE = re.compile(r"\n\s*\n")
+_HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
 
 
 def chunk_document(document: Document, max_chars: int = 1200, overlap: int = 120) -> list[Chunk]:
-    """Split one document into overlapping, source-preserving chunks.
+    """Split one document into overlapping chunks while retaining headings.
 
     Paragraph boundaries are preferred. Oversized paragraphs are split at a
     nearby whitespace boundary so words are not cut in the middle whenever
-    possible.
-
-    args:
-        document: source document to split.
-        max_chars: maximum approximate chunk size; must be positive.
-        overlap: number of characters repeated between adjacent windows;
-            must be smaller than ``max_chars``.
-
-    returns:
-        list[Chunk]: deterministic chunks in document order.
-
-    raises:
-        ValueError: if size arguments are invalid or the document is empty.
+    possible. Each chunk records the Markdown heading active at that point.
     """
     if max_chars <= 0:
         raise ValueError("max_chars must be positive")
@@ -37,22 +25,24 @@ def chunk_document(document: Document, max_chars: int = 1200, overlap: int = 120
         raise ValueError(f"Cannot chunk empty document: {document.id}")
 
     chunks: list[Chunk] = []
-    for paragraph in _PARAGRAPH_RE.split(document.content):
-        normalized = _normalize(paragraph)
-        if not normalized:
-            continue
-        for text in _windows(normalized, max_chars=max_chars, overlap=overlap):
-            ordinal = len(chunks)
-            chunks.append(
-                Chunk(
-                    id=f"{document.id}::chunk-{ordinal:03d}",
-                    document_id=document.id,
-                    title=document.title,
-                    text=text,
-                    ordinal=ordinal,
-                    metadata=document.metadata.model_copy(deep=True),
+    for section, paragraphs in _sections(document.content):
+        for paragraph in paragraphs:
+            normalized = _normalize(paragraph)
+            if not normalized:
+                continue
+            for text in _windows(normalized, max_chars=max_chars, overlap=overlap):
+                ordinal = len(chunks)
+                chunks.append(
+                    Chunk(
+                        id=f"{document.id}::chunk-{ordinal:03d}",
+                        document_id=document.id,
+                        title=document.title,
+                        text=text,
+                        ordinal=ordinal,
+                        section=section,
+                        metadata=document.metadata.model_copy(deep=True),
+                    )
                 )
-            )
     if not chunks:
         raise ValueError(f"Document produced no chunks: {document.id}")
     return chunks
@@ -61,16 +51,7 @@ def chunk_document(document: Document, max_chars: int = 1200, overlap: int = 120
 def chunk_documents(
     documents: list[Document], max_chars: int = 1200, overlap: int = 120
 ) -> list[Chunk]:
-    """Chunk a collection of documents while preserving global order.
-
-    args:
-        documents: source documents to split.
-        max_chars: maximum approximate chunk size.
-        overlap: repeated characters between adjacent windows.
-
-    returns:
-        list[Chunk]: chunks in document order.
-    """
+    """Chunk a collection of documents while preserving global order."""
     return [
         chunk
         for document in documents
@@ -78,29 +59,43 @@ def chunk_documents(
     ]
 
 
+def _sections(content: str) -> list[tuple[str, list[str]]]:
+    """Split Markdown into heading sections and their paragraph blocks."""
+    sections: list[tuple[str, list[str]]] = []
+    current_section = ""
+    current_paragraph: list[str] = []
+
+    def flush_paragraph() -> None:
+        if not current_paragraph:
+            return
+        paragraph = "\n".join(current_paragraph).strip()
+        if paragraph:
+            if not sections or sections[-1][0] != current_section:
+                sections.append((current_section, []))
+            sections[-1][1].append(paragraph)
+        current_paragraph.clear()
+
+    for line in content.replace("\r", "").splitlines():
+        heading = _HEADING_RE.match(line)
+        if heading:
+            flush_paragraph()
+            current_section = _normalize(heading.group(2))
+            continue
+        if not line.strip():
+            flush_paragraph()
+        else:
+            current_paragraph.append(line)
+    flush_paragraph()
+    return sections
+
+
 def _normalize(text: str) -> str:
-    """Collapse horizontal whitespace while retaining paragraph text.
-
-    args:
-        text: paragraph text.
-
-    returns:
-        str: normalized paragraph.
-    """
-    return _WHITESPACE_RE.sub(" ", text.replace("\r", "")).strip()
+    """Collapse horizontal whitespace while retaining line boundaries."""
+    return _WHITESPACE_RE.sub(" ", text).strip()
 
 
 def _windows(text: str, max_chars: int, overlap: int) -> list[str]:
-    """Create overlapping character windows from one normalized paragraph.
-
-    Args:
-        text: normalized paragraph.
-        max_chars: maximum window size.
-        overlap: repeated suffix size.
-
-    Returns:
-        list[str]: non-empty text windows.
-    """
+    """Create overlapping character windows from one normalized paragraph."""
     if len(text) <= max_chars:
         return [text]
 

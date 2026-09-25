@@ -65,10 +65,15 @@ The prototype should run locally and include a simple Streamlit UI.
 
 Mock/demo data is acceptable initially.
 
-RAG is now a local, supplemental Knowledge Agent seam. Keep it separate from
-MCP and do not let textual evidence override structured objectives, schedules,
-events, prerequisites, items or masks. Persistent memory, broader tracing and
-formal evaluation remain future work; leave clear extension points for them.
+RAG is now an adaptive, supplemental Knowledge Agent seam backed only by the
+Zelda Wiki. Keep it separate from MCP and do not let textual evidence override
+structured objectives, schedules, events, prerequisites, items or masks. The
+Knowledge Agent searches persistent embedded Qdrant first, fetches and indexes
+wiki pages on a miss, then performs a mandatory second vector retrieval. Raw
+fetched text never reaches the planner directly. Runtime failure records
+`unavailable` and degrades to structured context. Persistent memory, broader
+tracing and formal plan evaluation remain future work; leave clear extension
+points for them.
 
 ## Development Principles
 
@@ -111,23 +116,23 @@ formal evaluation remain future work; leave clear extension points for them.
   `depends_on` is recomputed; on replan attempts kept steps are re-slotted onto
   a 1h window after their dependencies end, where the LLM's windows are only
   advisory. The Knowledge Agent calls MCP tools in-process for authoritative
-  structured data, then calls `app.rag.retriever.retrieve` for optional local
-  evidence. RAG failure is logged and degrades to structured context; it never
-  changes the objective chain.
+  structured data, then calls `app.rag.retriever.retrieve` for adaptive wiki
+  evidence. Retrieval runs immediately before planning; RAG failure is logged
+  and degrades to structured context, never changing the objective chain.
 * `app/mcp/` — MCP tools and server. `app/mcp/tools.py` holds the pure
   tool functions (search_quests, get_npc_schedule, get_quest_info, get_event,
   get_location, check_prerequisites) — the single seam between agents and
   game data. `app/mcp/server.py` wraps them as a `MCPServer` for external
   MCP clients. The Knowledge Agent imports tools directly for in-process use;
   RAG is not exposed as an MCP tool.
-* `app/rag/` — local supplemental RAG package: Pydantic document/chunk/evidence
-  contracts, Markdown frontmatter loader, deterministic chunking, keyword
-  retrieval, embedding adapter, in-memory vector store and hybrid retrieval.
-  `retrieve(query, top_k=4)` is the Knowledge Agent seam and fails soft.
-* `app/data/knowledge/clock_town/` — nine original, web-researched Clock Town
-  documents with English/Italian aliases, source URLs, retrieval dates and
-  attribution/license notes. This corpus supplements, but never replaces, MCP
-  structured data.
+* `app/rag/` — adaptive supplemental RAG package: Pydantic document/chunk/
+  evidence contracts, MediaWiki client and HTML cleanup, heading-aware chunking,
+  FastEmbed adapter, persistent embedded Qdrant store, ingestion lock and
+  cache-aside retrieval. `retrieve` is the Knowledge Agent seam; it always
+  attempts retrieval, records `cache_hit`/`wiki_ingested`/`wiki_miss`/
+  `unavailable`, and fails soft without bypassing MCP authority.
+  `app/rag/evaluation.py` provides retrieval-only offline metrics; it does not
+  evaluate plans or trajectories.
 * `app/llm.py` — LLM provider factory (`get_chat_model()`); raises
   `LLMConfigurationError` when no usable provider is configured. The Planning
   Agent has no rule-based fallback.
@@ -140,7 +145,7 @@ formal evaluation remain future work; leave clear extension points for them.
   LLM provider, with local providers supported for offline runs.
 * `app/__main__.py` — headless pipeline demo (`python -m app`).
 * `tests/` — domain model, validation, re-planning, RAG corpus/retrieval and
-  Knowledge Agent integration tests.
+  Knowledge Agent integration tests, including hermetic wiki/cache scenarios.
 
 ## Tooling
 

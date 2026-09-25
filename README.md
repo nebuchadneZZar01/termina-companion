@@ -1,17 +1,16 @@
 # Termina Companion
 
-Multi-agent temporal planner for *The Legend of Zelda: Majora's Mask*, built
-with LangGraph + Pydantic + Streamlit. It turns a player state and a goal into
-a structured, validated plan within the three-day cycle.
+Multi-agent temporal planner for *The Legend of Zelda: Majora's Mask*, built with
+LangGraph, Pydantic and Streamlit. It turns player state and a goal into a
+structured, validated plan within the three-day cycle.
 
-This is a working **end-to-end prototype**: the State, Knowledge and Critic
-agents run on deterministic rule-based logic and structured demo data, while
-the Planning Agent always calls a configured LLM. The Knowledge Agent also
-uses a local, curated RAG corpus for supplemental English/Italian passages and
-source evidence; MCP tools remain authoritative for structured game rules.
-Provider configuration is required; local providers such as Ollama can run
-without an external API key. Persistent memory, tracing and evaluation remain
-future extension points; MCP exposes the game-knowledge tools to any MCP host.
+This is a working **end-to-end prototype**. State, Knowledge and Critic agents
+use deterministic logic and structured demo data; the Planning Agent always
+calls a configured LLM. The Knowledge Agent adds supplemental evidence from an
+adaptive Zelda Wiki RAG cache, while MCP tools remain authoritative for game
+rules. Provider configuration is required; local providers such as Ollama can
+run without an external API key. Persistent memory, tracing and full plan
+evaluation remain future work.
 
 ## Install
 
@@ -27,135 +26,152 @@ uv sync
 uv run streamlit run main.py
 ```
 
-Edit the player state (day/hour, location, inventory, completed quests), set
-a goal and press **Generate plan**. The app shows the retrieved knowledge, the
-plan steps and the validation outcome.
+Edit day/hour, location, inventory, masks and quest progress, set a goal, then
+press **Generate plan**. The UI shows retrieved knowledge, RAG status and source
+provenance, the plan steps and validation outcome.
 
-## Run the headless demo (configured LLM)
+## Run the headless demo
 
 ```sh
 uv run python -m app
 ```
 
-Runs the full pipeline and prints: understood state, retrieved knowledge,
-the generated plan and its validation. Configure a provider first; Ollama or
-LM Studio can be used locally without an external API key.
+The demo prints understood state, structured MCP knowledge, adaptive RAG
+status/evidence, the generated plan and validation. Configure an LLM first;
+Ollama or LM Studio work locally without an external API key.
 
 ## Run with an LLM
 
-The Planning Agent always requires an LLM provider. Configure one before
-starting the UI or headless demo:
-
 ```sh
 export LLM_PROVIDER=openai
-export LLM_API_KEY=sk-...        # see .env.example for all providers
+export LLM_API_KEY=sk-...
 uv run streamlit run main.py
 ```
 
-Supported providers: `openai`, `openrouter`, `ollama`, `lmstudio`,
-`anthropic`, `google`. Configure via `LLM_PROVIDER`, `LLM_MODEL`,
-`LLM_API_KEY`, `LLM_BASE_URL`. Copy `.env.example` for the full reference.
-Missing configuration, invocation errors and empty model output are reported
-explicitly; the Planning Agent never substitutes a fallback plan for them.
+Supported providers: `openai`, `openrouter`, `ollama`, `lmstudio`, `anthropic`,
+`google`. Configure `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY` and
+`LLM_BASE_URL`; `.env.example` is the complete annotated reference. Missing
+configuration, invocation errors and empty model output fail explicitly. The
+Planning Agent never substitutes a rule-based fallback plan.
 
-## Tests
+## Adaptive Zelda Wiki RAG
 
-```sh
-uv run pytest
+RAG is supplemental and always enabled. There is no `RAG_ENABLED` switch and no
+static curated corpus. Zelda Wiki is the only RAG source. Structured MCP data
+(objectives, schedules, events, prerequisites, items and masks) always wins over
+narrative text.
+
+The Knowledge Agent invokes RAG immediately before the Planning Agent:
+
+```text
+goal + structured objective context
+        ↓
+semantic query → persistent Qdrant local store
+        ↓                         │
+   sufficient cache hit       cache miss
+        ↓                         ↓
+   cache_hit              MediaWiki search → bounded page fetch
+                                  ↓
+                       HTML cleanup → chunks → FastEmbed
+                                  ↓
+                       revision-aware Qdrant upsert
+                                  ↓
+                         mandatory second vector query
+                                  ↓
+                 wiki_ingested / wiki_miss evidence
 ```
 
-## Local RAG corpus
+Fetched HTML or Markdown never bypasses vector retrieval. Only chunks returned
+by the second Qdrant query are formatted into planner context. A cache hit
+repeats no wiki request, so an already populated index works offline.
 
-Phase 7 adds an internal, optional retrieval layer under `app/rag/`:
+### Configuration
 
-* `models.py` defines source documents, chunks and retrieved evidence.
-* `loader.py` loads Markdown documents with frontmatter provenance.
-* `chunking.py` creates deterministic overlapping chunks.
-* `retriever.py` provides keyword retrieval, a local vector adapter and hybrid
-  fallback behavior.
-* `store.py` provides an in-memory vector store; no external database is used.
-* `embeddings.py` provides a deterministic hashed embedding baseline and the
-  adapter seam for a future semantic model.
+Copy `.env.example` to `.env` or export these variables:
 
-The first curated corpus lives in `app/data/knowledge/clock_town/`: nine
-original, web-researched documents covering Clock Town, Anju & Kafei, the
-Stock Pot Inn, Post Office/Postman, Curiosity Shop/Laundry Pool, Madame Aroma,
-the Bombers, market services and English/Italian retrieval terms. Each document
-keeps source URLs, retrieval date and reuse notes. Documents are paraphrased;
-they do not copy guide or wiki prose.
+| Variable | Default | Purpose |
+|---|---|---|
+| `RAG_QDRANT_PATH` | `.cache/termina-companion/qdrant` | Embedded Qdrant data directory; created automatically. |
+| `RAG_EMBEDDING_MODEL` | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Local multilingual FastEmbed model, 384 dimensions. |
+| `RAG_SIMILARITY_THRESHOLD` | `0.72` | Provisional minimum cosine score for a sufficient hit. |
+| `RAG_TOP_K` | `4` | Evidence chunks returned per retrieval. |
+| `RAG_MAX_PAGES_PER_MISS` | `3` | Maximum pages fetched and indexed on one miss. |
+| `RAG_REQUEST_TIMEOUT_SECONDS` | `20` | Timeout for each MediaWiki request. |
 
-RAG is supplemental. `search_quests` and the other MCP tools still determine
-objectives, schedules, events, prerequisites, items and masks. RAG passages
-are appended to planner context with their source and are also exposed in the
-Streamlit **Game sources** tab. If the corpus cannot be loaded, the Knowledge
-Agent records a warning and continues with structured MCP context.
+The wiki API URL, request user agent and license discovery are internal to
+`app/rag/wiki.py`; they are not duplicated in environment configuration.
+MediaWiki `siteinfo` supplies the expected GFDL-1.3 license metadata at runtime.
+Each chunk stores page ID, exact revision ID/timestamp, canonical and `oldid`
+URLs, retrieval timestamp and license information. Wiki revisions replace older
+chunks for the same page.
 
-Set `RAG_ENABLED=0` to disable local retrieval while debugging. The default
-`HashEmbeddingProvider` is an offline baseline, not a semantic model; replace it
-through the provider seam for a quality evaluation. Retrieval currently has
-small English/Italian regression scenarios in `tests/test_rag.py`; a larger
-scenario evaluation remains pending.
+The first model-backed query may download the FastEmbed model. After the model
+and wiki pages are cached, `cache_hit` retrieval does not require network
+access. A Qdrant, embedding or wiki failure returns status `unavailable`,
+records a warning and lets planning continue with structured MCP context.
 
-## Linting
+### RAG tests and quality checks
+
+Tests never contact the live wiki or download a model. They cover cold misses,
+warm/offline cache hits, mandatory second retrieval, revision replacement,
+provenance/license handling, bounded ingestion, embedding adapters, retrieval
+metrics and MCP degradation. `app.rag.evaluation` accepts an injected
+retriever and scenario list, so calibration runs can remain offline. Run:
 
 ```sh
 uv run ruff check .
 uv run ruff format .
+uv run pytest
 ```
+
+Retrieval quality evaluation is separate from full plan/trajectory evaluation,
+which remains Phase 11. Adjust the similarity threshold and search scenarios as
+real query logs become available.
 
 ## Architecture
 
-```
+```text
 Game State → State Agent → Knowledge Agent → Planning Agent
           → Critic/Validator → Plan   (bounded re-planning loop on failure)
 ```
 
-The system is a **LangGraph workflow of four agents**. Each agent is a graph
-node exposing `run(state) -> dict` (one module under `app/agents/`) with a
-clearly separated responsibility. The Planning Agent always uses the
-configured **LLM**; the State, Knowledge and Critic agents are deliberately
-**rule-based** so their output is always grounded in the player's state and the
-game data. LLM output is then repaired deterministically before the Critic
-validates it.
+The LangGraph workflow has four nodes, one module per agent under
+`app/agents/`. Agent responsibilities remain separate. Planning output is
+post-processed deterministically: references, titles and locations are grounded
+to MCP objectives, duplicate steps are removed, windows are clamped to
+objective slots, and the authoritative prerequisite chain is rebuilt before
+validation.
 
 | Agent | Input | Output | Engine |
 |---|---|---|---|
-| **State Agent** | `GameState`, `Goal` | canonical `GameState`, `state_summary` | **Rule-based** — alias canonicalization + template summary, always derived from the actual player state. |
-| **Knowledge Agent** | `GameState`, `Goal` | `relevant_objectives`, `retrieved_context`, `retrieved_evidence` | **Rule-based MCP + optional local RAG** — drives `search_quests` → `get_npc_schedule`/`get_event`: returns the whole quest whenever any of its objectives matches the goal (no match = none), so prerequisite chains travel together. Adds bounded narrative passages and source URLs; retrieval failure degrades to structured context only. |
-| **Planning Agent** | `state_summary`, `retrieved_context` | `Plan` | **LLM** — always produces the plan as structured Pydantic output (`Plan`), feeding previous validation feedback on re-planning. LLM output is post-processed deterministically: refs/titles/locations are grounded to the knowledge objectives, duplicates removed, and each step's window is clamped inside its objective's slot (temporal output guardrail). The final plan is then rebuilt against the authoritative prerequisite chain: "obtain item" steps are pruned when the player already owns what they provide (`provides_items`/`provides_masks` on `Objective`), missing chain steps are re-inserted in order and `depends_on` recomputed. |
-| **Critic Agent** | `Plan`, `GameState`, objectives, NPCs | `ValidationResult` | **Rule-based on purpose** — deterministic feasibility rules (time windows, location, NPC availability, items, prerequisites, sequence). Being deterministic makes validation unit-testable and lets it reliably drive the bounded re-planning loop. |
-
-The re-planning loop: if the Critic returns FAIL, the Planning Agent calls the
-LLM again with the validation feedback (up to
-`MAX_PLANNING_ATTEMPTS = 3`; see `app/graph.py`). Deterministic grounding and
-reconciliation run again before each Critic validation. The loop gives up and
-keeps the last plan after the limit.
+| **State Agent** | `GameState`, `Goal` | Canonical state and summary | Rule-based state normalization and summary. |
+| **Knowledge Agent** | `GameState`, `Goal` | Objectives, schedules, events, RAG evidence and context | Rule-based MCP plus adaptive RAG; RAG failure degrades to structured context. |
+| **Planning Agent** | State summary and retrieved context | `Plan` | Configured LLM with deterministic grounding and temporal post-processing. |
+| **Critic Agent** | `Plan`, state, objectives and NPC data | `ValidationResult` | Rule-based feasibility checks and bounded re-planning trigger. |
 
 | Component | Responsibility |
 |---|---|
-| `app/domain.py` | Pydantic contracts: `GameState`, `Goal`, `Plan`, `ValidationResult`, clock/window types |
-| `app/data/mock_knowledge.py` | Game data separated from logic; agents access it only through the MCP tools |
-| `app/agents/` | One node per agent; deterministic State/Knowledge/Critic logic and an LLM-only Planning Agent with deterministic post-processing |
-| `app/mcp/` | MCP tools (`tools.py`) and server (`server.py`) — the single seam between agents and game data |
-| `app/llm.py` | Provider factory: returns a configured chat model or raises `LLMConfigurationError` — the LLM seam used by the Planning Agent |
-| `app/rag/` | Local RAG contracts, curated-document loader, chunking, keyword/vector retrieval and source evidence |
-| `app/data/knowledge/clock_town/` | Nine original, web-researched Clock Town documents with bilingual aliases and provenance; supplemental to MCP data |
-| `app/state.py` | `PlanningState` — the LangGraph workflow state (Pydantic model), including retrieved evidence and retrieval status |
-| `app/graph.py` | LangGraph wiring + bounded re-planning attempts |
-| `app/ui.py` | Streamlit frontend logic |
-| `app/__main__.py` | Headless pipeline demo |
-| `main.py` | UI entry point (`streamlit run main.py`) |
-| `tests/` | Domain model, validation and re-planning tests |
+| `app/domain.py` | Pydantic game-state, goal, plan and validation contracts. |
+| `app/data/mock_knowledge.py` | Structured demo data; agents access it through MCP tools only. |
+| `app/mcp/` | Pure game-data tools and external MCP server; authoritative knowledge seam. |
+| `app/agents/` | State, Knowledge, Planning and Critic graph nodes. |
+| `app/rag/` | Adaptive wiki client, cleanup/chunking, FastEmbed adapter, Qdrant store and cache-aside retrieval. |
+| `app/state.py` | `PlanningState`, including RAG evidence, status, warning and ingested pages. |
+| `app/graph.py` | LangGraph wiring and `MAX_PLANNING_ATTEMPTS = 3` loop. |
+| `app/ui.py` | Streamlit frontend and provenance display. |
+| `app/__main__.py` | Headless pipeline demo. |
+| `tests/` | Domain, validation, graph, RAG persistence and integration tests. |
 
-Mock data spans several major areas (Clock Town, Southern Swamp, Mountain
-Village, Great Bay, Ikana Canyon, Romani Ranch) but is deliberately NOT
-lore-complete; the domain model and agents are not tied to a single quest.
+Mock data spans Clock Town, Southern Swamp, Mountain Village, Great Bay, Ikana
+Canyon and Romani Ranch, but is deliberately not lore-complete. The
+architecture is not tied to one quest.
 
 ## Extension points
 
-- **RAG** — replace `HashEmbeddingProvider` with a local or hosted semantic
-  embedding provider, then evaluate keyword, vector and hybrid retrieval on a
-  larger scenario set. Keep RAG behind the Knowledge Agent; do not add it to
-  the MCP API or let it replace structured objective data.
-- **Persistent memory** — extend `GameState`; attach a checkpointer to the graph.
-- **Tracing / evaluation** — LangGraph stream events / invoke hooks.
+- **RAG** — tune the provisional threshold, expand wiki search scenarios and
+  evaluate multilingual retrieval. Keep Qdrant/wiki access behind the Knowledge
+  Agent; never expose RAG as an MCP authority.
+- **Persistent memory** — extend `GameState` and attach a graph checkpointer.
+- **Tracing and audit** — add request IDs and LangGraph/tool/retrieval events.
+- **Plan evaluation** — implement the Phase 11 scenario/trajectory evaluator;
+  keep it separate from RAG retrieval evaluation.

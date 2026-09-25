@@ -1,27 +1,37 @@
-"""Pydantic contracts for local RAG documents, chunks and evidence."""
+"""Pydantic contracts for wiki-backed RAG documents, chunks and evidence."""
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+RetrievalStatus = Literal["cache_hit", "wiki_ingested", "wiki_miss", "unavailable"]
 
 
 class SourceMetadata(BaseModel):
-    """Provenance and search metadata attached to a source document."""
+    """Provenance attached to a source document or retrieved chunk."""
 
     id: str
     title: str
     quest_id: str = ""
     area: str = ""
-    source_type: str = "curated_web_research"
+    source_type: str = "wiki"
     source_url: str = ""
     source_urls: list[str] = Field(default_factory=list)
+    canonical_url: str = ""
+    source_page_id: int | None = None
+    source_revision_id: int | None = None
+    source_revision_timestamp: str = ""
     retrieved_at: str = ""
     language: str = ""
     license_note: str = ""
+    license_url: str = ""
+    categories: list[str] = Field(default_factory=list)
 
 
 class Document(BaseModel):
-    """A complete local knowledge document loaded from the corpus."""
+    """A complete source document fetched from the configured wiki."""
 
     id: str
     title: str
@@ -37,6 +47,7 @@ class Chunk(BaseModel):
     title: str
     text: str
     ordinal: int = 0
+    section: str = ""
     metadata: SourceMetadata
 
 
@@ -54,21 +65,16 @@ Evidence = RetrievedChunk
 
 
 class RetrievalResult(BaseModel):
-    """Result of one local retrieval request."""
+    """Result of one adaptive cache-aside retrieval request."""
 
     query: str
     evidence: list[RetrievedChunk] = Field(default_factory=list)
-    engine: str
+    engine: str = "unknown"
+    status: RetrievalStatus = "wiki_miss"
     warning: str = ""
+    ingested_pages: list[str] = Field(default_factory=list)
 
     @property
     def chunks(self) -> list[Chunk]:
-        """Return only the chunks, preserving retrieval order.
-
-        args:
-            (none)
-
-        returns:
-            list[Chunk]: the retrieved chunks.
-        """
+        """Return only the chunks, preserving retrieval order."""
         return [item.chunk for item in self.evidence]
