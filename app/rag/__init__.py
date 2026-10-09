@@ -1,48 +1,78 @@
-"""Local, supplemental retrieval for textual Majora's Mask knowledge.
+"""Adaptive, supplemental wiki retrieval for Termina Companion.
 
-The RAG package is intentionally separate from the structured MCP tools. It
-loads a curated local corpus, creates chunks and exposes deterministic keyword
-and in-memory vector retrieval. Retrieval evidence supplements planning context
-but never replaces authoritative quest data.
+The RAG package is separate from authoritative MCP game data. It searches a
+persistent local Qdrant collection first and fetches Zelda Wiki pages only on a
+cache miss; fetched text is always indexed and retrieved through vectors again
+before it can reach the Knowledge Agent.
 """
 
 from app.rag.chunking import chunk_document, chunk_documents
-from app.rag.loader import DEFAULT_CORPUS_DIR, DocumentLoadError, load_documents
+from app.rag.embeddings import (
+    DEFAULT_FASTEMBED_MODEL,
+    EmbeddingError,
+    EmbeddingProvider,
+    FastEmbedProvider,
+    HashEmbeddingProvider,
+    get_embedding_provider,
+)
+from app.rag.evaluation import (
+    RAGEvaluationReport,
+    RetrievalRunner,
+    RetrievalScenario,
+    RetrievalScenarioResult,
+    evaluate_retrieval,
+)
 from app.rag.models import (
     Chunk,
     Document,
     Evidence,
+    IndexedSource,
     RetrievalResult,
     RetrievedChunk,
     SourceMetadata,
 )
 from app.rag.retriever import (
-    HybridRetriever,
-    KeywordRetriever,
+    AdaptiveRetriever,
     RAGError,
-    VectorRetriever,
+    RAGSettings,
     build_default_retriever,
     retrieve,
     safe_retrieve,
 )
+from app.rag.store import InMemoryVectorStore, QdrantVectorStore, VectorStoreError
+from app.rag.wiki import MediaWikiClient, WikiError, WikiPageReference
 
 __all__ = [
+    "AdaptiveRetriever",
     "Chunk",
-    "DEFAULT_CORPUS_DIR",
+    "DEFAULT_FASTEMBED_MODEL",
     "Document",
-    "DocumentLoadError",
+    "EmbeddingError",
+    "EmbeddingProvider",
     "Evidence",
-    "HybridRetriever",
-    "KeywordRetriever",
+    "FastEmbedProvider",
+    "HashEmbeddingProvider",
+    "InMemoryVectorStore",
+    "IndexedSource",
+    "MediaWikiClient",
+    "QdrantVectorStore",
+    "RAGEvaluationReport",
     "RAGError",
+    "RAGSettings",
     "RetrievalResult",
+    "RetrievalRunner",
+    "RetrievalScenario",
+    "RetrievalScenarioResult",
     "RetrievedChunk",
     "SourceMetadata",
-    "VectorRetriever",
+    "VectorStoreError",
+    "WikiError",
+    "WikiPageReference",
     "build_default_retriever",
     "chunk_document",
     "chunk_documents",
-    "load_documents",
+    "evaluate_retrieval",
+    "get_embedding_provider",
     "retrieve",
     "safe_retrieve",
 ]

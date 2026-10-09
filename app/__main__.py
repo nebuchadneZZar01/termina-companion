@@ -45,16 +45,39 @@ def demo() -> None:
 
     print("\n--- Knowledge Agent retrieved ---")
     print(result.retrieved_context)
-    print(f"\nRAG engine: {result.retrieval_engine or 'disabled'}")
+    print(f"\nRAG engine: {result.retrieval_engine or 'unavailable'}")
+    print(f"RAG status: {result.retrieval_status or 'unavailable'}")
+    if result.retrieval_wiki_unreachable:
+        print("RAG wiki: unreachable (using structured MCP data only)")
+    if result.retrieval_ingested_pages:
+        print(f"RAG pages ingested: {', '.join(result.retrieval_ingested_pages)}")
+    if result.retrieval_indexed_sources:
+        print("RAG indexed sources:")
+        for source in result.retrieval_indexed_sources:
+            page = "-" if source.source_page_id is None else str(source.source_page_id)
+            revision = "-" if source.source_revision_id is None else str(source.source_revision_id)
+            print(f"  - {source.title} [page={page}, revision={revision}]")
+            if source.source_url:
+                print(f"    revision URL: {source.source_url}")
+            if source.canonical_url:
+                print(f"    canonical URL: {source.canonical_url}")
+            if source.license_note:
+                print(f"    license: {source.license_note}")
+            if source.license_url:
+                print(f"    license URL: {source.license_url}")
+            if source.retrieved_at:
+                print(f"    retrieved at: {source.retrieved_at}")
     if result.retrieval_warning:
         print(f"RAG warning: {result.retrieval_warning}")
     for evidence in result.retrieved_evidence:
         metadata = evidence.chunk.metadata
-        source = metadata.source_url or (
-            metadata.source_urls[0] if metadata.source_urls else "local corpus"
-        )
+        source = metadata.source_url or metadata.canonical_url or "Zelda Wiki"
         print(f"  - {metadata.title} [{evidence.chunk.id}] score={evidence.score:.3f}")
         print(f"    {source}")
+        if metadata.source_revision_id:
+            print(
+                f"    revision {metadata.source_revision_id} ({metadata.source_revision_timestamp})"
+            )
 
     plan_label = f"{result.replan_attempts} planning attempt(s) of max {MAX_PLANNING_ATTEMPTS}"
     print(f"\n--- Plan ({plan_label}) ---")

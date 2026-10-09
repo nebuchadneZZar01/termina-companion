@@ -302,6 +302,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "goal_example": "e.g. Reunite Anju and Kafei before the dawn of the Third Day",
         "generate_plan": "\u2728 Plan My Quest",
         "generate_plan_caption": "Builds the plan from your state and goal.",
+        "stop_plan": "Stop",
+        "stop_plan_help": "Stop after the current agent or LLM call finishes.",
         "info_edit_state": ("Set your state and goal, then press **Plan My Quest**."),
         "llm_settings": "LLM Settings",
         "llm_provider": "Provider",
@@ -312,6 +314,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "planning": "Planning...",
         "planning_error": "Planning failed: {error}",
         "planning_complete": "Planning complete",
+        "planning_stopping": "Stopping planning...",
+        "planning_stopped": "Planning stopped.",
+        "planning_incomplete": "Planning stopped before a validated plan was produced.",
         "planning_gave_up": "Planning failed \u2014 attempt limit ({max}) reached",
         "step_attempt": "Attempt {n}/{max}",
         "replan_line": "{n} issue(s) \u2192 re-planning (attempt {max})",
@@ -389,16 +394,30 @@ _STRINGS: dict[str, dict[str, str]] = {
         "source_masks": "Masks:",
         "source_after": "Comes after:",
         "no_sources": "No relevant sources found.",
-        "rag_sources": "Supplemental RAG evidence",
+        "rag_sources": "Wiki RAG sources",
         "rag_sources_caption": (
-            "Curated local text passages. They support the narrative explanation; "
-            "structured MCP objectives remain authoritative."
+            "Zelda Wiki pages and passages processed through the persistent cache. "
+            "They support the narrative explanation; structured MCP objectives "
+            "remain authoritative."
         ),
+        "rag_indexed_sources": "Indexed pages",
+        "rag_indexed_sources_caption": "{n} page(s) indexed or represented for this request.",
+        "rag_no_indexed_sources": "No indexed wiki page is available for this request.",
+        "rag_evidence": "Retrieved evidence",
         "rag_engine": "Retrieval engine",
+        "rag_status": "Retrieval status",
         "rag_score": "Score",
         "rag_source": "Source",
+        "rag_page_id": "Page ID",
+        "rag_revision": "Wiki revision",
+        "rag_revision_url": "Revision URL",
+        "rag_canonical_url": "Canonical URL",
+        "rag_license": "License",
+        "rag_license_link": "license terms",
+        "rag_retrieved_at": "Retrieved at",
         "rag_warning": "Retrieval warning",
-        "rag_no_evidence": "No supplemental passage matched this goal.",
+        "rag_wiki_unreachable": "Wiki unreachable \u2014 using structured MCP data only.",
+        "rag_no_evidence": "No supplemental wiki passage matched this goal.",
         # tabs
         "tab_why": "Why this plan?",
         "tab_why_caption": (
@@ -408,8 +427,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "tab_sources": "Game sources",
         "tab_sources_caption": (
             "What the Knowledge Agent pulled from the structured game data and "
-            "the local curated RAG corpus for your goal: objectives, NPCs, events "
-            "and supplemental source passages. MCP data remains authoritative."
+            "the Zelda Wiki RAG cache for your goal: objectives, NPCs, events, "
+            "indexed pages and supplemental source passages. MCP data remains "
+            "authoritative."
         ),
         "tab_trace": "How it was planned",
         "tab_trace_caption": (
@@ -449,6 +469,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "goal_example": "Es. Ricongiungi Anju e Kafei prima dell'alba del Terzo Giorno",
         "generate_plan": "\u2728 Pianifica la mia missione",
         "generate_plan_caption": "Genera il piano dal tuo stato e obiettivo.",
+        "stop_plan": "Stop",
+        "stop_plan_help": (
+            "Interrompe dopo il completamento dell'agente o della chiamata LLM in corso."
+        ),
         "info_edit_state": ("Imposta stato e obiettivo, poi premi **Pianifica la mia missione**."),
         "llm_settings": "Impostazioni LLM",
         "llm_provider": "Provider",
@@ -459,6 +483,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "planning": "Pianificazione...",
         "planning_error": "Pianificazione fallita: {error}",
         "planning_complete": "Pianificazione completata",
+        "planning_stopping": "Interruzione della pianificazione...",
+        "planning_stopped": "Pianificazione interrotta.",
+        "planning_incomplete": "Pianificazione interrotta prima di produrre un piano validato.",
         "planning_gave_up": "Pianificazione fallita \u2014 limite tentativi ({max}) raggiunto",
         "step_attempt": "Tentativo {n}/{max}",
         "replan_line": "{n} problema/i \u2192 ripianificazione (tentativo {max})",
@@ -540,16 +567,34 @@ _STRINGS: dict[str, dict[str, str]] = {
         "source_masks": "Maschere:",
         "source_after": "Dopo:",
         "no_sources": "Nessuna fonte rilevante trovata.",
-        "rag_sources": "Evidenze RAG supplementari",
+        "rag_sources": "Fonti RAG dalla Zelda Wiki",
         "rag_sources_caption": (
-            "Passaggi di testo locali e verificati. Supportano la spiegazione "
-            "narrativa; gli obiettivi MCP restano autoritativi."
+            "Pagine e passaggi della Zelda Wiki elaborati tramite cache persistente. "
+            "Supportano la spiegazione narrativa; gli obiettivi MCP restano "
+            "autoritativi."
         ),
+        "rag_indexed_sources": "Pagine indicizzate",
+        "rag_indexed_sources_caption": (
+            "{n} pagina/e indicizzata/e o rappresentata/e per questa richiesta."
+        ),
+        "rag_no_indexed_sources": (
+            "Nessuna pagina wiki indicizzata disponibile per questa richiesta."
+        ),
+        "rag_evidence": "Evidenze recuperate",
         "rag_engine": "Motore di recupero",
+        "rag_status": "Stato del recupero",
         "rag_score": "Punteggio",
         "rag_source": "Fonte",
+        "rag_page_id": "ID pagina",
+        "rag_revision": "Revisione wiki",
+        "rag_revision_url": "URL revisione",
+        "rag_canonical_url": "URL canonico",
+        "rag_license": "Licenza",
+        "rag_license_link": "termini di licenza",
+        "rag_retrieved_at": "Recuperata il",
         "rag_warning": "Avviso di recupero",
-        "rag_no_evidence": "Nessun passaggio supplementare corrisponde all'obiettivo.",
+        "rag_wiki_unreachable": ("Wiki non raggiungibile \u2014 uso solo i dati MCP strutturati."),
+        "rag_no_evidence": "Nessun passaggio wiki supplementare corrisponde all'obiettivo.",
         # tabs
         "tab_why": "Perch\u00e9 questo piano?",
         "tab_why_caption": (
@@ -559,8 +604,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "tab_sources": "Fonti di gioco",
         "tab_sources_caption": (
             "Cosa l'Agente della Conoscenza ha estratto dai dati strutturati "
-            "e dal corpus RAG locale per il tuo obiettivo: obiettivi, NPC, eventi "
-            "e passaggi supplementari. I dati MCP restano autoritativi."
+            "e dalla cache RAG della Zelda Wiki per il tuo obiettivo: obiettivi, "
+            "NPC, eventi, pagine indicizzate e passaggi supplementari. I dati "
+            "MCP restano autoritativi."
         ),
         "tab_trace": "Come \u00e8 stato pianificato",
         "tab_trace_caption": (

@@ -25,10 +25,10 @@ Status map:
   external MCP clients; 6 tools: search_quests, get_npc_schedule,
   get_quest_info, get_event, get_location, check_prerequisites; in-process
   Client integration test passes).
-* Phase 7 — RAG: in progress (curated Clock Town corpus, local ingestion,
-  keyword retrieval, hashed embedding/vector baseline, Knowledge Agent
-  integration and source evidence implemented; larger retrieval-quality
-  evaluation remains).
+* Phase 7 — RAG: in progress (adaptive Zelda Wiki cache-aside retrieval,
+  persistent embedded Qdrant, FastEmbed multilingual vectors, revision-aware
+  provenance, offline warm-cache behavior and Knowledge Agent integration
+  implemented; retrieval-quality calibration remains).
 * Phases 8–12: not started yet.
 * Phase 13 — Deployment: not started yet.
 
@@ -116,6 +116,7 @@ Start with a small vertical slice.
 * [x] Display validation errors
 * [x] Display replanning status
 * [x] Keep technical agent trace secondary to the player experience
+* [x] Disable planning action during execution and add cooperative Stop control
 
 Primary UI flow:
 
@@ -151,27 +152,38 @@ Game State → Goal → Plan → Validation
 
 # Phase 7 — RAG
 
-Phase 7 is split into a local corpus/keyword baseline and a later semantic
-retrieval/evaluation slice. The current slice is complete except for a larger
-quality evaluation.
+Phase 7 now uses one adaptive, on-demand Zelda Wiki RAG source. The static
+curated corpus is removed. RAG is always enabled; runtime failures degrade to
+structured context rather than disabling retrieval.
 
-* [x] Identify knowledge appropriate for RAG
-* [x] Prepare original, web-researched textual game knowledge (nine Clock Town
-  documents with English/Italian aliases and provenance)
-* [x] Implement document ingestion (`app/rag/loader.py`)
-* [x] Implement deterministic chunking (`app/rag/chunking.py`)
-* [x] Add an embedding adapter and deterministic local hash baseline
-* [x] Add an in-memory vector store
-* [x] Implement keyword, vector and hybrid retrieval with fallback
-* [x] Integrate optional retrieval with the Knowledge Agent
-* [x] Add source/evidence information to workflow state, UI and headless output
-* [ ] Evaluate retrieval quality on a larger scenario set and compare semantic
-  embeddings against the keyword baseline
+* [x] Identify narrative knowledge appropriate for supplemental RAG
+* [x] Remove the nine curated Clock Town documents from RAG indexing
+* [x] Implement MediaWiki search and bounded page fetching
+* [x] Clean parsed wiki HTML into provenance-preserving Markdown
+* [x] Implement deterministic heading-aware chunking
+* [x] Add FastEmbed multilingual semantic embeddings with a test adapter
+* [x] Add persistent embedded Qdrant storage and model-aware collections
+* [x] Implement cache-first retrieval with wiki ingestion and a mandatory second
+  vector query
+* [x] Add semantic sufficiency checks and ingestion locking
+* [x] Preserve page/revision/license/retrieval metadata
+* [x] Integrate retrieval status and evidence with Knowledge Agent state, UI
+  and headless output
+* [x] Test cold, warm/offline, revision-update, bounded-ingestion and
+  MCP-degradation behavior
+* [x] Add retrieval-only evaluation contracts and offline metrics coverage
+* [x] Expose indexed wiki source manifest separately from retrieved evidence
+* [x] Diversify evidence with a per-source cap and near-duplicate collapse
+* [x] Revalidate stale cached pages and bound the wiki request budget
+* [x] Keep license discovery best-effort so page text is never blocked
+* [ ] Calibrate retrieval quality on a larger live scenario set
+* [ ] Compare retrieval configurations and document the provisional threshold
 
 Structured game constraints such as schedules and prerequisites remain in MCP
 data/tools. RAG is supplemental narrative evidence and must not create or
-override objectives. Retrieval failure degrades to structured context only;
-set `RAG_ENABLED=0` to disable it while debugging.
+override objectives. Runtime failure records `unavailable`, logs a warning and
+continues with structured MCP context. Full plan/trajectory evaluation remains
+Phase 11.
 
 # Phase 8 — Memory
 
@@ -226,7 +238,7 @@ Use ContextTracing or the selected tracing solution once the core workflow is st
 * [ ] Produce explicit PASS/FAIL
 * [ ] Calculate aggregate pass rate
 * [ ] Add regression scenarios
-* [ ] Evaluate RAG separately if RAG is implemented
+* [x] Evaluate RAG separately if RAG is implemented (retrieval-only harness)
 
 # Phase 12 — Production Readiness
 

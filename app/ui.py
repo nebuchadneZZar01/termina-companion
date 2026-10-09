@@ -7,11 +7,10 @@ Entry points: ``uv run streamlit run main.py`` (preferred) or
 from __future__ import annotations
 
 import datetime
-import itertools
 import queue
 import re
 import threading
-import time
+from dataclasses import dataclass, field
 
 import streamlit as st
 
@@ -34,11 +33,283 @@ def _graph():
     return build_graph()
 
 
-_SPINNER_INTERVAL = 3.0
-
 _PROVIDERS = ("openai", "openrouter", "ollama", "lmstudio", "anthropic", "google")
 
 _LANGS = {"en": "\U0001f1ec\U0001f1e7 English", "it": "\U0001f1ee\U0001f1f9 Italiano"}
+
+_PLANNING_TASK_KEY = "_planning_task"
+_ACTIVE_STATUSES = frozenset({"running", "stopping"})
+_STOP_SENTINEL = object()
+_NO_MESSAGE = object()
+# Idle wait used by the live progress loop. It only bounds how long we block on
+# the worker queue before emitting an invisible yield point, so a queued Stop
+# click is handled promptly. It never triggers a redraw on its own.
+_IDLE_WAIT = 0.25
+
+
+@dataclass
+class _PlanningTask:
+    """Background planning run kept in Streamlit session state."""
+
+    events: queue.Queue[object] = field(default_factory=queue.Queue)
+    stop_event: threading.Event = field(default_factory=threading.Event)
+    thread: threading.Thread | None = None
+    status: str = "running"
+    result: dict = field(default_factory=dict)
+    updates: list[tuple[str, dict]] = field(default_factory=list)
+    error: str = ""
+    spinner_index: int = 0
+
+
+def _task_is_active(task: _PlanningTask | None) -> bool:
+    """Return whether a planning task is still running or stopping."""
+    return task is not None and task.status in _ACTIVE_STATUSES
+
+
+def _plan_controls_disabled(task: _PlanningTask | None, llm_model: str) -> tuple[bool, bool]:
+    """Return the ``(generate, stop)`` disabled flags for the planning controls.
+
+    args:
+        task (_PlanningTask | None): the session planning task, if any.
+        llm_model (str): the model typed in the sidebar.
+
+    returns:
+        tuple[bool, bool]: Generate is disabled while a run is active or no
+        model is configured; Stop is enabled only while a run is running, not
+        while a stop request is already pending.
+    """
+    active = _task_is_active(task)
+    stopping = task is not None and task.status == "stopping"
+    return active or not llm_model.strip(), stopping or not active
+
+
+def _run_stream(
+    events: queue.Queue[object],
+    graph,
+    initial: dict,
+    stop_event: threading.Event,
+) -> None:
+    """Stream graph updates until completion or a cooperative stop request."""
+    if stop_event.is_set():
+        events.put(_STOP_SENTINEL)
+        return
+    try:
+        for update in graph.stream(initial, stream_mode="updates"):
+            if stop_event.is_set():
+                events.put(_STOP_SENTINEL)
+                return
+            events.put(update)
+        events.put(_STOP_SENTINEL if stop_event.is_set() else None)
+    except Exception as exc:
+        if stop_event.is_set():
+            events.put(_STOP_SENTINEL)
+        else:
+            events.put(exc)
+            events.put(None)
+
+
+def _drain_planning_task(task: _PlanningTask, wait: float = 0.0) -> bool:
+    """Apply queued worker messages to a planning task.
+
+    args:
+        task (_PlanningTask): the task to update in place.
+        wait (float, default 0.0): seconds to block waiting for the first
+            message before draining. Use it to idle without redrawing.
+
+    returns:
+        bool: True when at least one message changed the task, so the caller
+        knows whether a redraw is needed.
+    """
+    first: object = _NO_MESSAGE
+    if wait > 0:
+        try:
+            first = task.events.get(timeout=wait)
+        except queue.Empty:
+            pass
+    progressed = first is not _NO_MESSAGE
+    while True:
+        if first is not _NO_MESSAGE:
+            item, first = first, _NO_MESSAGE
+        else:
+            try:
+                item = task.events.get_nowait()
+            except queue.Empty:
+                break
+        if item is _STOP_SENTINEL:
+            if task.status != "error":
+                task.status = "done" if task.result.get("validation") is not None else "stopped"
+        elif item is None:
+            if task.status == "running":
+                task.status = "done"
+            elif task.status == "stopping":
+                task.status = "done" if task.result.get("validation") is not None else "stopped"
+        elif isinstance(item, Exception):
+            task.status = "error"
+            task.error = str(item)
+        elif isinstance(item, dict):
+            for node, data in item.items():
+                if not isinstance(data, dict):
+                    continue
+                task.result.update(data)
+                task.updates.append((node, data))
+                # One phase per agent update, so the progress label only moves
+                # when the run actually advanced (never once per re-render).
+                task.spinner_index += 1
+    if _task_is_active(task) and task.thread is not None and not task.thread.is_alive():
+        task.status = "stopped" if task.stop_event.is_set() else "error"
+        if not task.error:
+            task.error = "planning worker exited before completing the run"
+    return progressed
+
+
+def _start_planning_task(initial: dict, graph) -> _PlanningTask:
+    """Create, register and start one background planning run."""
+    task = _PlanningTask()
+    task.thread = threading.Thread(
+        target=_run_stream,
+        args=(task.events, graph, initial, task.stop_event),
+        daemon=True,
+        name="termina-planning",
+    )
+    st.session_state[_PLANNING_TASK_KEY] = task
+    task.thread.start()
+    return task
+
+
+def _progress_label(task: _PlanningTask) -> str:
+    """Return the current progress-phase label for a run.
+
+    The label is derived from the number of drained agent updates, so it stays
+    identical across re-renders and only changes when a new update arrives.
+
+    args:
+        task (_PlanningTask): the planning task being rendered.
+
+    returns:
+        str: e.g. "Opening the Door of Time...".
+    """
+    phrases = spinner_lines()
+    if not phrases:
+        return t("planning")
+    return f"{phrases[task.spinner_index % len(phrases)]}..."
+
+
+def _render_planning_progress(task: _PlanningTask) -> None:
+    """Render accumulated agent updates for the current planning run."""
+    validation = task.result.get("validation")
+    running_label = _progress_label(task)
+    if task.status == "done":
+        valid = bool(getattr(validation, "valid", False))
+        outer_state = "complete" if valid else "error"
+        outer_label = (
+            t("planning_complete") if valid else t("planning_gave_up", max=MAX_PLANNING_ATTEMPTS)
+        )
+    elif task.status == "error":
+        outer_state = "error"
+        outer_label = t("planning_error", error=task.error or "unknown error")
+    elif task.status == "stopped":
+        outer_state = "error"
+        outer_label = t("planning_stopped")
+    elif task.status == "stopping":
+        outer_state = "running"
+        outer_label = t("planning_stopping")
+    else:
+        outer_state = "running"
+        outer_label = running_label
+
+    agent_name = {
+        "state": t("agent_state"),
+        "knowledge": t("agent_knowledge"),
+        "plan": t("agent_planning"),
+        "critic": t("agent_critic"),
+    }
+    with st.status(outer_label, type="step", state=outer_state, expanded=True) as outer:
+        for node, _data in task.updates:
+            name = agent_name.get(node, node)
+            if node == "plan":
+                attempt = task.result.get("replan_attempts", 1)
+                name += f" — {t('step_attempt', n=attempt, max=MAX_PLANNING_ATTEMPTS)}"
+            with st.status(name, type="step", expanded=True) as step:
+                _append_step(step, node, task.result)
+        if task.status == "running":
+            outer.update(label=running_label, state="running", expanded=True)
+        elif task.status == "stopping":
+            outer.update(label=t("planning_stopping"), state="running", expanded=True)
+    if task.status == "error":
+        st.error(t("planning_error", error=task.error or "unknown error"))
+    elif task.status == "stopped":
+        st.warning(t("planning_stopped"))
+
+
+def _planning_live(task: _PlanningTask) -> None:
+    """Render the live stepper, redrawing only when the run actually advances.
+
+    The loop idles on the worker queue instead of on a timer: while the agent is
+    thinking no delta is sent, so the stepper does not flicker and a collapsed
+    stepper is not re-expanded on its own. The single empty placeholder is an
+    invisible yield point, which is what lets Streamlit process a queued Stop
+    click while this script is still running.
+
+    args:
+        task (_PlanningTask): the active planning task.
+
+    returns:
+        None: blocks until the task reaches a terminal state, having drawn the
+        stepper once and then once per change.
+    """
+    _render_planning_progress(task)
+    yield_point = st.empty()
+    while _task_is_active(task):
+        if _drain_planning_task(task, wait=_IDLE_WAIT):
+            _render_planning_progress(task)
+        else:
+            yield_point.empty()
+
+
+def _render_planning_result(task: _PlanningTask, kb) -> None:
+    """Render a completed plan or a terminal planning failure."""
+    if task.status in {"error", "stopped"}:
+        return
+    result = task.result
+    validation = result.get("validation")
+    if validation is None:
+        st.warning(t("planning_incomplete"))
+        return
+
+    _section(t("your_plan"))
+    if validation.valid:
+        st.success(t("plan_valid"))
+    else:
+        st.error(t("plan_not_valid"))
+
+    plan_model = result.get("plan_model")
+    if plan_model:
+        st.caption(t("plan_model_caption", model=plan_model))
+
+    _render_plan(result.get("plan"))
+
+    tab_why, tab_sources, tab_trace = st.tabs([t("tab_why"), t("tab_sources"), t("tab_trace")])
+
+    with tab_why:
+        st.caption(t("tab_why_caption"))
+        _render_why(result.get("plan"))
+    with tab_sources:
+        st.caption(t("tab_sources_caption"))
+        _render_sources(result["relevant_objectives"], kb)
+        _render_rag_evidence(
+            evidence=result.get("retrieved_evidence", []),
+            engine=result.get("retrieval_engine", ""),
+            status=result.get("retrieval_status", ""),
+            warning=result.get("retrieval_warning", ""),
+            wiki_unreachable=result.get("retrieval_wiki_unreachable", False),
+            indexed_sources=result.get("retrieval_indexed_sources", []),
+            ingested_pages=result.get("retrieval_ingested_pages", []),
+        )
+    with tab_trace:
+        st.caption(t("tab_trace_caption"))
+        _render_trace_state(result["game_state"])
+        _render_trace_attempts(result["replan_attempts"])
+        _render_trace_issues(validation)
 
 
 def _append_step(status, node: str, result: dict) -> None:
@@ -125,6 +396,11 @@ def _step_knowledge(status, result: dict) -> None:
     retrieval_engine = result.get("retrieval_engine")
     if retrieval_engine:
         c.caption(f"{t('rag_engine')}: {retrieval_engine}")
+    retrieval_status = result.get("retrieval_status")
+    if retrieval_status:
+        c.caption(f"{t('rag_status')}: {retrieval_status}")
+    if result.get("retrieval_wiki_unreachable"):
+        c.warning(t("rag_wiki_unreachable"))
     if result.get("retrieval_warning"):
         c.warning(result["retrieval_warning"])
 
@@ -335,31 +611,92 @@ def _render_sources(objectives, kb) -> None:
                 st.write(f"{t('source_after')} {', '.join(tr(x) for x in prereq_titles)}")
 
 
-def _render_rag_evidence(evidence, engine: str = "", warning: str = "") -> None:
-    """Render supplemental RAG passages and their source provenance.
+def _render_rag_source(source) -> None:
+    """Render one indexed wiki page and its complete provenance manifest."""
+    with st.container(border=True):
+        st.markdown(f"**{tr(source.title)}**")
+        page_id = source.source_page_id if source.source_page_id is not None else source.id
+        if page_id:
+            st.caption(f"{t('rag_page_id')}: {page_id}")
+        if source.source_revision_id is not None:
+            st.caption(
+                f"{t('rag_revision')}: {source.source_revision_id} "
+                f"({source.source_revision_timestamp or '-'})"
+            )
+        if source.source_url:
+            st.markdown(f"{t('rag_revision_url')}: [{source.source_url}]({source.source_url})")
+        if source.canonical_url:
+            st.markdown(
+                f"{t('rag_canonical_url')}: [{source.canonical_url}]({source.canonical_url})"
+            )
+        license_text = source.license_note or "-"
+        if source.license_url:
+            license_text = f"{license_text} · [{t('rag_license_link')}]({source.license_url})"
+        st.caption(f"{t('rag_license')}: {license_text}")
+        if source.retrieved_at:
+            st.caption(f"{t('rag_retrieved_at')}: {source.retrieved_at}")
 
-    args:
-        evidence: retrieved evidence items from the Knowledge Agent.
-        engine: retrieval engine label.
-        warning: optional degraded-retrieval warning.
 
-    returns:
-        None: draws the evidence section.
+def _render_rag_ingested_page(title: str) -> None:
+    """Render a title-only fallback for legacy ingestion results."""
+    with st.container(border=True):
+        st.markdown(f"**{tr(title)}**")
+
+
+def _render_rag_evidence(
+    evidence,
+    engine: str = "",
+    status: str = "",
+    warning: str = "",
+    wiki_unreachable: bool = False,
+    indexed_sources=None,
+    ingested_pages=None,
+) -> None:
+    """Render indexed source pages separately from supplemental evidence.
+
+    The indexed-source manifest is a UI/state concern. Only ``evidence`` is
+    intended for planner context, so source pages remain visible even when a
+    second vector query returns no passage.
     """
     st.markdown(f"**{t('rag_sources')}**")
     st.caption(t("rag_sources_caption"))
     if engine:
         st.caption(f"{t('rag_engine')}: {engine}")
+    if status:
+        st.caption(f"{t('rag_status')}: {status}")
+    if wiki_unreachable:
+        st.warning(t("rag_wiki_unreachable"))
     if warning:
         st.warning(f"{t('rag_warning')}: {warning}")
+
+    sources = list(indexed_sources or [])
+    if not sources:
+        seen: set[str] = set()
+        for item in evidence:
+            source = item.chunk.metadata
+            key = source.id or f"{source.source_page_id}:{source.source_revision_id}"
+            if key not in seen:
+                seen.add(key)
+                sources.append(source)
+    st.markdown(f"*{t('rag_indexed_sources')}*")
+    if sources:
+        st.caption(t("rag_indexed_sources_caption", n=len(sources)))
+        for source in sources:
+            _render_rag_source(source)
+    elif ingested_pages:
+        st.caption(t("rag_indexed_sources_caption", n=len(ingested_pages)))
+        for title in ingested_pages:
+            _render_rag_ingested_page(str(title))
+    else:
+        st.caption(t("rag_no_indexed_sources"))
+
+    st.markdown(f"**{t('rag_evidence')}**")
     if not evidence:
         st.caption(t("rag_no_evidence"))
         return
     for item in evidence:
         metadata = item.chunk.metadata
-        source = metadata.source_url or (
-            metadata.source_urls[0] if metadata.source_urls else "local corpus"
-        )
+        source = metadata.source_url or metadata.canonical_url or "Zelda Wiki"
         excerpt = " ".join(item.chunk.text.split())
         if len(excerpt) > 600:
             excerpt = excerpt[:597].rstrip() + "..."
@@ -367,6 +704,11 @@ def _render_rag_evidence(evidence, engine: str = "", warning: str = "") -> None:
             st.markdown(f"**{tr(metadata.title)}** · {t('rag_score')}: {item.score:.3f}")
             st.write(excerpt)
             st.caption(f"{t('rag_source')}: {source}")
+            if metadata.source_revision_id is not None:
+                st.caption(
+                    f"{t('rag_revision')}: {metadata.source_revision_id} "
+                    f"({metadata.source_revision_timestamp})"
+                )
 
 
 def _render_trace_state(gs) -> None:
@@ -522,150 +864,69 @@ def render() -> None:
             label_visibility="collapsed",
         )
         st.markdown('<div style="padding:0.4rem;"></div>', unsafe_allow_html=True)
-        run = st.button(
-            t("generate_plan"),
-            type="primary",
-            use_container_width=True,
-            disabled=not llm_model.strip(),
-        )
+        task = st.session_state.get(_PLANNING_TASK_KEY)
+        generate_disabled, stop_disabled = _plan_controls_disabled(task, llm_model)
+        run_col, stop_col = st.columns([4, 1])
+        with run_col:
+            run = st.button(
+                t("generate_plan"),
+                type="primary",
+                use_container_width=True,
+                disabled=generate_disabled,
+                key="generate_plan_button",
+            )
+        with stop_col:
+            stop = st.button(
+                t("stop_plan"),
+                use_container_width=True,
+                disabled=stop_disabled,
+                help=t("stop_plan_help"),
+                key="stop_plan_button",
+            )
 
-    if not run:
-        st.info(t("info_edit_state"))
+    if stop and _task_is_active(task):
+        task.stop_event.set()
+        task.status = "stopping"
+        st.rerun()
+
+    if run and not _task_is_active(task):
+        game_state = GameState(
+            time=ClockTime(day=day, hour=tm.hour, minute=tm.minute),
+            location=location,
+            inventory=list(inventory or []),
+            masks=list(masks or []),
+            quest_progress={quest_names[q]: "done" for q in (done_q or [])},
+        )
+        goal = Goal(description=goal_text)
+
+        llm_config: dict[str, str] = {}
+        if llm_provider:
+            llm_config["provider"] = llm_provider
+        if llm_model:
+            llm_config["model"] = llm_model
+        if llm_api_key:
+            llm_config["api_key"] = llm_api_key
+
+        initial = {"game_state": game_state, "goal": goal, "llm_config": llm_config}
+        # Build the cached graph in the main thread: `_graph()` is wrapped in
+        # @st.cache_resource, whose dispatcher needs the script run context.
+        graph = _graph()
+        _start_planning_task(initial, graph)
+        st.rerun()
+
+    task = st.session_state.get(_PLANNING_TASK_KEY)
+    if _task_is_active(task):
+        # Block here, redrawing the stepper only on agent updates. The final
+        # rerun re-enables Generate/Stop and renders the result below.
+        _planning_live(task)
+        st.rerun()
+
+    if task is not None:
+        _render_planning_progress(task)
+        _render_planning_result(task, kb)
         return
 
-    game_state = GameState(
-        time=ClockTime(day=day, hour=tm.hour, minute=tm.minute),
-        location=location,
-        inventory=list(inventory or []),
-        masks=list(masks or []),
-        quest_progress={quest_names[q]: "done" for q in (done_q or [])},
-    )
-    goal = Goal(description=goal_text)
-
-    llm_config: dict[str, str] = {}
-    if llm_provider:
-        llm_config["provider"] = llm_provider
-    if llm_model:
-        llm_config["model"] = llm_model
-    if llm_api_key:
-        llm_config["api_key"] = llm_api_key
-
-    initial = {"game_state": game_state, "goal": goal, "llm_config": llm_config}
-    result: dict = {}
-    # Build the cached graph in the main thread: `_graph()` is wrapped in
-    # @st.cache_resource, whose dispatcher needs the script run context, so
-    # calling it from the streaming thread would raise "missing
-    # ScriptRunContext". The thread only streams updates afterwards.
-    graph = _graph()
-
-    def _run_stream(q, graph) -> None:
-        """Stream graph updates or an execution error into the queue.
-
-        args:
-            q (queue.Queue): the queue receiving ``{node: data}`` updates or
-            an exception, terminated with ``None``.
-            graph (object): the compiled LangGraph, built under the script
-            context.
-
-        returns:
-            None: runs in a background thread.
-        """
-        try:
-            for update in graph.stream(initial, stream_mode="updates"):
-                q.put(update)
-        except Exception as exc:
-            q.put(exc)
-        finally:
-            q.put(None)
-
-    agent_name = {
-        "state": t("agent_state"),
-        "knowledge": t("agent_knowledge"),
-        "plan": t("agent_planning"),
-        "critic": t("agent_critic"),
-    }
-    phrases = itertools.cycle(spinner_lines())
-    q: queue.Queue = queue.Queue()
-    threading.Thread(target=_run_stream, args=(q, graph), daemon=True).start()
-
-    with st.status(f"{next(phrases)}...", type="step", state="running", expanded=True) as outer:
-        next_flip = time.monotonic()
-        while True:
-            if next_flip <= time.monotonic():
-                outer.update(label=f"{next(phrases)}...", state="running", expanded=True)
-                next_flip = time.monotonic() + _SPINNER_INTERVAL
-            try:
-                item = q.get(timeout=0.1)
-            except queue.Empty:
-                continue
-            if item is None:
-                break
-            if isinstance(item, Exception):
-                outer.update(
-                    label=t("planning_error", error=str(item)),
-                    state="error",
-                    expanded=True,
-                )
-                st.error(t("planning_error", error=str(item)))
-                return
-            for node, data in item.items():
-                result.update(data)
-                name = agent_name[node]
-                if node == "plan":
-                    attempt = t(
-                        "step_attempt",
-                        n=result["replan_attempts"],
-                        max=MAX_PLANNING_ATTEMPTS,
-                    )
-                    name += f" \u2014 {attempt}"
-                with st.status(name, type="step", expanded=True) as step:
-                    _append_step(step, node, result)
-                outer.update(expanded=True)
-        st.status(
-            t("planning_complete")
-            if result["validation"].valid
-            else t("planning_gave_up", max=MAX_PLANNING_ATTEMPTS),
-            type="step",
-            state="complete" if result["validation"].valid else "error",
-        )
-    valid = result["validation"].valid
-    outer.update(
-        label=t("planning_complete") if valid else t("planning_gave_up", max=MAX_PLANNING_ATTEMPTS),
-        state="complete" if valid else "error",
-        expanded=True,
-    )
-
-    _section(t("your_plan"))
-    validation = result["validation"]
-    if validation.valid:
-        st.success(t("plan_valid"))
-    else:
-        st.error(t("plan_not_valid"))
-
-    plan_model = result.get("plan_model")
-    if plan_model:
-        st.caption(t("plan_model_caption", model=plan_model))
-
-    _render_plan(result["plan"])
-
-    tab_why, tab_sources, tab_trace = st.tabs([t("tab_why"), t("tab_sources"), t("tab_trace")])
-
-    with tab_why:
-        st.caption(t("tab_why_caption"))
-        _render_why(result["plan"])
-    with tab_sources:
-        st.caption(t("tab_sources_caption"))
-        _render_sources(result["relevant_objectives"], kb)
-        _render_rag_evidence(
-            result.get("retrieved_evidence", []),
-            result.get("retrieval_engine", ""),
-            result.get("retrieval_warning", ""),
-        )
-    with tab_trace:
-        st.caption(t("tab_trace_caption"))
-        _render_trace_state(result["game_state"])
-        _render_trace_attempts(result["replan_attempts"])
-        _render_trace_issues(validation)
+    st.info(t("info_edit_state"))
 
 
 if __name__ == "__main__":
