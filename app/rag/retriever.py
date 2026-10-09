@@ -280,7 +280,12 @@ class AdaptiveRetriever:
                 )
         except FileLockTimeout as exc:
             return self._unavailable(query, f"Wiki ingestion lock timed out: {exc}")
-        except (EmbeddingError, VectorStoreError, WikiError, OSError, ValueError) as exc:
+        except WikiError as exc:
+            # Only the wiki leg failed (network, timeout, budget). The local
+            # index and the structured MCP context remain usable, so surface a
+            # plain miss with the reason instead of an unavailable engine.
+            return self._wiki_degraded(query, str(exc))
+        except (EmbeddingError, VectorStoreError, OSError, ValueError) as exc:
             return self._unavailable(query, str(exc))
         except Exception as exc:  # defensive boundary for optional RAG
             logger.exception("Unexpected adaptive RAG failure")
@@ -347,7 +352,16 @@ class AdaptiveRetriever:
         references = [
             WikiPageReference(page_id=page_id, title=pages[page_id]) for page_id in to_fetch
         ]
-        documents = self.wiki.fetch_pages(references, deadline=deadline)
+        try:
+            documents = self.wiki.fetch_pages(references, deadline=deadline)
+        except WikiError as exc:
+            logger.warning("Wiki revalidation fetch failed, serving cached evidence: %s", exc)
+            return self._result(
+                query,
+                evidence,
+                "cache_hit",
+                warning=f"Wiki revalidation failed: {exc}",
+            )
         ingested_pages, indexed_sources, ingest_warnings = self._ingest(documents)
         final = self._search_store(query_vector, limit)
         if not final:
@@ -520,6 +534,21 @@ class AdaptiveRetriever:
             engine="unavailable",
             status="unavailable",
             warning=warning,
+        )
+
+    def _wiki_degraded(self, query: str, warning: str) -> RetrievalResult:
+        """Report a clean miss when only the wiki leg failed.
+
+        A slow, throttled or unreachable wiki is not an index failure: the local
+        vector store and the structured MCP context are still usable, so the
+        engine stays available and the reason travels as a warning.
+        """
+        logger.warning("Adaptive RAG wiki leg degraded: %s", warning)
+        return RetrievalResult(
+            query=query,
+            engine=self.engine,
+            status="wiki_miss",
+            warning=f"Wiki source degraded: {warning}",
         )
 
     def close(self) -> None:

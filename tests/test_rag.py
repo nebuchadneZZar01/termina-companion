@@ -219,16 +219,29 @@ def test_manifest_keeps_every_page_indexed_during_miss(tmp_path):
     assert all(isinstance(source, IndexedSource) for source in result.indexed_sources)
 
 
-def test_wiki_failure_degrades_to_unavailable(tmp_path):
+def test_wiki_search_failure_degrades_to_miss(tmp_path):
     wiki = FakeWiki([_document()])
     wiki.fail_search = True
     retriever = _retriever(tmp_path, wiki)
 
     result = retriever.retrieve("Anju Kafei")
 
-    assert result.status == "unavailable"
-    assert result.engine == "unavailable"
+    assert result.status == "wiki_miss"
+    assert result.engine == "qdrant-fastembed"
     assert "wiki offline" in result.warning
+    assert result.evidence == []
+
+
+def test_wiki_fetch_failure_degrades_to_miss(tmp_path):
+    wiki = FakeWiki([_document()])
+    wiki.fail_fetch = True
+    retriever = _retriever(tmp_path, wiki)
+
+    result = retriever.retrieve("Anju Kafei")
+
+    assert result.status == "wiki_miss"
+    assert result.engine == "qdrant-fastembed"
+    assert "wiki fetch offline" in result.warning
     assert result.evidence == []
 
 
@@ -440,6 +453,23 @@ def test_revalidation_failure_serves_stale_cache_with_warning(tmp_path):
     retriever.retrieve("Anju Kafei")
 
     wiki.fail_revisions = True
+    result = retriever.retrieve("Anju Kafei")
+
+    assert result.status == "cache_hit"
+    assert result.evidence
+    assert "revalidation failed" in result.warning.lower()
+
+
+def test_revalidation_fetch_failure_serves_stale_cache(tmp_path):
+    stale = "2000-01-01T00:00:00+00:00"
+    wiki = FakeWiki([_document(retrieved_at=stale)])
+    retriever = _retriever(tmp_path, wiki, cache_ttl_seconds=1)
+    retriever.retrieve("Anju Kafei")
+
+    # The revision changed, so revalidation wants to refetch, but the wiki
+    # fetch fails: the stale cache must still be served instead of going miss.
+    wiki.documents = [_document(revision=11, retrieved_at=stale)]
+    wiki.fail_fetch = True
     result = retriever.retrieve("Anju Kafei")
 
     assert result.status == "cache_hit"

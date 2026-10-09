@@ -73,10 +73,12 @@ wiki pages on a miss, then performs a mandatory second vector retrieval. Raw
 fetched text never reaches the planner directly. Warm hits are diversified
 (per-source cap plus near-duplicate collapse) and revalidated against the wiki
 once older than a configurable TTL; the wiki leg of a miss runs under a global
-time budget and license discovery is best-effort. Runtime failure records
-`unavailable` and degrades to structured context. Persistent memory, broader
-tracing and formal plan evaluation remain future work; leave clear extension
-points for them.
+time budget and license discovery is best-effort. A wiki failure on that leg
+degrades to a `wiki_miss` with a warning, so a single slow request never turns
+retrieval `unavailable`; only an index or embedding failure does. Either way the
+pipeline continues with structured context. Persistent memory, broader tracing
+and formal plan evaluation remain future work; leave clear extension points for
+them.
 
 ## Development Principles
 
@@ -133,7 +135,9 @@ points for them.
   heading-aware chunking, FastEmbed adapter, persistent embedded Qdrant store,
   ingestion lock and cache-aside retrieval. `retrieve` is the Knowledge Agent
   seam; it always attempts retrieval, records `cache_hit`/`wiki_ingested`/
-  `wiki_miss`/`unavailable`, and fails soft without bypassing MCP authority.
+  `wiki_miss`/`unavailable`, and fails soft without bypassing MCP authority. A
+  wiki-leg failure maps to `wiki_miss` with a warning; only an index or
+  embedding failure maps to `unavailable`.
   Its post-store evidence selection caps chunks per source and collapses
   near-duplicates, stale hits are revalidated through a batched revision check,
   and the wiki client enforces a global request budget with best-effort license

@@ -131,7 +131,7 @@ def _append_rag_context(structured_context: str, retrieval: RetrievalResult) -> 
     """Append clearly labelled, bounded wiki evidence to planner context."""
     if not retrieval.evidence:
         if retrieval.warning:
-            return f"{structured_context}\n\n[RAG unavailable: {retrieval.warning}]"
+            return f"{structured_context}\n\n[RAG degraded: {retrieval.warning}]"
         return f"{structured_context}\n\n[RAG evidence: no matching passage.]"
     lines = [
         structured_context,

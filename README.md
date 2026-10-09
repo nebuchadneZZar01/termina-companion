@@ -129,8 +129,11 @@ chunks for the same page.
 
 The first model-backed query may download the FastEmbed model. After the model
 and wiki pages are cached, `cache_hit` retrieval does not require network
-access. A Qdrant, embedding or wiki failure returns status `unavailable`,
-records a warning and lets planning continue with structured MCP context.
+access. A wiki failure on the miss leg (network, timeout or exhausted budget)
+degrades to `wiki_miss` with a warning, because the local index and the
+structured MCP context are still usable; only a Qdrant or embedding failure
+returns status `unavailable`. Either way planning continues with structured MCP
+context.
 
 ### RAG tests and quality checks
 
