@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import httpx
 import pytest
 
@@ -227,5 +229,80 @@ def test_fetch_pages_handles_empty_redirect_page_as_no_document():
     client = _client(handler)
     try:
         assert client.fetch_pages([WikiPageReference(page_id=1, title="Empty")]) == []
+    finally:
+        client.close()
+
+
+def test_fetch_pages_keeps_page_when_siteinfo_unavailable():
+    """License attribution is best-effort and must not block page text."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        if params.get("meta") == "siteinfo":
+            return httpx.Response(
+                200,
+                json={"error": {"code": "readapidenied", "info": "no siteinfo"}},
+            )
+        if params.get("pageids"):
+            return httpx.Response(
+                200,
+                json={
+                    "query": {
+                        "pages": [
+                            {
+                                "pageid": 1,
+                                "title": "Anju",
+                                "revisions": [{"revid": 5, "timestamp": "2026-01-01T00:00:00Z"}],
+                            }
+                        ]
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={"parse": {"title": "Anju", "revid": 5, "text": "<div><p>Text.</p></div>"}},
+        )
+
+    client = _client(handler)
+    try:
+        documents = client.fetch_pages([WikiPageReference(page_id=1, title="Anju")])
+    finally:
+        client.close()
+
+    assert len(documents) == 1
+    assert documents[0].metadata.license_note == ""
+    assert documents[0].metadata.source_revision_id == 5
+
+
+def test_search_budget_exhausted_without_network():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no request may leave after the deadline")
+
+    client = _client(handler)
+    try:
+        with pytest.raises(WikiError, match="budget"):
+            client.search("Anju Kafei", terms=["Anju"], deadline=time.monotonic() - 1)
+    finally:
+        client.close()
+
+
+def test_current_revisions_maps_page_ids():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["prop"] == "revisions"
+        return httpx.Response(
+            200,
+            json={
+                "query": {
+                    "pages": [
+                        {"pageid": 1, "revisions": [{"revid": 42}]},
+                        {"pageid": 2, "revisions": [{"revid": 43}]},
+                    ]
+                }
+            },
+        )
+
+    client = _client(handler)
+    try:
+        assert client.current_revisions([1, 2, 2]) == {1: 42, 2: 43}
     finally:
         client.close()

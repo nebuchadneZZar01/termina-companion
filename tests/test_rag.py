@@ -9,8 +9,15 @@ from app.agents import knowledge_agent
 from app.domain import ClockTime, GameState, Goal
 from app.rag.chunking import chunk_document
 from app.rag.embeddings import HashEmbeddingProvider
-from app.rag.models import Document, RetrievalResult, SourceMetadata
-from app.rag.retriever import AdaptiveRetriever, RAGSettings
+from app.rag.models import (
+    Chunk,
+    Document,
+    IndexedSource,
+    RetrievalResult,
+    RetrievedChunk,
+    SourceMetadata,
+)
+from app.rag.retriever import AdaptiveRetriever, RAGSettings, _select_evidence
 from app.rag.store import InMemoryVectorStore
 from app.rag.wiki import WikiError, WikiPageReference
 from app.state import PlanningState
@@ -23,14 +30,17 @@ class FakeWiki:
         self.documents = documents or []
         self.search_calls: list[tuple[str, int, tuple[str, ...] | None]] = []
         self.fetch_calls = 0
+        self.revision_calls = 0
         self.fail_search = False
         self.fail_fetch = False
+        self.fail_revisions = False
 
     def search(
         self,
         query: str,
         limit: int = 3,
         terms: list[str] | tuple[str, ...] | None = None,
+        deadline: float | None = None,
     ) -> list[WikiPageReference]:
         self.search_calls.append((query, limit, tuple(terms) if terms else None))
         if self.fail_search:
@@ -43,12 +53,28 @@ class FakeWiki:
             for index, document in enumerate(self.documents, start=1)
         ][:limit]
 
-    def fetch_pages(self, references: list[WikiPageReference]) -> list[Document]:
+    def fetch_pages(
+        self, references: list[WikiPageReference], deadline: float | None = None
+    ) -> list[Document]:
         self.fetch_calls += 1
         if self.fail_fetch:
             raise WikiError("wiki fetch offline")
         by_id = {document.metadata.source_page_id: document for document in self.documents}
         return [by_id[reference.page_id] for reference in references if reference.page_id in by_id]
+
+    def current_revisions(
+        self, page_ids: list[int], deadline: float | None = None
+    ) -> dict[int, int]:
+        self.revision_calls += 1
+        if self.fail_revisions:
+            raise WikiError("wiki revisions offline")
+        wanted = set(page_ids)
+        return {
+            document.metadata.source_page_id: document.metadata.source_revision_id
+            for document in self.documents
+            if document.metadata.source_page_id in wanted
+            and document.metadata.source_revision_id is not None
+        }
 
 
 def _document(
@@ -57,6 +83,7 @@ def _document(
     revision: int = 10,
     title: str = "Anju's Anguish",
     content: str = "# Anju's Anguish\n\nKafei and Anju reunite before dawn.",
+    retrieved_at: str | None = None,
 ) -> Document:
     metadata = SourceMetadata(
         id=f"wiki:{page_id}",
@@ -67,7 +94,7 @@ def _document(
         source_page_id=page_id,
         source_revision_id=revision,
         source_revision_timestamp="2026-01-02T03:04:05Z",
-        retrieved_at=datetime.now(UTC).isoformat(),
+        retrieved_at=retrieved_at or datetime.now(UTC).isoformat(),
         language="en",
         license_note="GNU Free Documentation License 1.3",
         license_url="https://zeldawiki.wiki/wiki/Zelda_Wiki:GNU_Free_Documentation_License",
@@ -131,6 +158,13 @@ def test_cold_miss_ingests_wiki_then_returns_second_vector_result(tmp_path):
     assert result.evidence
     assert result.evidence[0].chunk.metadata.source_page_id == 1
     assert result.ingested_pages == ["Anju's Anguish"]
+    assert [source.title for source in result.indexed_sources] == ["Anju's Anguish"]
+    assert result.indexed_sources[0].source_page_id == 1
+    assert result.indexed_sources[0].source_revision_id == 10
+    assert result.indexed_sources[0].source_url.endswith("oldid=10")
+    assert result.indexed_sources[0].canonical_url.endswith("Anju's_Anguish")
+    assert result.indexed_sources[0].license_note.startswith("GNU")
+    assert result.indexed_sources[0].retrieved_at
     assert wiki.fetch_calls == 1
     assert wiki.search_calls[0][2] == ("Anju", "Kafei")
 
@@ -149,6 +183,7 @@ def test_warm_cache_hit_does_not_call_wiki(tmp_path):
 
     assert second.status == "cache_hit"
     assert second.evidence
+    assert [source.title for source in second.indexed_sources] == ["Anju's Anguish"]
     assert wiki.search_calls == []
     assert wiki.fetch_calls == 0
 
@@ -162,6 +197,26 @@ def test_fetched_text_must_pass_vector_retrieval(tmp_path):
     assert result.status == "wiki_miss"
     assert result.evidence == []
     assert result.ingested_pages == ["Anju's Anguish"]
+    assert [source.title for source in result.indexed_sources] == ["Anju's Anguish"]
+
+
+def test_manifest_keeps_every_page_indexed_during_miss(tmp_path):
+    documents = [
+        _document(page_id=1, title="Anju's Anguish", content="Kafei and Anju reunite."),
+        _document(page_id=2, title="Unrelated Page", content="Completely unrelated text."),
+    ]
+    retriever = _retriever(tmp_path, FakeWiki(documents), similarity_threshold=0.99)
+
+    result = retriever.retrieve("Anju Kafei")
+
+    assert result.status == "wiki_miss"
+    assert result.evidence == []
+    assert result.ingested_pages == ["Anju's Anguish", "Unrelated Page"]
+    assert [source.title for source in result.indexed_sources] == [
+        "Anju's Anguish",
+        "Unrelated Page",
+    ]
+    assert all(isinstance(source, IndexedSource) for source in result.indexed_sources)
 
 
 def test_wiki_failure_degrades_to_unavailable(tmp_path):
@@ -197,6 +252,7 @@ def test_knowledge_agent_keeps_mcp_authoritative_and_reports_status(monkeypatch)
         evidence=[{"chunk": evidence, "score": 0.91}],
         engine="qdrant-fastembed",
         status="cache_hit",
+        indexed_sources=[IndexedSource.from_metadata(evidence.metadata)],
     )
     monkeypatch.setattr(knowledge_agent, "retrieve", lambda *_args, **_kwargs: fake_result)
 
@@ -208,6 +264,8 @@ def test_knowledge_agent_keeps_mcp_authoritative_and_reports_status(monkeypatch)
     assert "Supplemental RAG evidence" in result["retrieved_context"]
     assert "oldid=10" in result["retrieved_context"]
     assert result["retrieval_ingested_pages"] == []
+    assert len(result["retrieval_indexed_sources"]) == 1
+    assert result["retrieval_indexed_sources"][0].source_page_id == 1
 
 
 def test_knowledge_agent_search_terms_include_structured_entities(monkeypatch):
@@ -258,3 +316,146 @@ def test_ingestion_is_bounded_by_page_setting(tmp_path):
 
     assert len(result.ingested_pages) == 2
     assert wiki.search_calls[0][1] == 2
+
+
+def _raw_chunk(document_id: str, ordinal: int, text: str) -> Chunk:
+    metadata = SourceMetadata(id=document_id, title=document_id)
+    return Chunk(
+        id=f"{document_id}::chunk-{ordinal:03d}",
+        document_id=document_id,
+        title=document_id,
+        text=text,
+        ordinal=ordinal,
+        metadata=metadata,
+    )
+
+
+def test_select_evidence_caps_chunks_per_source():
+    items = [
+        RetrievedChunk(
+            chunk=_raw_chunk("wiki:1", index, f"passage {index}"),
+            score=1.0 - index * 0.1,
+        )
+        for index in range(4)
+    ]
+
+    selected = _select_evidence(items, limit=4, max_per_source=2)
+
+    assert len(selected) == 2
+    assert [item.chunk.document_id for item in selected] == ["wiki:1", "wiki:1"]
+
+
+def test_select_evidence_drops_near_duplicate_chunks():
+    text = "Kafei and Anju reunite at the Stockpot Inn before dawn"
+    items = [
+        RetrievedChunk(chunk=_raw_chunk("wiki:1", 0, text), score=0.9),
+        RetrievedChunk(chunk=_raw_chunk("wiki:2", 0, text), score=0.8),
+        RetrievedChunk(chunk=_raw_chunk("wiki:3", 0, "Romani Ranch hides the aliens"), score=0.7),
+    ]
+
+    selected = _select_evidence(items, limit=4, max_per_source=2)
+
+    assert [item.chunk.document_id for item in selected] == ["wiki:1", "wiki:3"]
+
+
+def test_search_store_keeps_evidence_diverse(tmp_path):
+    store = InMemoryVectorStore()
+    provider = HashEmbeddingProvider()
+    metadata = SourceMetadata(id="wiki:1", title="Anju's Anguish", source_page_id=1)
+    texts = [
+        "Kafei hides in the Stockpot Inn laundry room",
+        "Anju waits at the Stockpot Inn front desk",
+        "The postman delivers a letter to Kafei",
+        "Skull Kid steals the Ocarina of Time",
+    ]
+    chunks = [_raw_chunk("wiki:1", index, text) for index, text in enumerate(texts)]
+    vectors = provider.embed_documents(texts)
+    store.upsert_document(
+        Document(id="wiki:1", title="Anju's Anguish", content="x", metadata=metadata),
+        chunks,
+        vectors,
+    )
+    retriever = AdaptiveRetriever(
+        store,
+        FakeWiki([]),
+        provider,
+        _settings(tmp_path, similarity_threshold=-1.0, max_chunks_per_source=2),
+        lock_path=tmp_path / "wiki.lock",
+    )
+
+    evidence = retriever._search_store(provider.embed_query("Anju Kafei"), top_k=4)
+
+    assert len(evidence) == 2
+
+
+def test_stale_cache_revalidates_and_reindexes_changed_page(tmp_path):
+    stale = "2000-01-01T00:00:00+00:00"
+    wiki = FakeWiki([_document(revision=10, retrieved_at=stale)])
+    retriever = _retriever(tmp_path, wiki, cache_ttl_seconds=1)
+    first = retriever.retrieve("Anju Kafei")
+    assert first.status == "wiki_ingested"
+
+    wiki.documents = [_document(revision=11, retrieved_at=stale)]
+    wiki.search_calls.clear()
+    wiki.fetch_calls = 0
+    result = retriever.retrieve("Anju Kafei")
+
+    assert result.status == "wiki_ingested"
+    assert wiki.search_calls == []
+    assert wiki.fetch_calls == 1
+    assert result.evidence[0].chunk.metadata.source_revision_id == 11
+    assert result.indexed_sources[0].source_revision_id == 11
+
+
+def test_stale_cache_with_unchanged_revision_serves_cache(tmp_path):
+    stale = "2000-01-01T00:00:00+00:00"
+    wiki = FakeWiki([_document(retrieved_at=stale)])
+    retriever = _retriever(tmp_path, wiki, cache_ttl_seconds=1)
+    retriever.retrieve("Anju Kafei")
+
+    wiki.fetch_calls = 0
+    result = retriever.retrieve("Anju Kafei")
+
+    assert result.status == "cache_hit"
+    assert wiki.revision_calls == 1
+    assert wiki.fetch_calls == 0
+
+
+def test_fresh_cache_hit_skips_revalidation(tmp_path):
+    wiki = FakeWiki([_document()])
+    retriever = _retriever(tmp_path, wiki, cache_ttl_seconds=3600)
+    retriever.retrieve("Anju Kafei")
+
+    wiki.revision_calls = 0
+    result = retriever.retrieve("Anju Kafei")
+
+    assert result.status == "cache_hit"
+    assert wiki.revision_calls == 0
+
+
+def test_revalidation_failure_serves_stale_cache_with_warning(tmp_path):
+    stale = "2000-01-01T00:00:00+00:00"
+    wiki = FakeWiki([_document(retrieved_at=stale)])
+    retriever = _retriever(tmp_path, wiki, cache_ttl_seconds=1)
+    retriever.retrieve("Anju Kafei")
+
+    wiki.fail_revisions = True
+    result = retriever.retrieve("Anju Kafei")
+
+    assert result.status == "cache_hit"
+    assert result.evidence
+    assert "revalidation failed" in result.warning.lower()
+
+
+def test_stale_cache_drops_vanished_page(tmp_path):
+    stale = "2000-01-01T00:00:00+00:00"
+    wiki = FakeWiki([_document(retrieved_at=stale)])
+    retriever = _retriever(tmp_path, wiki, cache_ttl_seconds=1)
+    retriever.retrieve("Anju Kafei")
+
+    wiki.documents = []  # the page was deleted upstream
+    result = retriever.retrieve("Anju Kafei")
+
+    assert result.status == "wiki_miss"
+    assert result.evidence == []
+    assert retriever.store.count() == 0

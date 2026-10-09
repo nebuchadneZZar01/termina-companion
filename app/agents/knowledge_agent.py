@@ -4,7 +4,8 @@ MCP tools remain authoritative for objectives, schedules, events, prerequisites,
 items and masks. The RAG seam is invoked immediately before planning, searches a
 persistent Qdrant cache first, and only then may fetch and ingest Zelda Wiki
 pages. Wiki text is never returned directly: it must pass through vector
-retrieval again before being appended to planner context.
+retrieval again before being appended to planner context. The provenance-only
+indexed-source manifest is kept in workflow state for UI inspection.
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ def run(state: PlanningState) -> dict:
         "retrieval_status": retrieval.status,
         "retrieval_warning": retrieval.warning,
         "retrieval_ingested_pages": retrieval.ingested_pages,
+        "retrieval_indexed_sources": retrieval.indexed_sources,
         "knowledge_engine": "rule-based",
     }
 

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.data.mock_knowledge import Objective
 from app.domain import GameState, Goal, Plan, ValidationResult
-from app.rag.models import Evidence
+from app.rag.models import Evidence, IndexedSource
 
 
 class PlanningState(BaseModel):
@@ -23,6 +23,7 @@ class PlanningState(BaseModel):
     retrieval_status: str = ""
     retrieval_warning: str = ""
     retrieval_ingested_pages: list[str] = Field(default_factory=list)
+    retrieval_indexed_sources: list[IndexedSource] = Field(default_factory=list)
     plan: Plan | None = None
     validation: ValidationResult | None = None
     replan_attempts: int = 0

@@ -125,6 +125,7 @@ class MediaWikiClient:
             )
         )
         self._rights: WikiRights | None = None
+        self._rights_checked = False
         self._article_base = _article_base(api_url)
 
     def search(
@@ -132,6 +133,7 @@ class MediaWikiClient:
         query: str,
         limit: int = 3,
         terms: list[str] | tuple[str, ...] | None = None,
+        deadline: float | None = None,
     ) -> list[WikiPageReference]:
         """Search page references using focused MediaWiki queries.
 
@@ -158,7 +160,8 @@ class MediaWikiClient:
                         # before applying the bounded page-ingestion limit.
                         "srlimit": 10,
                         "srprop": "snippet|timestamp|wordcount",
-                    }
+                    },
+                    deadline=deadline,
                 )
             except WikiError as exc:
                 errors.append(exc)
@@ -185,12 +188,14 @@ class MediaWikiClient:
             raise errors[0]
         return _rank_references(list(found.values()), queries, limit)
 
-    def fetch_pages(self, references: list[WikiPageReference]) -> list[Document]:
+    def fetch_pages(
+        self, references: list[WikiPageReference], deadline: float | None = None
+    ) -> list[Document]:
         """Fetch, clean and provenance-stamp pages for later vector indexing."""
         if not references:
             return []
-        rights = self._get_rights()
-        details, redirect_map = self._page_details(references)
+        rights = self._get_rights(deadline=deadline)
+        details, redirect_map = self._page_details(references, deadline=deadline)
         target_ids: list[int] = []
         for reference in references:
             target = _follow_redirect(reference.page_id, redirect_map)
@@ -203,7 +208,9 @@ class MediaWikiClient:
         for page_id in target_ids:
             page = details.get(page_id, {})
             try:
-                document = self._fetch_one_page(page_id, page, rights, retrieved_at)
+                document = self._fetch_one_page(
+                    page_id, page, rights, retrieved_at, deadline=deadline
+                )
             except WikiError as exc:
                 errors.append(exc)
                 logger.warning("Ignoring wiki page %s: %s", page_id, exc)
@@ -218,8 +225,9 @@ class MediaWikiClient:
         self,
         page_id: int,
         detail: dict[str, Any],
-        rights: WikiRights,
+        rights: WikiRights | None,
         retrieved_at: str,
+        deadline: float | None = None,
     ) -> Document | None:
         payload = self._request(
             {
@@ -228,7 +236,8 @@ class MediaWikiClient:
                 "prop": "text|revid|displaytitle",
                 "disabletoc": 1,
                 "disableeditsection": 1,
-            }
+            },
+            deadline=deadline,
         )
         parsed = payload.get("parse")
         if not isinstance(parsed, dict):
@@ -259,9 +268,9 @@ class MediaWikiClient:
             source_revision_id=revision_number,
             source_revision_timestamp=revision_timestamp,
             retrieved_at=retrieved_at,
-            language=rights.language,
-            license_note=rights.text,
-            license_url=rights.url,
+            language=rights.language if rights else "",
+            license_note=rights.text if rights else "",
+            license_url=rights.url if rights else "",
             categories=[
                 str(item.get("title", ""))
                 for item in (detail.get("categories") or [])
@@ -271,7 +280,7 @@ class MediaWikiClient:
         return Document(id=metadata.id, title=title, content=content, metadata=metadata)
 
     def _page_details(
-        self, references: list[WikiPageReference]
+        self, references: list[WikiPageReference], deadline: float | None = None
     ) -> tuple[dict[int, dict[str, Any]], dict[int, int]]:
         page_ids = [reference.page_id for reference in references]
         payload = self._request(
@@ -282,45 +291,90 @@ class MediaWikiClient:
                 "rvprop": "ids|timestamp",
                 "cllimit": "max",
                 "redirects": 1,
-            }
+            },
+            deadline=deadline,
         )
         pages = _pages_by_id(payload)
         source_titles = {reference.page_id: reference.title for reference in references}
         return pages, _redirect_map(payload, source_titles)
 
-    def _get_rights(self) -> WikiRights:
-        if self._rights is not None:
+    def _get_rights(self, deadline: float | None = None) -> WikiRights | None:
+        """Return license metadata when available; never block page fetching.
+
+        License discovery is best-effort attribution: a wiki that does not
+        expose siteinfo must not turn an otherwise usable page into an
+        `unavailable` retrieval.
+        """
+        if self._rights_checked:
             return self._rights
+        self._rights_checked = True
+        try:
+            payload = self._request(
+                {
+                    "action": "query",
+                    "meta": "siteinfo",
+                    "siprop": "general|rightsinfo",
+                },
+                deadline=deadline,
+            )
+            query = payload.get("query", {})
+            rights = query.get("rightsinfo", {})
+            general = query.get("general", {})
+            text = str(rights.get("text", "")).strip()
+            if not text:
+                raise WikiError("Wiki siteinfo did not provide license information")
+            self._rights = WikiRights(
+                text=text,
+                url=str(rights.get("url", "")).strip(),
+                language=str(general.get("lang", "")).strip(),
+            )
+        except WikiError as exc:
+            logger.warning("Wiki license metadata unavailable: %s", exc)
+            self._rights = None
+        return self._rights
+
+    def current_revisions(
+        self, page_ids: list[int], deadline: float | None = None
+    ) -> dict[int, int]:
+        """Return the current revision ID for each page that still exists."""
+        unique_ids = list(dict.fromkeys(int(page_id) for page_id in page_ids))
+        if not unique_ids:
+            return {}
         payload = self._request(
             {
                 "action": "query",
-                "meta": "siteinfo",
-                "siprop": "general|rightsinfo",
-            }
+                "pageids": "|".join(str(page_id) for page_id in unique_ids),
+                "prop": "revisions",
+                "rvprop": "ids",
+            },
+            deadline=deadline,
         )
-        query = payload.get("query", {})
-        rights = query.get("rightsinfo", {})
-        general = query.get("general", {})
-        text = str(rights.get("text", "")).strip()
-        if not text:
-            raise WikiError("Wiki siteinfo did not provide license information")
-        self._rights = WikiRights(
-            text=text,
-            url=str(rights.get("url", "")).strip(),
-            language=str(general.get("lang", "")).strip(),
-        )
-        return self._rights
+        revisions: dict[int, int] = {}
+        for page_id, page in _pages_by_id(payload).items():
+            revision = _first_revision(page)
+            try:
+                revisions[page_id] = int(revision["revid"])
+            except (KeyError, TypeError, ValueError):
+                continue
+        return revisions
 
-    def _request(self, params: dict[str, Any]) -> dict[str, Any]:
+    def _request(self, params: dict[str, Any], deadline: float | None = None) -> dict[str, Any]:
         request_params = {"format": "json", "formatversion": 2, **params}
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
+            remaining = self._remaining_timeout(deadline)
+            if remaining is not None and remaining <= 0:
+                raise WikiError(
+                    f"Wiki request budget exhausted: {last_error or 'deadline reached'}"
+                )
             try:
                 response = self._client.get(
                     self.api_url,
                     params=request_params,
                     headers={"User-Agent": self.user_agent},
-                    timeout=self.timeout_seconds,
+                    timeout=self.timeout_seconds
+                    if remaining is None
+                    else min(self.timeout_seconds, remaining),
                 )
                 if response.status_code == 429 or response.status_code >= 500:
                     raise httpx.HTTPStatusError(
@@ -333,7 +387,13 @@ class MediaWikiClient:
             except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as exc:
                 last_error = exc
                 if attempt < self.max_retries:
-                    time.sleep(min(0.25 * (2**attempt), 2.0))
+                    delay = min(0.25 * (2**attempt), 2.0)
+                    remaining = self._remaining_timeout(deadline)
+                    if remaining is not None:
+                        if remaining <= 0:
+                            break
+                        delay = min(delay, remaining)
+                    time.sleep(delay)
                     continue
                 break
             if not isinstance(payload, dict):
@@ -345,6 +405,12 @@ class MediaWikiClient:
                 break
             return payload
         raise WikiError(f"Wiki request failed: {last_error}") from last_error
+
+    def _remaining_timeout(self, deadline: float | None) -> float | None:
+        """Return seconds left before the deadline, or None when unbounded."""
+        if deadline is None:
+            return None
+        return deadline - time.monotonic()
 
     def _page_url(self, title: str) -> str:
         page_title = title.replace(" ", "_")

@@ -38,19 +38,22 @@ def _index(store: QdrantVectorStore, embedding: HashEmbeddingProvider, document:
 
 
 class _UnavailableWiki:
-    def search(self, query, limit=3, terms=None):
+    def search(self, query, limit=3, terms=None, deadline=None):
         raise WikiError("offline")
 
-    def fetch_pages(self, references):
+    def fetch_pages(self, references, deadline=None):
         raise AssertionError("warm cache must not fetch pages")
 
 
 class _OnePageWiki:
-    def search(self, query, limit=3, terms=None):
+    def search(self, query, limit=3, terms=None, deadline=None):
         return [WikiPageReference(page_id=4819, title="Anju's Anguish")]
 
-    def fetch_pages(self, references):
+    def fetch_pages(self, references, deadline=None):
         return [_document(4819, "Kafei and Anju reunite before dawn.")]
+
+    def current_revisions(self, page_ids, deadline=None):
+        return {4819: 1}
 
 
 def test_qdrant_local_store_persists_after_reopen(tmp_path: Path):

@@ -1,4 +1,4 @@
-"""Pydantic contracts for wiki-backed RAG documents, chunks and evidence."""
+"""Pydantic contracts for wiki-backed RAG documents, chunks, evidence and sources."""
 
 from __future__ import annotations
 
@@ -28,6 +28,21 @@ class SourceMetadata(BaseModel):
     license_note: str = ""
     license_url: str = ""
     categories: list[str] = Field(default_factory=list)
+
+
+class IndexedSource(SourceMetadata):
+    """Provenance manifest entry for a page successfully added to the index.
+
+    The manifest is intentionally separate from :class:`RetrievedChunk`: it
+    describes every page indexed during a miss, including pages whose chunks do
+    not pass the final evidence threshold. Only retrieved chunks are intended
+    for planner context.
+    """
+
+    @classmethod
+    def from_metadata(cls, metadata: SourceMetadata) -> "IndexedSource":
+        """Build a manifest entry without dropping source metadata."""
+        return cls.model_validate(metadata.model_dump())
 
 
 class Document(BaseModel):
@@ -73,6 +88,7 @@ class RetrievalResult(BaseModel):
     status: RetrievalStatus = "wiki_miss"
     warning: str = ""
     ingested_pages: list[str] = Field(default_factory=list)
+    indexed_sources: list[IndexedSource] = Field(default_factory=list)
 
     @property
     def chunks(self) -> list[Chunk]:
