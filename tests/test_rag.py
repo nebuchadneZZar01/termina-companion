@@ -531,3 +531,65 @@ def test_stale_cache_drops_vanished_page(tmp_path):
     assert result.status == "wiki_miss"
     assert result.evidence == []
     assert retriever.store.count() == 0
+
+
+def test_close_at_exit_releases_clients_and_swallows_errors(tmp_path):
+    from app.rag import retriever as retriever_module
+
+    retriever = _retriever(tmp_path, FakeWiki())
+
+    class Recorder:
+        def __init__(self) -> None:
+            self.closed = 0
+
+        def close(self) -> None:
+            self.closed += 1
+
+    store = Recorder()
+    retriever.store = store
+
+    retriever_module._close_at_exit(retriever)
+    retriever_module._close_at_exit(retriever)
+
+    assert store.closed == 2
+
+    class Exploding:
+        def close(self) -> None:
+            raise RuntimeError("cleanup failed")
+
+    retriever.store = Exploding()
+    retriever.wiki = Exploding()
+    retriever_module._close_at_exit(retriever)  # must not raise
+
+
+def test_build_default_retriever_registers_atexit_closer(monkeypatch, tmp_path):
+    from app.rag import retriever as retriever_module
+
+    registered: list[tuple] = []
+    monkeypatch.setattr(
+        retriever_module.atexit,
+        "register",
+        lambda fn, *args: registered.append((fn, args)),
+    )
+    monkeypatch.setattr(
+        retriever_module.RAGSettings,
+        "from_env",
+        classmethod(lambda cls: _settings(tmp_path)),
+    )
+    monkeypatch.setattr(
+        retriever_module,
+        "get_embedding_provider",
+        lambda *args, **kwargs: HashEmbeddingProvider(),
+    )
+    monkeypatch.setattr(
+        retriever_module, "QdrantVectorStore", lambda **kwargs: InMemoryVectorStore()
+    )
+    monkeypatch.setattr(retriever_module, "MediaWikiClient", lambda **kwargs: FakeWiki())
+
+    retriever_module.build_default_retriever.cache_clear()
+    try:
+        retriever = retriever_module.build_default_retriever()
+    finally:
+        retriever_module.build_default_retriever.cache_clear()
+
+    assert registered == [(retriever_module._close_at_exit, (retriever,))]

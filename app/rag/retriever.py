@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import logging
 import os
@@ -638,6 +639,23 @@ def _age_seconds(value: str, now: float) -> float | None:
     return now - parsed.timestamp()
 
 
+def _close_at_exit(retriever: AdaptiveRetriever) -> None:
+    """Release persistent clients while the interpreter can still import.
+
+    The embedded Qdrant client opens a ``.lock`` file and imports ``portalocker``
+    lazily inside ``close``. When it is only finalized during interpreter
+    shutdown, that import runs after ``sys.meta_path`` has been cleared and the
+    ignored ``ImportError`` is printed. Closing from an ``atexit`` handler
+    releases the lock while imports still work, so the later
+    ``QdrantClient.__del__`` finds the lock already closed and skips the fragile
+    import.
+    """
+    try:
+        retriever.close()
+    except Exception:  # pragma: no cover - defensive cleanup
+        logger.debug("Failed to close the default retriever", exc_info=True)
+
+
 @lru_cache(maxsize=1)
 def build_default_retriever() -> AdaptiveRetriever:
     """Build the process-wide persistent adaptive retriever once."""
@@ -657,9 +675,11 @@ def build_default_retriever() -> AdaptiveRetriever:
             failure_threshold=settings.wiki_failure_threshold,
             cooldown_seconds=settings.wiki_cooldown_seconds,
         )
-        return AdaptiveRetriever(store, wiki, embedding, settings)
+        retriever = AdaptiveRetriever(store, wiki, embedding, settings)
     except Exception as exc:
         raise RAGError(f"Cannot build adaptive RAG: {exc}") from exc
+    atexit.register(_close_at_exit, retriever)
+    return retriever
 
 
 def retrieve(
