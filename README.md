@@ -104,12 +104,19 @@ time the wiki leg of a miss may consume. License discovery is best-effort: a
 wiki that hides `siteinfo` yields pages without license metadata rather than
 failing the retrieval.
 
-An unreachable wiki is reported separately from a normal miss. `status` keeps
-describing the outcome (`cache_hit`, `wiki_ingested`, `wiki_miss`,
-`unavailable`), while the `wiki_unreachable` flag records that the wiki leg
-failed because the wiki could not be reached (network error, timeout, exhausted
-budget or open breaker). A reachable wiki that returns an API error or no useful
-page is a plain miss, not an unreachable source. Slow read/write/pool timeouts
+`status` describes the outcome; `wiki_unreachable` describes source health.
+Planning always continues on structured MCP context.
+
+| Wiki leg outcome | `status` | `wiki_unreachable` | What it means |
+|---|---|---|---|
+| Cache hit with sufficient evidence | `cache_hit` | `false` | Served from local Qdrant, no wiki request. |
+| Miss, pages indexed and evidence found | `wiki_ingested` | `false` | Wiki fetched, chunks passed second vector query. |
+| Miss, reachable wiki, no useful page | `wiki_miss` | `false` | API error or nothing above threshold; plain miss. |
+| Miss, wiki not reached | `wiki_miss` | `true` | Network/timeout/budget/breaker; planner uses structured MCP context only. |
+| Index or embedding broken | `unavailable` | `false` | Local Qdrant/embedding failure; only case that is not a miss. |
+
+A reachable wiki that returns an API error or no useful page is a plain miss,
+not an unreachable source. Slow read/write/pool timeouts
 fail fast instead of being retried, while connect errors and 429/5xx responses
 keep their bounded retries. After `RAG_WIKI_FAILURE_THRESHOLD` consecutive
 unreachable failures the client opens a circuit breaker and skips the wiki leg
