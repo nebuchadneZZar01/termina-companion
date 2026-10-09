@@ -73,12 +73,14 @@ wiki pages on a miss, then performs a mandatory second vector retrieval. Raw
 fetched text never reaches the planner directly. Warm hits are diversified
 (per-source cap plus near-duplicate collapse) and revalidated against the wiki
 once older than a configurable TTL; the wiki leg of a miss runs under a global
-time budget and license discovery is best-effort. A wiki failure on that leg
-degrades to a `wiki_miss` with a warning, so a single slow request never turns
-retrieval `unavailable`; only an index or embedding failure does. Either way the
-pipeline continues with structured context. Persistent memory, broader tracing
-and formal plan evaluation remain future work; leave clear extension points for
-them.
+time budget and license discovery is best-effort. Slow wiki timeouts fail fast
+instead of being retried, and repeated unreachable failures open a short circuit
+breaker so a down wiki is not repaid on every run. A wiki failure on that leg
+degrades to a `wiki_miss` with a warning and an explicit `wiki_unreachable`
+flag, so a single slow request never turns retrieval `unavailable`; only an index
+or embedding failure does. Either way the pipeline continues with structured
+context. Persistent memory, broader tracing and formal plan evaluation remain
+future work; leave clear extension points for them.
 
 ## Development Principles
 
@@ -136,13 +138,16 @@ them.
   ingestion lock and cache-aside retrieval. `retrieve` is the Knowledge Agent
   seam; it always attempts retrieval, records `cache_hit`/`wiki_ingested`/
   `wiki_miss`/`unavailable`, and fails soft without bypassing MCP authority. A
-  wiki-leg failure maps to `wiki_miss` with a warning; only an index or
-  embedding failure maps to `unavailable`.
+  wiki-leg failure maps to `wiki_miss` with a warning and a `wiki_unreachable`
+  flag when the wiki could not be reached; only an index or embedding failure
+  maps to `unavailable`.
   Its post-store evidence selection caps chunks per source and collapses
   near-duplicates, stale hits are revalidated through a batched revision check,
   and the wiki client enforces a global request budget with best-effort license
-  metadata. Indexed-source metadata is exposed for UI inspection, while only
-  retrieved evidence is appended to planner context. `app/rag/evaluation.py`
+  metadata, fails fast on slow read timeouts, and opens a cooldown circuit
+  breaker after repeated unreachable failures. Indexed-source metadata is
+  exposed for UI inspection, while only retrieved evidence is appended to
+  planner context. `app/rag/evaluation.py`
   provides retrieval-only offline metrics; it does not evaluate plans or
   trajectories.
 * `app/llm.py` — LLM provider factory (`get_chat_model()`); raises

@@ -80,13 +80,20 @@ Evidence = RetrievedChunk
 
 
 class RetrievalResult(BaseModel):
-    """Result of one adaptive cache-aside retrieval request."""
+    """Result of one adaptive cache-aside retrieval request.
+
+    ``status`` reports the outcome (cache hit, ingested, miss, unavailable),
+    while ``wiki_unreachable`` independently records whether the wiki leg failed
+    because the wiki could not be reached. A wiki that is reachable but returns
+    an API error or no usable page is a miss, not an unreachable source.
+    """
 
     query: str
     evidence: list[RetrievedChunk] = Field(default_factory=list)
     engine: str = "unknown"
     status: RetrievalStatus = "wiki_miss"
     warning: str = ""
+    wiki_unreachable: bool = False
     ingested_pages: list[str] = Field(default_factory=list)
     indexed_sources: list[IndexedSource] = Field(default_factory=list)
 

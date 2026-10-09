@@ -22,6 +22,7 @@ class PlanningState(BaseModel):
     retrieval_engine: str = ""
     retrieval_status: str = ""
     retrieval_warning: str = ""
+    retrieval_wiki_unreachable: bool = False
     retrieval_ingested_pages: list[str] = Field(default_factory=list)
     retrieval_indexed_sources: list[IndexedSource] = Field(default_factory=list)
     plan: Plan | None = None

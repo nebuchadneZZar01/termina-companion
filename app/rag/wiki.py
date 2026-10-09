@@ -5,6 +5,7 @@ from __future__ import annotations
 import html as html_lib
 import logging
 import re
+import threading
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -77,6 +78,15 @@ class WikiError(RuntimeError):
     """Raised when the wiki cannot be searched or fetched."""
 
 
+class WikiUnavailableError(WikiError):
+    """Raised when the wiki is unreachable.
+
+    Covers transport failures, timeouts, exhausted request budgets, server-side
+    outages (HTTP 429/5xx) and the open circuit breaker. An API-level error
+    returned by a reachable wiki stays a plain :class:`WikiError`.
+    """
+
+
 class WikiPageReference(BaseModel):
     """Search result used to identify a wiki page without fetching its text."""
 
@@ -105,15 +115,26 @@ class MediaWikiClient:
         timeout_seconds: float = 20,
         client: httpx.Client | None = None,
         max_retries: int = 2,
+        failure_threshold: int = 3,
+        cooldown_seconds: float = 60.0,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         if max_retries < 0:
             raise ValueError("max_retries must be non-negative")
+        if failure_threshold < 0:
+            raise ValueError("failure_threshold must be non-negative")
+        if cooldown_seconds < 0:
+            raise ValueError("cooldown_seconds must be non-negative")
         self.api_url = api_url
         self.user_agent = user_agent
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
+        self.failure_threshold = failure_threshold
+        self.cooldown_seconds = cooldown_seconds
+        self._breaker_lock = threading.Lock()
+        self._consecutive_failures = 0
+        self._open_until = 0.0
         self._owns_client = client is None
         self._client = (
             client
@@ -359,12 +380,21 @@ class MediaWikiClient:
         return revisions
 
     def _request(self, params: dict[str, Any], deadline: float | None = None) -> dict[str, Any]:
+        """Perform one MediaWiki request with fail-fast retries and a breaker.
+
+        Slow read/write/pool timeouts are not retried: a server that keeps the
+        connection open without answering rarely recovers within the same
+        budget. Connect failures and 429/5xx responses stay retryable, and a
+        tripped circuit breaker short-circuits the wiki leg entirely.
+        """
+        self._ensure_breaker_closed()
         request_params = {"format": "json", "formatversion": 2, **params}
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
             remaining = self._remaining_timeout(deadline)
             if remaining is not None and remaining <= 0:
-                raise WikiError(
+                self._record_failure()
+                raise WikiUnavailableError(
                     f"Wiki request budget exhausted: {last_error or 'deadline reached'}"
                 )
             try:
@@ -386,7 +416,7 @@ class MediaWikiClient:
                 payload = response.json()
             except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as exc:
                 last_error = exc
-                if attempt < self.max_retries:
+                if _is_retryable(exc) and attempt < self.max_retries:
                     delay = min(0.25 * (2**attempt), 2.0)
                     remaining = self._remaining_timeout(deadline)
                     if remaining is not None:
@@ -403,8 +433,41 @@ class MediaWikiClient:
             if error:
                 last_error = WikiError(_api_error_message(error))
                 break
+            self._record_success()
             return payload
+        if _is_unreachable(last_error):
+            self._record_failure()
+            raise WikiUnavailableError(f"Wiki request failed: {last_error}") from last_error
         raise WikiError(f"Wiki request failed: {last_error}") from last_error
+
+    def _ensure_breaker_closed(self) -> None:
+        """Reject requests while the circuit breaker is open.
+
+        Once the cooldown elapses the next request is a half-open probe: a
+        success closes the breaker, a failure reopens it.
+        """
+        if self._open_until and time.monotonic() < self._open_until:
+            raise WikiUnavailableError("Wiki circuit breaker is open")
+
+    def _record_success(self) -> None:
+        with self._breaker_lock:
+            self._consecutive_failures = 0
+            self._open_until = 0.0
+
+    def _record_failure(self) -> None:
+        """Count one unreachable failure and open the breaker at the threshold."""
+        threshold = self.failure_threshold
+        if threshold <= 0:
+            return
+        with self._breaker_lock:
+            self._consecutive_failures += 1
+            if self._consecutive_failures >= threshold:
+                self._open_until = time.monotonic() + self.cooldown_seconds
+                logger.warning(
+                    "Wiki circuit breaker open for %.0fs after %d consecutive failures",
+                    self.cooldown_seconds,
+                    self._consecutive_failures,
+                )
 
     def _remaining_timeout(self, deadline: float | None) -> float | None:
         """Return seconds left before the deadline, or None when unbounded."""
@@ -573,6 +636,32 @@ def _api_error_message(error: Any) -> str:
     if isinstance(error, dict):
         return str(error.get("info") or error.get("code") or error)
     return str(error)
+
+
+def _is_retryable(error: Exception) -> bool:
+    """Return whether one transport failure is worth a bounded retry.
+
+    Slow read/write/pool timeouts fail fast: retrying a request the server
+    already took too long to answer only burns the wiki budget. Connect
+    timeouts and errors stay retryable because they are fast and often
+    transient, as do throttling/outage responses.
+    """
+    if isinstance(error, httpx.HTTPStatusError):
+        status = error.response.status_code
+        return status == 429 or status >= 500
+    if isinstance(error, httpx.TimeoutException):
+        return isinstance(error, httpx.ConnectTimeout)
+    return isinstance(error, httpx.RequestError)
+
+
+def _is_unreachable(error: Exception | None) -> bool:
+    """Return whether a terminal failure means the wiki was unreachable."""
+    if isinstance(error, httpx.RequestError):
+        return True
+    if isinstance(error, httpx.HTTPStatusError):
+        status = error.response.status_code
+        return status == 429 or status >= 500
+    return False
 
 
 def _article_base(api_url: str) -> str:

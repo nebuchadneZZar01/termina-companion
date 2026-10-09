@@ -19,7 +19,7 @@ from app.rag.models import (
 )
 from app.rag.retriever import AdaptiveRetriever, RAGSettings, _select_evidence
 from app.rag.store import InMemoryVectorStore
-from app.rag.wiki import WikiError, WikiPageReference
+from app.rag.wiki import WikiError, WikiPageReference, WikiUnavailableError
 from app.state import PlanningState
 
 
@@ -34,6 +34,11 @@ class FakeWiki:
         self.fail_search = False
         self.fail_fetch = False
         self.fail_revisions = False
+        # Failures default to an unreachable wiki; tests can override the
+        # exception to model a reachable wiki that returns an API error.
+        self.search_error: Exception = WikiUnavailableError("wiki offline")
+        self.fetch_error: Exception = WikiUnavailableError("wiki fetch offline")
+        self.revisions_error: Exception = WikiUnavailableError("wiki revisions offline")
 
     def search(
         self,
@@ -44,7 +49,7 @@ class FakeWiki:
     ) -> list[WikiPageReference]:
         self.search_calls.append((query, limit, tuple(terms) if terms else None))
         if self.fail_search:
-            raise WikiError("wiki offline")
+            raise self.search_error
         return [
             WikiPageReference(
                 page_id=document.metadata.source_page_id or index,
@@ -58,7 +63,7 @@ class FakeWiki:
     ) -> list[Document]:
         self.fetch_calls += 1
         if self.fail_fetch:
-            raise WikiError("wiki fetch offline")
+            raise self.fetch_error
         by_id = {document.metadata.source_page_id: document for document in self.documents}
         return [by_id[reference.page_id] for reference in references if reference.page_id in by_id]
 
@@ -67,7 +72,7 @@ class FakeWiki:
     ) -> dict[int, int]:
         self.revision_calls += 1
         if self.fail_revisions:
-            raise WikiError("wiki revisions offline")
+            raise self.revisions_error
         wanted = set(page_ids)
         return {
             document.metadata.source_page_id: document.metadata.source_revision_id
@@ -183,6 +188,7 @@ def test_warm_cache_hit_does_not_call_wiki(tmp_path):
 
     assert second.status == "cache_hit"
     assert second.evidence
+    assert second.wiki_unreachable is False
     assert [source.title for source in second.indexed_sources] == ["Anju's Anguish"]
     assert wiki.search_calls == []
     assert wiki.fetch_calls == 0
@@ -228,6 +234,7 @@ def test_wiki_search_failure_degrades_to_miss(tmp_path):
 
     assert result.status == "wiki_miss"
     assert result.engine == "qdrant-fastembed"
+    assert result.wiki_unreachable is True
     assert "wiki offline" in result.warning
     assert result.evidence == []
 
@@ -241,8 +248,22 @@ def test_wiki_fetch_failure_degrades_to_miss(tmp_path):
 
     assert result.status == "wiki_miss"
     assert result.engine == "qdrant-fastembed"
+    assert result.wiki_unreachable is True
     assert "wiki fetch offline" in result.warning
     assert result.evidence == []
+
+
+def test_wiki_api_error_is_reachable_not_unreachable(tmp_path):
+    wiki = FakeWiki([_document()])
+    wiki.fail_search = True
+    wiki.search_error = WikiError("invalid page")
+    retriever = _retriever(tmp_path, wiki)
+
+    result = retriever.retrieve("Anju Kafei")
+
+    assert result.status == "wiki_miss"
+    assert result.wiki_unreachable is False
+    assert "invalid page" in result.warning
 
 
 def test_retrieve_never_raises_when_default_builder_fails(monkeypatch):
@@ -273,6 +294,7 @@ def test_knowledge_agent_keeps_mcp_authoritative_and_reports_status(monkeypatch)
 
     assert result["knowledge_engine"] == "rule-based"
     assert result["retrieval_status"] == "cache_hit"
+    assert result["retrieval_wiki_unreachable"] is False
     assert "[ak_talk_to_anju]" in result["retrieved_context"]
     assert "Supplemental RAG evidence" in result["retrieved_context"]
     assert "oldid=10" in result["retrieved_context"]
@@ -307,6 +329,23 @@ def test_knowledge_agent_unexpected_failure_keeps_structured_context(monkeypatch
     assert result["retrieval_status"] == "unavailable"
     assert result["retrieval_engine"] == "unavailable"
     assert result["retrieval_warning"] == "index offline"
+    assert "[ak_talk_to_anju]" in result["retrieved_context"]
+
+
+def test_knowledge_agent_reports_unreachable_wiki(monkeypatch):
+    fake_result = RetrievalResult(
+        query="Anju Kafei",
+        engine="qdrant-fastembed",
+        status="wiki_miss",
+        warning="Wiki source unreachable: wiki offline",
+        wiki_unreachable=True,
+    )
+    monkeypatch.setattr(knowledge_agent, "retrieve", lambda *_args, **_kwargs: fake_result)
+
+    result = knowledge_agent.run(_state())
+
+    assert result["retrieval_wiki_unreachable"] is True
+    assert "wiki unreachable" in result["retrieved_context"]
     assert "[ak_talk_to_anju]" in result["retrieved_context"]
 
 
@@ -443,6 +482,7 @@ def test_fresh_cache_hit_skips_revalidation(tmp_path):
     result = retriever.retrieve("Anju Kafei")
 
     assert result.status == "cache_hit"
+    assert result.wiki_unreachable is False
     assert wiki.revision_calls == 0
 
 
@@ -457,6 +497,7 @@ def test_revalidation_failure_serves_stale_cache_with_warning(tmp_path):
 
     assert result.status == "cache_hit"
     assert result.evidence
+    assert result.wiki_unreachable is True
     assert "revalidation failed" in result.warning.lower()
 
 
@@ -474,6 +515,7 @@ def test_revalidation_fetch_failure_serves_stale_cache(tmp_path):
 
     assert result.status == "cache_hit"
     assert result.evidence
+    assert result.wiki_unreachable is True
     assert "revalidation failed" in result.warning.lower()
 
 

@@ -301,6 +301,7 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
             engine=result.get("retrieval_engine", ""),
             status=result.get("retrieval_status", ""),
             warning=result.get("retrieval_warning", ""),
+            wiki_unreachable=result.get("retrieval_wiki_unreachable", False),
             indexed_sources=result.get("retrieval_indexed_sources", []),
             ingested_pages=result.get("retrieval_ingested_pages", []),
         )
@@ -398,6 +399,8 @@ def _step_knowledge(status, result: dict) -> None:
     retrieval_status = result.get("retrieval_status")
     if retrieval_status:
         c.caption(f"{t('rag_status')}: {retrieval_status}")
+    if result.get("retrieval_wiki_unreachable"):
+        c.warning(t("rag_wiki_unreachable"))
     if result.get("retrieval_warning"):
         c.warning(result["retrieval_warning"])
 
@@ -645,6 +648,7 @@ def _render_rag_evidence(
     engine: str = "",
     status: str = "",
     warning: str = "",
+    wiki_unreachable: bool = False,
     indexed_sources=None,
     ingested_pages=None,
 ) -> None:
@@ -660,6 +664,8 @@ def _render_rag_evidence(
         st.caption(f"{t('rag_engine')}: {engine}")
     if status:
         st.caption(f"{t('rag_status')}: {status}")
+    if wiki_unreachable:
+        st.warning(t("rag_wiki_unreachable"))
     if warning:
         st.warning(f"{t('rag_warning')}: {warning}")
 

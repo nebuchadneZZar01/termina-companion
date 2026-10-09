@@ -47,6 +47,8 @@ def demo() -> None:
     print(result.retrieved_context)
     print(f"\nRAG engine: {result.retrieval_engine or 'unavailable'}")
     print(f"RAG status: {result.retrieval_status or 'unavailable'}")
+    if result.retrieval_wiki_unreachable:
+        print("RAG wiki: unreachable (using structured MCP data only)")
     if result.retrieval_ingested_pages:
         print(f"RAG pages ingested: {', '.join(result.retrieval_ingested_pages)}")
     if result.retrieval_indexed_sources:

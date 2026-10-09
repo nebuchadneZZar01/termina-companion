@@ -40,6 +40,7 @@ class RetrievalScenarioResult(BaseModel):
     status: str
     hit: bool
     evidence_count: int
+    wiki_unreachable: bool = False
     returned_page_ids: list[int] = Field(default_factory=list)
     returned_titles: list[str] = Field(default_factory=list)
     warning: str = ""
@@ -119,6 +120,7 @@ def evaluate_retrieval(
                 status=result.status,
                 hit=hit,
                 evidence_count=len(result.evidence),
+                wiki_unreachable=result.wiki_unreachable,
                 returned_page_ids=sorted(page_ids),
                 returned_titles=sorted(titles),
                 warning=result.warning,

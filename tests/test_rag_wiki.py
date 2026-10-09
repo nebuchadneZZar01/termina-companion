@@ -7,13 +7,29 @@ import time
 import httpx
 import pytest
 
-from app.rag.wiki import MediaWikiClient, WikiError, WikiPageReference
+from app.rag.wiki import MediaWikiClient, WikiError, WikiPageReference, WikiUnavailableError
 
 
 def _client(handler) -> MediaWikiClient:
+    return _client_config(handler, max_retries=0)
+
+
+def _client_config(
+    handler,
+    *,
+    max_retries: int = 2,
+    failure_threshold: int = 0,
+    cooldown_seconds: float = 0.0,
+) -> MediaWikiClient:
     transport = httpx.MockTransport(handler)
     http_client = httpx.Client(transport=transport)
-    return MediaWikiClient(client=http_client, timeout_seconds=2, max_retries=0)
+    return MediaWikiClient(
+        client=http_client,
+        timeout_seconds=2,
+        max_retries=max_retries,
+        failure_threshold=failure_threshold,
+        cooldown_seconds=cooldown_seconds,
+    )
 
 
 def test_search_uses_focused_terms_and_preserves_page_ids():
@@ -304,5 +320,119 @@ def test_current_revisions_maps_page_ids():
     client = _client(handler)
     try:
         assert client.current_revisions([1, 2, 2]) == {1: 42, 2: 43}
+    finally:
+        client.close()
+
+
+def test_read_timeout_fails_fast_without_retries():
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.ReadTimeout("slow", request=request)
+
+    client = _client_config(handler, max_retries=2)
+    try:
+        with pytest.raises(WikiUnavailableError):
+            client.search("Anju", terms=["Anju"])
+    finally:
+        client.close()
+
+    assert calls == 1
+
+
+def test_connect_timeout_keeps_bounded_retries():
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.ConnectTimeout("connect", request=request)
+
+    client = _client_config(handler, max_retries=2)
+    try:
+        with pytest.raises(WikiUnavailableError):
+            client.search("Anju", terms=["Anju"])
+    finally:
+        client.close()
+
+    assert calls == 3
+
+
+def test_server_error_is_unreachable():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, text="maintenance")
+
+    client = _client_config(handler, max_retries=0)
+    try:
+        with pytest.raises(WikiUnavailableError):
+            client.search("Anju", terms=["Anju"])
+    finally:
+        client.close()
+
+
+def test_not_found_is_a_reachable_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, text="not found")
+
+    client = _client_config(handler, max_retries=0)
+    try:
+        with pytest.raises(WikiError) as excinfo:
+            client.search("Anju", terms=["Anju"])
+    finally:
+        client.close()
+
+    assert not isinstance(excinfo.value, WikiUnavailableError)
+
+
+def test_circuit_breaker_opens_and_skips_network():
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.ConnectError("down", request=request)
+
+    client = _client_config(handler, max_retries=0, failure_threshold=1, cooldown_seconds=60)
+    try:
+        with pytest.raises(WikiUnavailableError):
+            client.search("Anju", terms=["Anju"])
+        assert calls == 1
+
+        with pytest.raises(WikiUnavailableError, match="circuit"):
+            client.search("Anju", terms=["Anju"])
+        assert calls == 1
+    finally:
+        client.close()
+
+
+def test_circuit_breaker_half_open_recovers_after_cooldown():
+    calls = 0
+    failing = True
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if failing:
+            raise httpx.ConnectError("down", request=request)
+        return httpx.Response(
+            200,
+            json={"query": {"search": [{"pageid": 1, "title": "Anju", "wordcount": 10}]}},
+        )
+
+    client = _client_config(handler, max_retries=0, failure_threshold=1, cooldown_seconds=60)
+    try:
+        with pytest.raises(WikiUnavailableError):
+            client.search("Anju", terms=["Anju"])
+
+        failing = False
+        client._open_until = time.monotonic() - 1  # cooldown elapsed → half-open
+        references = client.search("Anju", terms=["Anju"])
+        assert [reference.page_id for reference in references] == [1]
+
+        # The successful probe closes the breaker again.
+        client.search("Anju", terms=["Anju"])
+        assert calls == 3
     finally:
         client.close()

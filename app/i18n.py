@@ -416,6 +416,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "rag_license_link": "license terms",
         "rag_retrieved_at": "Retrieved at",
         "rag_warning": "Retrieval warning",
+        "rag_wiki_unreachable": "Wiki unreachable \u2014 using structured MCP data only.",
         "rag_no_evidence": "No supplemental wiki passage matched this goal.",
         # tabs
         "tab_why": "Why this plan?",
@@ -592,6 +593,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "rag_license_link": "termini di licenza",
         "rag_retrieved_at": "Recuperata il",
         "rag_warning": "Avviso di recupero",
+        "rag_wiki_unreachable": ("Wiki non raggiungibile \u2014 uso solo i dati MCP strutturati."),
         "rag_no_evidence": "Nessun passaggio wiki supplementare corrisponde all'obiettivo.",
         # tabs
         "tab_why": "Perch\u00e9 questo piano?",

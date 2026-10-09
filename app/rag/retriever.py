@@ -27,7 +27,12 @@ from app.rag.embeddings import (
 )
 from app.rag.models import Document, IndexedSource, RetrievalResult, RetrievedChunk
 from app.rag.store import QdrantVectorStore, VectorStore, VectorStoreError
-from app.rag.wiki import MediaWikiClient, WikiError, WikiPageReference
+from app.rag.wiki import (
+    MediaWikiClient,
+    WikiError,
+    WikiPageReference,
+    WikiUnavailableError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +142,8 @@ class RAGSettings(BaseModel):
     max_chunks_per_source: int = Field(default=2, gt=0, le=50)
     request_timeout_seconds: float = Field(default=20.0, gt=0, le=300)
     wiki_budget_seconds: float = Field(default=60.0, ge=0.0, le=3600)
+    wiki_failure_threshold: int = Field(default=3, ge=0, le=100)
+    wiki_cooldown_seconds: float = Field(default=60.0, ge=0.0, le=3600)
     cache_ttl_seconds: float = Field(default=604800.0, ge=0.0)
     min_term_coverage: float = Field(default=0.15, ge=0.0, le=1.0)
     chunk_max_chars: int = Field(default=1200, gt=0)
@@ -161,18 +168,26 @@ class RAGSettings(BaseModel):
             "max_chunks_per_source": "RAG_MAX_CHUNKS_PER_SOURCE",
             "request_timeout_seconds": "RAG_REQUEST_TIMEOUT_SECONDS",
             "wiki_budget_seconds": "RAG_WIKI_BUDGET_SECONDS",
+            "wiki_failure_threshold": "RAG_WIKI_FAILURE_THRESHOLD",
+            "wiki_cooldown_seconds": "RAG_WIKI_COOLDOWN_SECONDS",
             "cache_ttl_seconds": "RAG_CACHE_TTL_SECONDS",
         }
         for field_name, env_name in mapping.items():
             raw = os.getenv(env_name)
             if raw is None or not raw.strip():
                 continue
-            if field_name in {"top_k", "max_pages_per_miss", "max_chunks_per_source"}:
+            if field_name in {
+                "top_k",
+                "max_pages_per_miss",
+                "max_chunks_per_source",
+                "wiki_failure_threshold",
+            }:
                 values[field_name] = int(raw)
             elif field_name in {
                 "similarity_threshold",
                 "request_timeout_seconds",
                 "wiki_budget_seconds",
+                "wiki_cooldown_seconds",
                 "cache_ttl_seconds",
             }:
                 values[field_name] = float(raw)
@@ -281,10 +296,15 @@ class AdaptiveRetriever:
         except FileLockTimeout as exc:
             return self._unavailable(query, f"Wiki ingestion lock timed out: {exc}")
         except WikiError as exc:
-            # Only the wiki leg failed (network, timeout, budget). The local
-            # index and the structured MCP context remain usable, so surface a
-            # plain miss with the reason instead of an unavailable engine.
-            return self._wiki_degraded(query, str(exc))
+            # Only the wiki leg failed. The local index and the structured MCP
+            # context remain usable, so surface a plain miss instead of an
+            # unavailable engine, while recording whether the wiki was
+            # unreachable rather than merely returning an API error.
+            return self._wiki_degraded(
+                query,
+                str(exc),
+                unreachable=isinstance(exc, WikiUnavailableError),
+            )
         except (EmbeddingError, VectorStoreError, OSError, ValueError) as exc:
             return self._unavailable(query, str(exc))
         except Exception as exc:  # defensive boundary for optional RAG
@@ -329,6 +349,7 @@ class AdaptiveRetriever:
                 evidence,
                 "cache_hit",
                 warning=f"Wiki revalidation failed: {exc}",
+                wiki_unreachable=isinstance(exc, WikiUnavailableError),
             )
 
         changed = [
@@ -361,6 +382,7 @@ class AdaptiveRetriever:
                 evidence,
                 "cache_hit",
                 warning=f"Wiki revalidation failed: {exc}",
+                wiki_unreachable=isinstance(exc, WikiUnavailableError),
             )
         ingested_pages, indexed_sources, ingest_warnings = self._ingest(documents)
         final = self._search_store(query_vector, limit)
@@ -490,6 +512,7 @@ class AdaptiveRetriever:
         ingested_pages: list[str] | None = None,
         indexed_sources: list[IndexedSource] | None = None,
         warning: str = "",
+        wiki_unreachable: bool = False,
     ) -> RetrievalResult:
         sources = self._merge_sources(indexed_sources or [], self._sources_from_evidence(evidence))
         return RetrievalResult(
@@ -500,6 +523,7 @@ class AdaptiveRetriever:
             ingested_pages=ingested_pages or [],
             indexed_sources=sources,
             warning=warning,
+            wiki_unreachable=wiki_unreachable,
         )
 
     @staticmethod
@@ -536,19 +560,25 @@ class AdaptiveRetriever:
             warning=warning,
         )
 
-    def _wiki_degraded(self, query: str, warning: str) -> RetrievalResult:
+    def _wiki_degraded(
+        self, query: str, warning: str, unreachable: bool = False
+    ) -> RetrievalResult:
         """Report a clean miss when only the wiki leg failed.
 
         A slow, throttled or unreachable wiki is not an index failure: the local
         vector store and the structured MCP context are still usable, so the
-        engine stays available and the reason travels as a warning.
+        engine stays available and the reason travels as a warning. When the
+        wiki could not be reached at all, ``wiki_unreachable`` is set so callers
+        can distinguish "source down" from a reachable wiki with no useful page.
         """
         logger.warning("Adaptive RAG wiki leg degraded: %s", warning)
+        source = "unreachable" if unreachable else "error"
         return RetrievalResult(
             query=query,
             engine=self.engine,
             status="wiki_miss",
-            warning=f"Wiki source degraded: {warning}",
+            warning=f"Wiki source {source}: {warning}",
+            wiki_unreachable=unreachable,
         )
 
     def close(self) -> None:
@@ -622,7 +652,11 @@ def build_default_retriever() -> AdaptiveRetriever:
             collection_name=settings.collection_name,
             dimensions=embedding.dimensions,
         )
-        wiki = MediaWikiClient(timeout_seconds=settings.request_timeout_seconds)
+        wiki = MediaWikiClient(
+            timeout_seconds=settings.request_timeout_seconds,
+            failure_threshold=settings.wiki_failure_threshold,
+            cooldown_seconds=settings.wiki_cooldown_seconds,
+        )
         return AdaptiveRetriever(store, wiki, embedding, settings)
     except Exception as exc:
         raise RAGError(f"Cannot build adaptive RAG: {exc}") from exc

@@ -39,6 +39,7 @@ def run(state: PlanningState) -> dict:
         "retrieval_engine": retrieval.engine,
         "retrieval_status": retrieval.status,
         "retrieval_warning": retrieval.warning,
+        "retrieval_wiki_unreachable": retrieval.wiki_unreachable,
         "retrieval_ingested_pages": retrieval.ingested_pages,
         "retrieval_indexed_sources": retrieval.indexed_sources,
         "knowledge_engine": "rule-based",
@@ -130,6 +131,9 @@ def _append_unique(target: list[str], values: list[str]) -> None:
 def _append_rag_context(structured_context: str, retrieval: RetrievalResult) -> str:
     """Append clearly labelled, bounded wiki evidence to planner context."""
     if not retrieval.evidence:
+        if retrieval.wiki_unreachable:
+            detail = f": {retrieval.warning}" if retrieval.warning else ""
+            return f"{structured_context}\n\n[RAG: wiki unreachable, structured data only{detail}]"
         if retrieval.warning:
             return f"{structured_context}\n\n[RAG degraded: {retrieval.warning}]"
         return f"{structured_context}\n\n[RAG evidence: no matching passage.]"

@@ -104,6 +104,18 @@ time the wiki leg of a miss may consume. License discovery is best-effort: a
 wiki that hides `siteinfo` yields pages without license metadata rather than
 failing the retrieval.
 
+An unreachable wiki is reported separately from a normal miss. `status` keeps
+describing the outcome (`cache_hit`, `wiki_ingested`, `wiki_miss`,
+`unavailable`), while the `wiki_unreachable` flag records that the wiki leg
+failed because the wiki could not be reached (network error, timeout, exhausted
+budget or open breaker). A reachable wiki that returns an API error or no useful
+page is a plain miss, not an unreachable source. Slow read/write/pool timeouts
+fail fast instead of being retried, while connect errors and 429/5xx responses
+keep their bounded retries. After `RAG_WIKI_FAILURE_THRESHOLD` consecutive
+unreachable failures the client opens a circuit breaker and skips the wiki leg
+for `RAG_WIKI_COOLDOWN_SECONDS`, so repeated planning runs do not repay the same
+timeout; once the cooldown elapses one half-open request probes the wiki again.
+
 ### Configuration
 
 Copy `.env.example` to `.env` or export these variables:
@@ -118,6 +130,8 @@ Copy `.env.example` to `.env` or export these variables:
 | `RAG_MAX_CHUNKS_PER_SOURCE` | `2` | Maximum evidence chunks kept per wiki page (diversity cap). |
 | `RAG_REQUEST_TIMEOUT_SECONDS` | `20` | Timeout for each MediaWiki request. |
 | `RAG_WIKI_BUDGET_SECONDS` | `60` | Overall wall-clock budget for the wiki leg of one miss; `0` disables it. |
+| `RAG_WIKI_FAILURE_THRESHOLD` | `3` | Consecutive unreachable wiki failures that open the circuit breaker; `0` disables it. |
+| `RAG_WIKI_COOLDOWN_SECONDS` | `60` | Seconds the breaker stays open before one half-open wiki probe. |
 | `RAG_CACHE_TTL_SECONDS` | `604800` | Age after which cached pages are revalidated against the wiki; `0` never expires. |
 
 The wiki API URL, request user agent and license discovery are internal to
@@ -130,10 +144,11 @@ chunks for the same page.
 The first model-backed query may download the FastEmbed model. After the model
 and wiki pages are cached, `cache_hit` retrieval does not require network
 access. A wiki failure on the miss leg (network, timeout or exhausted budget)
-degrades to `wiki_miss` with a warning, because the local index and the
-structured MCP context are still usable; only a Qdrant or embedding failure
-returns status `unavailable`. Either way planning continues with structured MCP
-context.
+degrades to `wiki_miss` with a warning and `wiki_unreachable=True`, because the
+local index and the structured MCP context are still usable; only a Qdrant or
+embedding failure returns status `unavailable`. Either way planning continues
+with structured MCP context, and the planner note names the unreachable wiki
+explicitly.
 
 ### RAG tests and quality checks
 
