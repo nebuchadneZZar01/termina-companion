@@ -27,8 +27,12 @@ uv run streamlit run main.py
 ```
 
 Edit day/hour, location, inventory, masks and quest progress, set a goal, then
-press **Generate plan**. The UI shows retrieved knowledge, RAG status and source
-provenance, the plan steps and validation outcome.
+press **Generate plan**. The UI shows retrieved knowledge, RAG status, the
+indexed-page manifest, retrieved evidence provenance, plan steps and validation
+outcome. While the agents run, **Generate plan** is disabled and **Stop** can
+request cooperative cancellation after the current agent or LLM call. The
+progress stepper is not on a timer: it repaints only when an agent finishes, so
+the page stays still while the agents reason.
 
 ## Run the headless demo
 
@@ -82,8 +86,23 @@ semantic query → persistent Qdrant local store
 ```
 
 Fetched HTML or Markdown never bypasses vector retrieval. Only chunks returned
-by the second Qdrant query are formatted into planner context. A cache hit
-repeats no wiki request, so an already populated index works offline.
+by the second Qdrant query are formatted into planner context. A cache miss
+also returns a provenance-only manifest of every page successfully indexed;
+pages without a passing evidence chunk remain visible in the UI even when the
+status is `wiki_miss`. On a warm hit, the manifest is derived from the source
+metadata represented by returned evidence. A fresh cache hit repeats no wiki
+request, so an already populated index works offline.
+
+Retrieved evidence is diversified: at most `RAG_MAX_CHUNKS_PER_SOURCE` chunks
+are kept per page and near-duplicate chunks from overlapping windows collapse
+to their best-scoring representative, so one page cannot crowd out the rest. A
+cache hit older than `RAG_CACHE_TTL_SECONDS` triggers one batched revision
+check; only pages the wiki actually changed are refetched and reindexed, and if
+that check fails the cached evidence is still served with a warning instead of
+degrading to `unavailable`. `RAG_WIKI_BUDGET_SECONDS` caps the total wall-clock
+time the wiki leg of a miss may consume. License discovery is best-effort: a
+wiki that hides `siteinfo` yields pages without license metadata rather than
+failing the retrieval.
 
 ### Configuration
 
@@ -96,7 +115,10 @@ Copy `.env.example` to `.env` or export these variables:
 | `RAG_SIMILARITY_THRESHOLD` | `0.72` | Provisional minimum cosine score for a sufficient hit. |
 | `RAG_TOP_K` | `4` | Evidence chunks returned per retrieval. |
 | `RAG_MAX_PAGES_PER_MISS` | `3` | Maximum pages fetched and indexed on one miss. |
+| `RAG_MAX_CHUNKS_PER_SOURCE` | `2` | Maximum evidence chunks kept per wiki page (diversity cap). |
 | `RAG_REQUEST_TIMEOUT_SECONDS` | `20` | Timeout for each MediaWiki request. |
+| `RAG_WIKI_BUDGET_SECONDS` | `60` | Overall wall-clock budget for the wiki leg of one miss; `0` disables it. |
+| `RAG_CACHE_TTL_SECONDS` | `604800` | Age after which cached pages are revalidated against the wiki; `0` never expires. |
 
 The wiki API URL, request user agent and license discovery are internal to
 `app/rag/wiki.py`; they are not duplicated in environment configuration.
@@ -156,7 +178,7 @@ validation.
 | `app/mcp/` | Pure game-data tools and external MCP server; authoritative knowledge seam. |
 | `app/agents/` | State, Knowledge, Planning and Critic graph nodes. |
 | `app/rag/` | Adaptive wiki client, cleanup/chunking, FastEmbed adapter, Qdrant store and cache-aside retrieval. |
-| `app/state.py` | `PlanningState`, including RAG evidence, status, warning and ingested pages. |
+| `app/state.py` | `PlanningState`, including RAG evidence, status, warning, ingested pages and indexed-source manifest. |
 | `app/graph.py` | LangGraph wiring and `MAX_PLANNING_ATTEMPTS = 3` loop. |
 | `app/ui.py` | Streamlit frontend and provenance display. |
 | `app/__main__.py` | Headless pipeline demo. |

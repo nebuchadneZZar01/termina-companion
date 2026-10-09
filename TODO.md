@@ -116,6 +116,7 @@ Start with a small vertical slice.
 * [x] Display validation errors
 * [x] Display replanning status
 * [x] Keep technical agent trace secondary to the player experience
+* [x] Disable planning action during execution and add cooperative Stop control
 
 Primary UI flow:
 
@@ -171,6 +172,10 @@ structured context rather than disabling retrieval.
 * [x] Test cold, warm/offline, revision-update, bounded-ingestion and
   MCP-degradation behavior
 * [x] Add retrieval-only evaluation contracts and offline metrics coverage
+* [x] Expose indexed wiki source manifest separately from retrieved evidence
+* [x] Diversify evidence with a per-source cap and near-duplicate collapse
+* [x] Revalidate stale cached pages and bound the wiki request budget
+* [x] Keep license discovery best-effort so page text is never blocked
 * [ ] Calibrate retrieval quality on a larger live scenario set
 * [ ] Compare retrieval configurations and document the provisional threshold
 

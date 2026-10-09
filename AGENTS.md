@@ -70,7 +70,10 @@ Zelda Wiki. Keep it separate from MCP and do not let textual evidence override
 structured objectives, schedules, events, prerequisites, items or masks. The
 Knowledge Agent searches persistent embedded Qdrant first, fetches and indexes
 wiki pages on a miss, then performs a mandatory second vector retrieval. Raw
-fetched text never reaches the planner directly. Runtime failure records
+fetched text never reaches the planner directly. Warm hits are diversified
+(per-source cap plus near-duplicate collapse) and revalidated against the wiki
+once older than a configurable TTL; the wiki leg of a miss runs under a global
+time budget and license discovery is best-effort. Runtime failure records
 `unavailable` and degrades to structured context. Persistent memory, broader
 tracing and formal plan evaluation remain future work; leave clear extension
 points for them.
@@ -126,23 +129,37 @@ points for them.
   MCP clients. The Knowledge Agent imports tools directly for in-process use;
   RAG is not exposed as an MCP tool.
 * `app/rag/` — adaptive supplemental RAG package: Pydantic document/chunk/
-  evidence contracts, MediaWiki client and HTML cleanup, heading-aware chunking,
-  FastEmbed adapter, persistent embedded Qdrant store, ingestion lock and
-  cache-aside retrieval. `retrieve` is the Knowledge Agent seam; it always
-  attempts retrieval, records `cache_hit`/`wiki_ingested`/`wiki_miss`/
-  `unavailable`, and fails soft without bypassing MCP authority.
-  `app/rag/evaluation.py` provides retrieval-only offline metrics; it does not
-  evaluate plans or trajectories.
+  evidence/source-manifest contracts, MediaWiki client and HTML cleanup,
+  heading-aware chunking, FastEmbed adapter, persistent embedded Qdrant store,
+  ingestion lock and cache-aside retrieval. `retrieve` is the Knowledge Agent
+  seam; it always attempts retrieval, records `cache_hit`/`wiki_ingested`/
+  `wiki_miss`/`unavailable`, and fails soft without bypassing MCP authority.
+  Its post-store evidence selection caps chunks per source and collapses
+  near-duplicates, stale hits are revalidated through a batched revision check,
+  and the wiki client enforces a global request budget with best-effort license
+  metadata. Indexed-source metadata is exposed for UI inspection, while only
+  retrieved evidence is appended to planner context. `app/rag/evaluation.py`
+  provides retrieval-only offline metrics; it does not evaluate plans or
+  trajectories.
 * `app/llm.py` — LLM provider factory (`get_chat_model()`); raises
   `LLMConfigurationError` when no usable provider is configured. The Planning
   Agent has no rule-based fallback.
 * `app/state.py` — `PlanningState`, the workflow state threaded
   through the graph (Pydantic model, used as the LangGraph state schema),
-  including retrieved evidence and retrieval status.
+  including retrieved evidence, indexed-source manifest and retrieval status.
 * `app/graph.py` — graph wiring and the bounded re-planning
   loop (max `MAX_PLANNING_ATTEMPTS = 3`) driven by the Critic Agent.
 * `app/ui.py` — Streamlit frontend logic (`render()`); requires a configured
-  LLM provider, with local providers supported for offline runs.
+  LLM provider, with local providers supported for offline runs. Planning runs
+  as a session-scoped background task: Generate is disabled while active and
+  Stop requests cooperative cancellation between agent/LLM calls. The progress
+  stepper is event-driven, not timer-driven: `_planning_live` blocks on the
+  worker queue and repaints only when a new agent update is drained, so nothing
+  is re-sent while an agent is thinking. A single empty placeholder is emitted
+  per idle poll as an invisible yield point, which is what lets Streamlit
+  process a queued Stop click during a long agent call (`_IDLE_WAIT`). The
+  stepper label advances with `_PlanningTask.spinner_index`, one phase per
+  drained update.
 * `app/__main__.py` — headless pipeline demo (`python -m app`).
 * `tests/` — domain model, validation, re-planning, RAG corpus/retrieval and
   Knowledge Agent integration tests, including hermetic wiki/cache scenarios.
