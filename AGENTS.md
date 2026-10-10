@@ -157,18 +157,27 @@ future work; leave clear extension points for them.
   through the graph (Pydantic model, used as the LangGraph state schema),
   including retrieved evidence, indexed-source manifest and retrieval status.
 * `app/graph.py` — graph wiring and the bounded re-planning
-  loop (max `MAX_PLANNING_ATTEMPTS = 3`) driven by the Critic Agent.
+  loop (max `MAX_PLANNING_ATTEMPTS = 3`) driven by the Critic Agent. Each node is
+  wrapped to announce its start on the custom progress stream.
 * `app/ui.py` — Streamlit frontend logic (`render()`); requires a configured
   LLM provider, with local providers supported for offline runs. Planning runs
   as a session-scoped background task: Generate is disabled while active and
   Stop requests cooperative cancellation between agent/LLM calls. The progress
-  stepper is event-driven, not timer-driven: `_planning_live` blocks on the
-  worker queue and repaints only when a new agent update is drained, so nothing
-  is re-sent while an agent is thinking. A single empty placeholder is emitted
-  per idle poll as an invisible yield point, which is what lets Streamlit
-  process a queued Stop click during a long agent call (`_IDLE_WAIT`). The
-  stepper label advances with `_PlanningTask.spinner_index`, one phase per
-  drained update.
+  stepper grows with the run instead of redrawing itself: the outer status title
+  rotates on a wall-clock timer (`_TICK_SECONDS`), and a child step is appended
+  only when its agent starts, so future agents are never shown. The active step
+  renders the progress events the agent emits live; a completed step shows its
+  detail card. `_planning_live` blocks on the worker queue and repaints only on a
+  new event or a timer tick, so nothing flickers; the single empty placeholder is
+  an invisible yield point that lets Streamlit process a queued Stop click during
+  a long agent call (`_IDLE_WAIT`). The task keeps an ordered replayable log, so
+  the finished stepper is re-rendered statically after the final rerun.
+* `app/progress.py` — the streaming progress seam: `report()` publishes custom
+  LangGraph events and is a silent no-op outside a stream (headless, tests). The
+  graph wraps each node to announce its start, and the Knowledge and Planning
+  agents publish phase events (objectives, MCP data, wiki search/fetch/index,
+  second retrieval, LLM call). The retriever takes an optional `on_progress`
+  callback, so RAG stays decoupled from LangGraph.
 * `app/__main__.py` — headless pipeline demo (`python -m app`).
 * `tests/` — domain model, validation, re-planning, RAG corpus/retrieval and
   Knowledge Agent integration tests, including hermetic wiki/cache scenarios.

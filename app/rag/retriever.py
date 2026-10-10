@@ -9,7 +9,7 @@ import os
 import re
 import time
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -230,6 +230,7 @@ class AdaptiveRetriever:
         query: str,
         top_k: int | None = None,
         search_terms: list[str] | tuple[str, ...] | None = None,
+        on_progress: Callable[[dict], None] | None = None,
     ) -> RetrievalResult:
         """Run one cache-aside retrieval and always query vectors after ingestion."""
         limit = self.settings.top_k if top_k is None else top_k
@@ -239,10 +240,17 @@ class AdaptiveRetriever:
                 engine=self.engine,
                 status="wiki_miss",
             )
+
+        def emit(**payload: object) -> None:
+            if on_progress is not None:
+                on_progress(payload)
+
         try:
             query_vector = self.embedding.embed_query(query)
+            emit(phase="cache_search")
             initial = self._search_store(query_vector, limit)
             if self._sufficient(initial, query) and not self._is_stale(initial):
+                emit(phase="cache_hit", n=len(initial))
                 return self._result(query, initial, "cache_hit")
 
             with FileLock(str(self.lock_path), timeout=self.settings.request_timeout_seconds):
@@ -250,14 +258,17 @@ class AdaptiveRetriever:
                 # request waited for the ingestion lock.
                 after_wait = self._search_store(query_vector, limit)
                 if self._sufficient(after_wait, query) and not self._is_stale(after_wait):
+                    emit(phase="cache_hit", n=len(after_wait))
                     return self._result(query, after_wait, "cache_hit")
 
                 deadline = self._wiki_deadline()
                 if self._sufficient(after_wait, query):
                     # Sufficient but stale: revalidate those specific pages
                     # instead of paying for a full wiki search.
+                    emit(phase="revalidate", n=len(after_wait))
                     return self._revalidate(query, query_vector, limit, after_wait, deadline)
 
+                emit(phase="wiki_search", query=query)
                 references = self.wiki.search(
                     query,
                     limit=self.settings.max_pages_per_miss,
@@ -265,9 +276,12 @@ class AdaptiveRetriever:
                     deadline=deadline,
                 )
                 if not references:
+                    emit(phase="wiki_refs", n=0)
                     return self._result(query, [], "wiki_miss")
+                emit(phase="wiki_refs", n=len(references))
 
                 documents = self.wiki.fetch_pages(references, deadline=deadline)
+                emit(phase="wiki_fetch", titles=[document.title for document in documents])
                 ingested_pages, indexed_sources, ingest_warnings = self._ingest(documents)
                 if not ingested_pages and ingest_warnings:
                     warning = ingest_warnings[0]
@@ -280,9 +294,11 @@ class AdaptiveRetriever:
                     )
                 if not documents:
                     return self._result(query, [], "wiki_miss")
+                emit(phase="wiki_indexed", pages=ingested_pages)
 
                 # Mandatory second retrieval: fetched page text is never
                 # returned directly to the caller or planner.
+                emit(phase="reretrieve")
                 final = self._search_store(query_vector, limit)
                 status = "wiki_ingested" if final else "wiki_miss"
                 warning = "; ".join(ingest_warnings)
@@ -686,6 +702,7 @@ def retrieve(
     query: str,
     top_k: int | None = None,
     search_terms: list[str] | tuple[str, ...] | None = None,
+    on_progress: Callable[[dict], None] | None = None,
 ) -> RetrievalResult:
     """Retrieve wiki evidence without allowing optional failures to escape."""
     try:
@@ -693,6 +710,7 @@ def retrieve(
             query,
             top_k=top_k,
             search_terms=search_terms,
+            on_progress=on_progress,
         )
     except Exception as exc:
         logger.warning("Adaptive RAG unavailable: %s", exc)
@@ -708,9 +726,10 @@ def safe_retrieve(
     query: str,
     top_k: int | None = None,
     search_terms: list[str] | tuple[str, ...] | None = None,
+    on_progress: Callable[[dict], None] | None = None,
 ) -> RetrievalResult:
     """Backward-compatible alias for :func:`retrieve`."""
-    return retrieve(query, top_k=top_k, search_terms=search_terms)
+    return retrieve(query, top_k=top_k, search_terms=search_terms, on_progress=on_progress)
 
 
 def _query_terms(query: str) -> list[str]:

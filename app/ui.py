@@ -10,6 +10,7 @@ import datetime
 import queue
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 
 import streamlit as st
@@ -45,6 +46,44 @@ _NO_MESSAGE = object()
 # the worker queue before emitting an invisible yield point, so a queued Stop
 # click is handled promptly. It never triggers a redraw on its own.
 _IDLE_WAIT = 0.25
+# The reasoning title rotates on a wall-clock timer, independent of agent
+# updates, so a long LLM call still shows fresh activity.
+_TICK_SECONDS = 2.0
+
+# Agent nodes in execution order; the stepper shows a step only once it starts.
+_AGENT_NODES = ("state", "knowledge", "plan", "critic")
+_AGENT_LABEL_KEY = {
+    "state": "agent_state",
+    "knowledge": "agent_knowledge",
+    "plan": "agent_planning",
+    "critic": "agent_critic",
+}
+# Progress phases the UI knows how to render; anything else is ignored so a
+# future agent event never renders a raw i18n key.
+_PROGRESS_PHASES = frozenset(
+    {
+        "objectives",
+        "mcp_data",
+        "cache_search",
+        "cache_hit",
+        "revalidate",
+        "wiki_search",
+        "wiki_refs",
+        "wiki_fetch",
+        "wiki_indexed",
+        "reretrieve",
+        "context",
+        "llm",
+        "llm_done",
+    }
+)
+
+
+@dataclass(frozen=True)
+class _Progress:
+    """A custom progress event drained from the worker stream."""
+
+    payload: dict
 
 
 @dataclass
@@ -57,8 +96,10 @@ class _PlanningTask:
     status: str = "running"
     result: dict = field(default_factory=dict)
     updates: list[tuple[str, dict]] = field(default_factory=list)
+    # Ordered streaming log the stepper replays: ("start", node),
+    # ("progress", payload) and ("update", node, data) entries.
+    log: list[tuple] = field(default_factory=list)
     error: str = ""
-    spinner_index: int = 0
 
 
 def _task_is_active(task: _PlanningTask | None) -> bool:
@@ -94,11 +135,12 @@ def _run_stream(
         events.put(_STOP_SENTINEL)
         return
     try:
-        for update in graph.stream(initial, stream_mode="updates"):
+        for item in graph.stream(initial, stream_mode=["updates", "custom"]):
             if stop_event.is_set():
                 events.put(_STOP_SENTINEL)
                 return
-            events.put(update)
+            mode, chunk = item
+            events.put(_Progress(chunk) if mode == "custom" else chunk)
         events.put(_STOP_SENTINEL if stop_event.is_set() else None)
     except Exception as exc:
         if stop_event.is_set():
@@ -135,6 +177,7 @@ def _drain_planning_task(task: _PlanningTask, wait: float = 0.0) -> bool:
                 item = task.events.get_nowait()
             except queue.Empty:
                 break
+        progressed = True
         if item is _STOP_SENTINEL:
             if task.status != "error":
                 task.status = "done" if task.result.get("validation") is not None else "stopped"
@@ -146,15 +189,15 @@ def _drain_planning_task(task: _PlanningTask, wait: float = 0.0) -> bool:
         elif isinstance(item, Exception):
             task.status = "error"
             task.error = str(item)
+        elif isinstance(item, _Progress):
+            _record_progress(task, item.payload)
         elif isinstance(item, dict):
             for node, data in item.items():
                 if not isinstance(data, dict):
                     continue
                 task.result.update(data)
                 task.updates.append((node, data))
-                # One phase per agent update, so the progress label only moves
-                # when the run actually advanced (never once per re-render).
-                task.spinner_index += 1
+                task.log.append(("update", node, data))
     if _task_is_active(task) and task.thread is not None and not task.thread.is_alive():
         task.status = "stopped" if task.stop_event.is_set() else "error"
         if not task.error:
@@ -176,65 +219,142 @@ def _start_planning_task(initial: dict, graph) -> _PlanningTask:
     return task
 
 
-def _progress_label(task: _PlanningTask) -> str:
-    """Return the current progress-phase label for a run.
+def _record_progress(task: _PlanningTask, payload: dict) -> None:
+    """Append one custom progress event to the task's replayable log."""
+    node = payload.get("node", "")
+    if not node:
+        return
+    if payload.get("phase") == "start":
+        task.log.append(("start", node))
+    else:
+        task.log.append(("progress", payload))
 
-    The label is derived from the number of drained agent updates, so it stays
-    identical across re-renders and only changes when a new update arrives.
 
-    args:
-        task (_PlanningTask): the planning task being rendered.
-
-    returns:
-        str: e.g. "Opening the Door of Time...".
-    """
+def _progress_label(tick: int) -> str:
+    """Return the reasoning title for a wall-clock tick (rotates every 2s)."""
     phrases = spinner_lines()
     if not phrases:
         return t("planning")
-    return f"{phrases[task.spinner_index % len(phrases)]}..."
+    return f"{phrases[tick % len(phrases)]}..."
+
+
+def _outer_status(task: _PlanningTask, tick: int) -> tuple[str, str]:
+    """Return the ``(state, label)`` for the outer stepper container."""
+    validation = task.result.get("validation")
+    if task.status == "done":
+        valid = bool(getattr(validation, "valid", False))
+        if valid:
+            return "complete", t("planning_complete")
+        return "error", t("planning_gave_up", max=MAX_PLANNING_ATTEMPTS)
+    if task.status == "error":
+        return "error", t("planning_error", error=task.error or "unknown error")
+    if task.status == "stopped":
+        return "error", t("planning_stopped")
+    if task.status == "stopping":
+        return "running", t("planning_stopping")
+    return "running", _progress_label(tick)
+
+
+def _progress_line(payload: dict) -> str:
+    """Format one agent progress event, or "" for unknown phases or steps."""
+    phase = payload.get("phase")
+    if phase not in _PROGRESS_PHASES:
+        return ""
+    params: dict[str, str] = {}
+    for key, value in payload.items():
+        if key in {"node", "phase"}:
+            continue
+        if isinstance(value, (list, tuple)):
+            items = [str(item) for item in value]
+            value = ", ".join(items[:3]) + ("\u2026" if len(items) > 3 else "")
+        if isinstance(value, str) and len(value) > 80:
+            value = value[:77] + "\u2026"
+        params[key] = value
+    return t(f"prog_{phase}", **params)
+
+
+@dataclass
+class _Step:
+    """One agent step in the live stepper: its status box and event lines."""
+
+    node: str
+    status: object
+    live: object
+    events: list[str] = field(default_factory=list)
+
+
+class _PlanStepper:
+    """Progressive live stepper: one step per agent, shown when it starts.
+
+    The outer status box is created once and its title rotates on a timer; a
+    child step is appended only when its agent starts, so the tree never shows
+    future agents. This keeps the widget tree stable (no stacked re-renders) and
+    preserves the user's expand/collapse state.
+    """
+
+    def __init__(self, tick: int = 0) -> None:
+        self.outer = st.status(_progress_label(tick), state="running", expanded=True)
+        self._open: dict[str, _Step] = {}
+
+    def start(self, node: str) -> None:
+        """Append a running step for an agent as soon as it starts."""
+        with self.outer, st.status(
+            f"\u23f3 {t(_AGENT_LABEL_KEY[node])}", state="running", expanded=True
+        ) as status:
+            pass
+        self._open[node] = _Step(node=node, status=status, live=status.empty())
+
+    def progress(self, payload: dict) -> None:
+        """Append a progress line to the agent's open step, if any."""
+        step = self._open.get(payload.get("node", ""))
+        if step is None:
+            return
+        line = _progress_line(payload)
+        if not line:
+            return
+        step.events.append(line)
+        step.live.markdown("\n\n".join(f"\u2713 {event}" for event in step.events))
+
+    def finish(self, node: str, result: dict) -> None:
+        """Close an agent's step and draw its full detail card from merged state."""
+        step = self._open.pop(node, None)
+        if step is None:
+            self.start(node)
+            step = self._open.pop(node)
+        step.status.update(label=self._step_label(node, result), state="complete", expanded=True)
+        _append_step(step.status, node, result)
+
+    @staticmethod
+    def _step_label(node: str, result: dict) -> str:
+        name = t(_AGENT_LABEL_KEY[node])
+        if node == "plan":
+            attempt = result.get("replan_attempts", 1)
+            name += f" \u2014 {t('step_attempt', n=attempt, max=MAX_PLANNING_ATTEMPTS)}"
+        return f"\u2713 {name}"
+
+    def set_outer(self, state: str, label: str) -> None:
+        """Update the outer status box label and state in place."""
+        self.outer.update(label=label, state=state, expanded=True)
+
+
+def _apply_log(stepper: _PlanStepper, task: _PlanningTask, cursor: int) -> int:
+    """Replay streamed log entries from ``cursor``; return the new cursor."""
+    for entry in task.log[cursor:]:
+        kind = entry[0]
+        if kind == "start":
+            stepper.start(entry[1])
+        elif kind == "progress":
+            stepper.progress(entry[1])
+        elif kind == "update":
+            stepper.finish(entry[1], task.result)
+    return len(task.log)
 
 
 def _render_planning_progress(task: _PlanningTask) -> None:
-    """Render accumulated agent updates for the current planning run."""
-    validation = task.result.get("validation")
-    running_label = _progress_label(task)
-    if task.status == "done":
-        valid = bool(getattr(validation, "valid", False))
-        outer_state = "complete" if valid else "error"
-        outer_label = (
-            t("planning_complete") if valid else t("planning_gave_up", max=MAX_PLANNING_ATTEMPTS)
-        )
-    elif task.status == "error":
-        outer_state = "error"
-        outer_label = t("planning_error", error=task.error or "unknown error")
-    elif task.status == "stopped":
-        outer_state = "error"
-        outer_label = t("planning_stopped")
-    elif task.status == "stopping":
-        outer_state = "running"
-        outer_label = t("planning_stopping")
-    else:
-        outer_state = "running"
-        outer_label = running_label
-
-    agent_name = {
-        "state": t("agent_state"),
-        "knowledge": t("agent_knowledge"),
-        "plan": t("agent_planning"),
-        "critic": t("agent_critic"),
-    }
-    with st.status(outer_label, type="step", state=outer_state, expanded=True) as outer:
-        for node, _data in task.updates:
-            name = agent_name.get(node, node)
-            if node == "plan":
-                attempt = task.result.get("replan_attempts", 1)
-                name += f" — {t('step_attempt', n=attempt, max=MAX_PLANNING_ATTEMPTS)}"
-            with st.status(name, type="step", expanded=True) as step:
-                _append_step(step, node, task.result)
-        if task.status == "running":
-            outer.update(label=running_label, state="running", expanded=True)
-        elif task.status == "stopping":
-            outer.update(label=t("planning_stopping"), state="running", expanded=True)
+    """Render the finished stepper statically by replaying the whole log."""
+    stepper = _PlanStepper()
+    _apply_log(stepper, task, 0)
+    stepper.set_outer(*_outer_status(task, 0))
     if task.status == "error":
         st.error(t("planning_error", error=task.error or "unknown error"))
     elif task.status == "stopped":
@@ -242,28 +362,28 @@ def _render_planning_progress(task: _PlanningTask) -> None:
 
 
 def _planning_live(task: _PlanningTask) -> None:
-    """Render the live stepper, redrawing only when the run actually advances.
+    """Drive the live stepper until the run reaches a terminal state.
 
-    The loop idles on the worker queue instead of on a timer: while the agent is
-    thinking no delta is sent, so the stepper does not flicker and a collapsed
-    stepper is not re-expanded on its own. The single empty placeholder is an
-    invisible yield point, which is what lets Streamlit process a queued Stop
-    click while this script is still running.
-
-    args:
-        task (_PlanningTask): the active planning task.
-
-    returns:
-        None: blocks until the task reaches a terminal state, having drawn the
-        stepper once and then once per change.
+    The loop blocks on the worker queue (no busy timer), repainting only when an
+    agent update arrives or the 2s reasoning-title tick rolls over. The single
+    empty placeholder is an invisible yield point, which is what lets Streamlit
+    process a queued Stop click while this script is still running.
     """
-    _render_planning_progress(task)
+    stepper = _PlanStepper()
     yield_point = st.empty()
+    started = time.monotonic()
+    cursor = _apply_log(stepper, task, 0)
+    last_tick = 0
+    stepper.set_outer(*_outer_status(task, last_tick))
     while _task_is_active(task):
-        if _drain_planning_task(task, wait=_IDLE_WAIT):
-            _render_planning_progress(task)
-        else:
-            yield_point.empty()
+        progressed = _drain_planning_task(task, wait=_IDLE_WAIT)
+        if progressed:
+            cursor = _apply_log(stepper, task, cursor)
+        tick = int((time.monotonic() - started) // _TICK_SECONDS)
+        if progressed or tick != last_tick:
+            last_tick = tick
+            stepper.set_outer(*_outer_status(task, tick))
+        yield_point.empty()
 
 
 def _render_planning_result(task: _PlanningTask, kb) -> None:

@@ -575,3 +575,10 @@ def test_i18n_covers_all_knowledge_strings():
         if text and text not in _DISPLAY_IT
     ]
     assert not missing, "Missing IT translations:\n" + "\n".join(missing)
+
+
+def test_progress_report_is_a_noop_without_a_stream():
+    """Reporting progress outside a graph stream must never raise."""
+    from app.progress import report
+
+    report({"node": "state", "phase": "start"})

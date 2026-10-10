@@ -15,6 +15,7 @@ import re
 
 from app.data.mock_knowledge import Objective
 from app.mcp.tools import get_event, get_npc_schedule, search_quests
+from app.progress import report
 from app.rag.retriever import RetrievalResult, retrieve
 from app.state import PlanningState
 
@@ -28,8 +29,17 @@ def run(state: PlanningState) -> dict:
     quests = search_quests(state.goal.description, state.game_state.quest_progress)
     objectives = [Objective.model_validate(obj) for quest in quests for obj in quest["objectives"]]
     _log_objectives(objectives)
+    report({"node": "knowledge", "phase": "objectives", "n": len(objectives)})
     npc_schedules = {obj.npc_id: get_npc_schedule(obj.npc_id) for obj in objectives if obj.npc_id}
     events = {obj.event_ref: get_event(obj.event_ref) for obj in objectives if obj.event_ref}
+    report(
+        {
+            "node": "knowledge",
+            "phase": "mcp_data",
+            "schedules": len(npc_schedules),
+            "events": len(events),
+        }
+    )
     structured_context = _format(objectives, npc_schedules, events)
     retrieval = _retrieve_evidence(state, objectives, npc_schedules)
     return {
@@ -62,7 +72,7 @@ def _retrieve_evidence(
     query = " ".join(dict.fromkeys(part for part in query_parts if part))
     search_terms = _search_terms(state.goal.description, objectives, npc_schedules or {})
     try:
-        return retrieve(query, search_terms=search_terms)
+        return retrieve(query, search_terms=search_terms, on_progress=_progress)
     except Exception as exc:
         logger.warning("Knowledge Agent: supplemental retrieval failed: %s", exc)
         return RetrievalResult(
@@ -72,6 +82,11 @@ def _retrieve_evidence(
             status="unavailable",
             warning=str(exc),
         )
+
+
+def _progress(payload: dict) -> None:
+    """Tag a retriever progress event with the Knowledge Agent node."""
+    report({"node": "knowledge", **payload})
 
 
 def _search_terms(
