@@ -131,7 +131,7 @@ Copy `.env.example` to `.env` or export these variables:
 |---|---|---|
 | `RAG_QDRANT_PATH` | `.cache/termina-companion/qdrant` | Embedded Qdrant data directory; created automatically. |
 | `RAG_EMBEDDING_MODEL` | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Local multilingual FastEmbed model, 384 dimensions. |
-| `RAG_SIMILARITY_THRESHOLD` | `0.72` | Provisional minimum cosine score for a sufficient hit. |
+| `RAG_SIMILARITY_THRESHOLD` | `0.60` | Provisional minimum cosine score for a sufficient hit. |
 | `RAG_TOP_K` | `4` | Evidence chunks returned per retrieval. |
 | `RAG_MAX_PAGES_PER_MISS` | `3` | Maximum pages fetched and indexed on one miss. |
 | `RAG_MAX_CHUNKS_PER_SOURCE` | `2` | Maximum evidence chunks kept per wiki page (diversity cap). |
@@ -171,9 +171,40 @@ uv run ruff format .
 uv run pytest
 ```
 
+#### Threshold calibration (one-off, maintainers)
+
+`RAG_SIMILARITY_THRESHOLD` (default `0.60`) is provisional. It was picked
+with a live scenario set in `app/rag/scenarios.py`: 14 real Knowledge Agent
+queries (1-2 per quest in `mock_knowledge.py`) with expected Zelda Wiki titles.
+Page IDs were resolved once live and frozen for stability.
+
+Recalibrate only when the embedding model changes, wiki titles shift, or
+query logs show systematic misses. Fresh clones need nothing: the calibrated
+default ships in code and `.env.example`, cache rebuilds itself on first miss.
+
+```sh
+uv run python scripts/calibrate_rag.py --thresholds 0.60 0.72 0.80 --top-k 4 8
+```
+
+The script uses an empty temp Qdrant dir (never touches `.cache/`), runs the
+grid against the live wiki, prints `hit_rate` per combo to stdout and writes
+no files. Example output:
+
+```
+0.60 top_k=4 -> 7/14 = 0.50 <- best
+0.72 top_k=4 -> 3/14 = 0.21
+0.80 top_k=4 -> 1/14 = 0.07
+```
+
+A `wiki_unreachable` combo means the wiki leg failed (timeout/budget/breaker):
+planning still works on MCP data, rerun later. Only Qdrant/embedding failures
+count as `unavailable`. Last calibration is recorded as
+`CALIBRATED_THRESHOLD/HIT/DATE` in `app/rag/scenarios.py` and as a comment on
+`RAGSettings.similarity_threshold`; override at runtime via env without code
+changes.
+
 Retrieval quality evaluation is separate from full plan/trajectory evaluation,
-which remains Phase 11. Adjust the similarity threshold and search scenarios as
-real query logs become available.
+which remains Phase 11.
 
 ## Architecture
 

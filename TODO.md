@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Current phase:** Phase 7 — RAG
+**Current phase:** Phase 8 — Memory
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
@@ -25,10 +25,11 @@ Status map:
   external MCP clients; 6 tools: search_quests, get_npc_schedule,
   get_quest_info, get_event, get_location, check_prerequisites; in-process
   Client integration test passes).
-* Phase 7 — RAG: in progress (adaptive Zelda Wiki cache-aside retrieval,
+* Phase 7 — RAG: complete (adaptive Zelda Wiki cache-aside retrieval,
   persistent embedded Qdrant, FastEmbed multilingual vectors, revision-aware
   provenance, offline warm-cache behavior and Knowledge Agent integration
-  implemented; retrieval-quality calibration remains).
+  implemented; retrieval quality calibrated 2026-10-10 on 14 live scenarios:
+  0.60 hits 7/14 vs 0.72 3/14 vs 0.80 1/14 at top_k=4, default now 0.60).
 * Phases 8–12: not started yet.
 * Phase 13 — Deployment: not started yet.
 
@@ -176,8 +177,8 @@ structured context rather than disabling retrieval.
 * [x] Diversify evidence with a per-source cap and near-duplicate collapse
 * [x] Revalidate stale cached pages and bound the wiki request budget
 * [x] Keep license discovery best-effort so page text is never blocked
-* [ ] Calibrate retrieval quality on a larger live scenario set
-* [ ] Compare retrieval configurations and document the provisional threshold
+* [x] Calibrate retrieval quality on a larger live scenario set
+* [x] Compare retrieval configurations and document the provisional threshold
 
 Structured game constraints such as schedules and prerequisites remain in MCP
 data/tools. RAG is supplemental narrative evidence and must not create or
@@ -238,6 +239,7 @@ Use ContextTracing or the selected tracing solution once the core workflow is st
 * [ ] Produce explicit PASS/FAIL
 * [ ] Calculate aggregate pass rate
 * [ ] Add regression scenarios
+* [ ] Revisit `RAG_SIMILARITY_THRESHOLD` if plan pass rate degrades from RAG noise/misses
 * [x] Evaluate RAG separately if RAG is implemented (retrieval-only harness)
 
 # Phase 12 — Production Readiness

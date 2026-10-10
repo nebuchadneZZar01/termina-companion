@@ -149,7 +149,9 @@ future work; leave clear extension points for them.
   exposed for UI inspection, while only retrieved evidence is appended to
   planner context. `app/rag/evaluation.py`
   provides retrieval-only offline metrics; it does not evaluate plans or
-  trajectories.
+  trajectories. `app/rag/scenarios.py` holds the 14 live calibration queries
+  with frozen wiki titles; `scripts/calibrate_rag.py` reruns the threshold grid
+  (current provisional default `0.60`, calibrated 2026-10-10).
 * `app/llm.py` — LLM provider factory (`get_chat_model()`); raises
   `LLMConfigurationError` when no usable provider is configured. The Planning
   Agent has no rule-based fallback.
