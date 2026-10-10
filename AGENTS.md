@@ -165,9 +165,11 @@ future work; leave clear extension points for them.
   Stop requests cooperative cancellation between agent/LLM calls. The progress
   stepper grows with the run instead of redrawing itself: the outer status title
   rotates on a wall-clock timer (`_TICK_SECONDS`), and a child step is appended
-  only when its agent starts, so future agents are never shown. The active step
-  renders the progress events the agent emits live; a completed step shows its
-  detail card. `_planning_live` blocks on the worker queue and repaints only on a
+  only when its agent starts, so future agents are never shown. Each step has a
+  bold "Activity" timeline (completed events dimmed, the current one highlighted)
+  separated from a labelled result card, so what the agent did and what it
+  produced stay distinct; the agent name and engine badge live in the step header
+  only. `_planning_live` blocks on the worker queue and repaints only on a
   new event or a timer tick, so nothing flickers; the single empty placeholder is
   an invisible yield point that lets Streamlit process a queued Stop click during
   a long agent call (`_IDLE_WAIT`). The task keeps an ordered replayable log, so
