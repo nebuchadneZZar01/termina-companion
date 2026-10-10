@@ -14,11 +14,28 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agents import critic_agent, knowledge_agent, planning_agent, state_agent
 from app.domain import GameState, Goal
+from app.progress import report
 from app.state import PlanningState
 
 MAX_PLANNING_ATTEMPTS = 3
 
 logger = logging.getLogger(__name__)
+
+
+def _with_start(name: str, run_node):
+    """Wrap a node so it announces its own start on the custom stream.
+
+    The UI needs to know which agent is processing *while* it runs, but
+    ``stream_mode="updates"`` only emits when a node completes. Announcing the
+    start here keeps the signal out of the agents and works for every node
+    without duplicating the graph's routing.
+    """
+
+    def wrapped(state: PlanningState):
+        report({"node": name, "phase": "start"})
+        return run_node(state)
+
+    return wrapped
 
 
 def build_graph():
@@ -35,10 +52,10 @@ def build_graph():
         ``stream``.
     """
     graph = StateGraph(PlanningState)
-    graph.add_node("state", state_agent.run)
-    graph.add_node("knowledge", knowledge_agent.run)
-    graph.add_node("plan", planning_agent.run)
-    graph.add_node("critic", critic_agent.run)
+    graph.add_node("state", _with_start("state", state_agent.run))
+    graph.add_node("knowledge", _with_start("knowledge", knowledge_agent.run))
+    graph.add_node("plan", _with_start("plan", planning_agent.run))
+    graph.add_node("critic", _with_start("critic", critic_agent.run))
 
     graph.add_edge(START, "state")
     graph.add_edge("state", "knowledge")

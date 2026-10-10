@@ -174,6 +174,39 @@ def test_cold_miss_ingests_wiki_then_returns_second_vector_result(tmp_path):
     assert wiki.search_calls[0][2] == ("Anju", "Kafei")
 
 
+def test_cold_miss_emits_ordered_progress_phases(tmp_path):
+    wiki = FakeWiki([_document()])
+    retriever = _retriever(tmp_path, wiki)
+    seen: list[dict] = []
+
+    retriever.retrieve("Anju Kafei", search_terms=["Anju", "Kafei"], on_progress=seen.append)
+
+    assert [event["phase"] for event in seen] == [
+        "cache_search",
+        "wiki_search",
+        "wiki_refs",
+        "wiki_fetch",
+        "wiki_indexed",
+        "reretrieve",
+    ]
+    assert seen[2]["n"] == 1
+    assert seen[3]["titles"] == ["Anju's Anguish"]
+
+
+def test_warm_cache_hit_emits_cache_hit_progress(tmp_path):
+    wiki = FakeWiki([_document()])
+    retriever = _retriever(tmp_path, wiki)
+    retriever.retrieve("Anju Kafei", search_terms=["Anju", "Kafei"])
+    seen: list[dict] = []
+
+    result = retriever.retrieve(
+        "Anju Kafei", search_terms=["Anju", "Kafei"], on_progress=seen.append
+    )
+
+    assert result.status == "cache_hit"
+    assert [event["phase"] for event in seen] == ["cache_search", "cache_hit"]
+
+
 def test_warm_cache_hit_does_not_call_wiki(tmp_path):
     wiki = FakeWiki([_document()])
     retriever = _retriever(tmp_path, wiki)

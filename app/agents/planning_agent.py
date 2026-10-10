@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from app.data.mock_knowledge import Objective
 from app.domain import ClockTime, Plan, PlanStep, TimeWindow
 from app.llm import get_chat_model
+from app.progress import report
 from app.state import PlanningState
 
 _SLOT = 1  # hours per step
@@ -86,6 +87,14 @@ def run(state: PlanningState) -> dict:
         )
 
     plan_model = getattr(model, "model_name", "") or model.__class__.__name__
+    report(
+        {
+            "node": "plan",
+            "phase": "context",
+            "n": len(state.relevant_objectives),
+            "attempt": state.replan_attempts + 1,
+        }
+    )
     result = _llm_run(state, model)
     result = _ground_llm_steps(result, state.relevant_objectives)
     result = _dedupe_steps(result)
@@ -153,6 +162,14 @@ def _llm_run(state: PlanningState, model) -> Plan:
         f"Relevant objectives:\n{state.retrieved_context}"
     )
     started = time.perf_counter()
+    report(
+        {
+            "node": "plan",
+            "phase": "llm",
+            "model": getattr(model, "model_name", "") or model.__class__.__name__,
+            "attempt": state.replan_attempts + 1,
+        }
+    )
     try:
         raw = model.with_structured_output(_DraftPlan).invoke([prompt, user])
         plan = None if raw is None else _materialize_plan(raw, state)
@@ -164,6 +181,14 @@ def _llm_run(state: PlanningState, model) -> Plan:
     if plan is None or not plan.steps:
         logger.error("Planning Agent: LLM returned an empty plan")
         raise PlanningAgentError("LLM returned an empty plan")
+    report(
+        {
+            "node": "plan",
+            "phase": "llm_done",
+            "steps": len(plan.steps),
+            "seconds": round(elapsed, 1),
+        }
+    )
     logger.info(
         "Planning Agent [LLM]: %d step(s) (%.2fs), replan feedback=%s",
         len(plan.steps),

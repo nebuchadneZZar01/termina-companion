@@ -10,6 +10,7 @@ import datetime
 import queue
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 
 import streamlit as st
@@ -17,7 +18,7 @@ import streamlit as st
 from app.data.mock_knowledge import MASKS, build_default_knowledge
 from app.domain import ClockTime, GameState, Goal, TimeWindow
 from app.graph import MAX_PLANNING_ATTEMPTS, build_graph
-from app.i18n import spinner_lines, t, tr, tr_msg
+from app.i18n import DEFAULT_LANG, spinner_lines, t, tr, tr_msg
 
 
 @st.cache_resource
@@ -45,6 +46,52 @@ _NO_MESSAGE = object()
 # the worker queue before emitting an invisible yield point, so a queued Stop
 # click is handled promptly. It never triggers a redraw on its own.
 _IDLE_WAIT = 0.25
+# The reasoning title rotates on a wall-clock timer, independent of agent
+# updates, so a long LLM call still shows fresh activity.
+_TICK_SECONDS = 2.0
+
+# Agent nodes in execution order; the stepper shows a step only once it starts.
+_AGENT_NODES = ("state", "knowledge", "plan", "critic")
+_AGENT_LABEL_KEY = {
+    "state": "agent_state",
+    "knowledge": "agent_knowledge",
+    "plan": "agent_planning",
+    "critic": "agent_critic",
+}
+# Section caption drawn above each agent's detail card, so the card content is
+# not confused with the activity log above it.
+_RESULT_LABEL_KEY = {
+    "state": "result_state",
+    "knowledge": "result_knowledge",
+    "plan": "result_plan",
+    "critic": "result_critic",
+}
+# Progress phases the UI knows how to render; anything else is ignored so a
+# future agent event never renders a raw i18n key.
+_PROGRESS_PHASES = frozenset(
+    {
+        "objectives",
+        "mcp_data",
+        "cache_search",
+        "cache_hit",
+        "revalidate",
+        "wiki_search",
+        "wiki_refs",
+        "wiki_fetch",
+        "wiki_indexed",
+        "reretrieve",
+        "context",
+        "llm",
+        "llm_done",
+    }
+)
+
+
+@dataclass(frozen=True)
+class _Progress:
+    """A custom progress event drained from the worker stream."""
+
+    payload: dict
 
 
 @dataclass
@@ -57,8 +104,10 @@ class _PlanningTask:
     status: str = "running"
     result: dict = field(default_factory=dict)
     updates: list[tuple[str, dict]] = field(default_factory=list)
+    # Ordered streaming log the stepper replays: ("start", node),
+    # ("progress", payload) and ("update", node, data) entries.
+    log: list[tuple] = field(default_factory=list)
     error: str = ""
-    spinner_index: int = 0
 
 
 def _task_is_active(task: _PlanningTask | None) -> bool:
@@ -94,11 +143,12 @@ def _run_stream(
         events.put(_STOP_SENTINEL)
         return
     try:
-        for update in graph.stream(initial, stream_mode="updates"):
+        for item in graph.stream(initial, stream_mode=["updates", "custom"]):
             if stop_event.is_set():
                 events.put(_STOP_SENTINEL)
                 return
-            events.put(update)
+            mode, chunk = item
+            events.put(_Progress(chunk) if mode == "custom" else chunk)
         events.put(_STOP_SENTINEL if stop_event.is_set() else None)
     except Exception as exc:
         if stop_event.is_set():
@@ -135,6 +185,7 @@ def _drain_planning_task(task: _PlanningTask, wait: float = 0.0) -> bool:
                 item = task.events.get_nowait()
             except queue.Empty:
                 break
+        progressed = True
         if item is _STOP_SENTINEL:
             if task.status != "error":
                 task.status = "done" if task.result.get("validation") is not None else "stopped"
@@ -146,15 +197,15 @@ def _drain_planning_task(task: _PlanningTask, wait: float = 0.0) -> bool:
         elif isinstance(item, Exception):
             task.status = "error"
             task.error = str(item)
+        elif isinstance(item, _Progress):
+            _record_progress(task, item.payload)
         elif isinstance(item, dict):
             for node, data in item.items():
                 if not isinstance(data, dict):
                     continue
                 task.result.update(data)
                 task.updates.append((node, data))
-                # One phase per agent update, so the progress label only moves
-                # when the run actually advanced (never once per re-render).
-                task.spinner_index += 1
+                task.log.append(("update", node, data))
     if _task_is_active(task) and task.thread is not None and not task.thread.is_alive():
         task.status = "stopped" if task.stop_event.is_set() else "error"
         if not task.error:
@@ -176,65 +227,175 @@ def _start_planning_task(initial: dict, graph) -> _PlanningTask:
     return task
 
 
-def _progress_label(task: _PlanningTask) -> str:
-    """Return the current progress-phase label for a run.
+def _record_progress(task: _PlanningTask, payload: dict) -> None:
+    """Append one custom progress event to the task's replayable log."""
+    node = payload.get("node", "")
+    if not node:
+        return
+    if payload.get("phase") == "start":
+        task.log.append(("start", node))
+    else:
+        task.log.append(("progress", payload))
 
-    The label is derived from the number of drained agent updates, so it stays
-    identical across re-renders and only changes when a new update arrives.
 
-    args:
-        task (_PlanningTask): the planning task being rendered.
-
-    returns:
-        str: e.g. "Opening the Door of Time...".
-    """
+def _progress_label(tick: int) -> str:
+    """Return the reasoning title for a wall-clock tick (rotates every 2s)."""
     phrases = spinner_lines()
     if not phrases:
         return t("planning")
-    return f"{phrases[task.spinner_index % len(phrases)]}..."
+    return f"{phrases[tick % len(phrases)]}..."
+
+
+def _outer_status(task: _PlanningTask, tick: int) -> tuple[str, str]:
+    """Return the ``(state, label)`` for the outer stepper container."""
+    validation = task.result.get("validation")
+    if task.status == "done":
+        valid = bool(getattr(validation, "valid", False))
+        if valid:
+            return "complete", t("planning_complete")
+        return "error", t("planning_gave_up", max=MAX_PLANNING_ATTEMPTS)
+    if task.status == "error":
+        return "error", t("planning_error", error=task.error or "unknown error")
+    if task.status == "stopped":
+        return "error", t("planning_stopped")
+    if task.status == "stopping":
+        return "running", t("planning_stopping")
+    return "running", _progress_label(tick)
+
+
+def _progress_line(payload: dict) -> str:
+    """Format one agent progress event, or "" for unknown phases or steps."""
+    phase = payload.get("phase")
+    if phase not in _PROGRESS_PHASES:
+        return ""
+    params: dict[str, str] = {}
+    for key, value in payload.items():
+        if key in {"node", "phase"}:
+            continue
+        if isinstance(value, (list, tuple)):
+            items = [str(item) for item in value]
+            value = ", ".join(items[:3]) + ("\u2026" if len(items) > 3 else "")
+        if isinstance(value, str) and len(value) > 80:
+            value = value[:77] + "\u2026"
+        params[key] = value
+    return t(f"prog_{phase}", **params)
+
+
+def _activity_md(events: list[str], running: bool) -> str:
+    """Render an agent's activity log: a labelled, bulleted, dimmed timeline.
+
+    Completed events are dimmed with grayscale markdown; while the step is
+    still running its last event is highlighted as the current phase. Bullets
+    are markdown list items, so Streamlit indents them slightly under the label
+    and they line up with the detail card below the divider.
+
+    args:
+        events (list[str]): already-formatted event lines, oldest first.
+        running (bool): True while the agent is still working.
+
+    returns:
+        str: the markdown body for the step's activity block.
+    """
+    parts = [f"**{t('activity')}**", ""]
+    for index, event in enumerate(events):
+        current = running and index == len(events) - 1
+        marker = "\u23f3" if current else "\u2713"
+        item = f"{marker} {event}"
+        parts.append(f"- {item}" if current else f"- :gray[{item}]")
+    if not running:
+        parts.extend(["", "---"])
+    return "\n".join(parts)
+
+
+@dataclass
+class _Step:
+    """One agent step in the live stepper: its status box and event lines."""
+
+    node: str
+    status: object
+    live: object
+    events: list[str] = field(default_factory=list)
+
+
+class _PlanStepper:
+    """Progressive live stepper: one step per agent, shown when it starts.
+
+    The outer status box is created once and its title rotates on a timer; a
+    child step is appended only when its agent starts, so the tree never shows
+    future agents. This keeps the widget tree stable (no stacked re-renders) and
+    preserves the user's expand/collapse state.
+    """
+
+    def __init__(self, tick: int = 0) -> None:
+        self.outer = st.status(_progress_label(tick), state="running", expanded=True)
+        self._open: dict[str, _Step] = {}
+
+    def start(self, node: str) -> None:
+        """Append a running step for an agent as soon as it starts."""
+        with (
+            self.outer,
+            st.status(
+                f"\u23f3 {t(_AGENT_LABEL_KEY[node])}", state="running", expanded=True
+            ) as status,
+        ):
+            pass
+        self._open[node] = _Step(node=node, status=status, live=status.empty())
+
+    def progress(self, payload: dict) -> None:
+        """Append a progress line to the agent's open step, if any."""
+        step = self._open.get(payload.get("node", ""))
+        if step is None:
+            return
+        line = _progress_line(payload)
+        if not line:
+            return
+        step.events.append(line)
+        step.live.markdown(_activity_md(step.events, running=True))
+
+    def finish(self, node: str, result: dict) -> None:
+        """Close an agent's step and draw its full detail card from merged state."""
+        step = self._open.pop(node, None)
+        if step is None:
+            self.start(node)
+            step = self._open.pop(node)
+        if step.events:
+            step.live.markdown(_activity_md(step.events, running=False))
+        step.status.update(label=self._step_label(node, result), state="complete", expanded=True)
+        _append_step(step.status, node, result)
+
+    @staticmethod
+    def _step_label(node: str, result: dict) -> str:
+        name = t(_AGENT_LABEL_KEY[node])
+        engine, model = _engine_for(node, result)
+        name += _engine_badge(engine, model)
+        if node == "plan":
+            attempt = result.get("replan_attempts", 1)
+            name += f" \u2014 {t('step_attempt', n=attempt, max=MAX_PLANNING_ATTEMPTS)}"
+        return f"\u2713 {name}"
+
+    def set_outer(self, state: str, label: str) -> None:
+        """Update the outer status box label and state in place."""
+        self.outer.update(label=label, state=state, expanded=True)
+
+
+def _apply_log(stepper: _PlanStepper, task: _PlanningTask, cursor: int) -> int:
+    """Replay streamed log entries from ``cursor``; return the new cursor."""
+    for entry in task.log[cursor:]:
+        kind = entry[0]
+        if kind == "start":
+            stepper.start(entry[1])
+        elif kind == "progress":
+            stepper.progress(entry[1])
+        elif kind == "update":
+            stepper.finish(entry[1], task.result)
+    return len(task.log)
 
 
 def _render_planning_progress(task: _PlanningTask) -> None:
-    """Render accumulated agent updates for the current planning run."""
-    validation = task.result.get("validation")
-    running_label = _progress_label(task)
-    if task.status == "done":
-        valid = bool(getattr(validation, "valid", False))
-        outer_state = "complete" if valid else "error"
-        outer_label = (
-            t("planning_complete") if valid else t("planning_gave_up", max=MAX_PLANNING_ATTEMPTS)
-        )
-    elif task.status == "error":
-        outer_state = "error"
-        outer_label = t("planning_error", error=task.error or "unknown error")
-    elif task.status == "stopped":
-        outer_state = "error"
-        outer_label = t("planning_stopped")
-    elif task.status == "stopping":
-        outer_state = "running"
-        outer_label = t("planning_stopping")
-    else:
-        outer_state = "running"
-        outer_label = running_label
-
-    agent_name = {
-        "state": t("agent_state"),
-        "knowledge": t("agent_knowledge"),
-        "plan": t("agent_planning"),
-        "critic": t("agent_critic"),
-    }
-    with st.status(outer_label, type="step", state=outer_state, expanded=True) as outer:
-        for node, _data in task.updates:
-            name = agent_name.get(node, node)
-            if node == "plan":
-                attempt = task.result.get("replan_attempts", 1)
-                name += f" — {t('step_attempt', n=attempt, max=MAX_PLANNING_ATTEMPTS)}"
-            with st.status(name, type="step", expanded=True) as step:
-                _append_step(step, node, task.result)
-        if task.status == "running":
-            outer.update(label=running_label, state="running", expanded=True)
-        elif task.status == "stopping":
-            outer.update(label=t("planning_stopping"), state="running", expanded=True)
+    """Render the finished stepper statically by replaying the whole log."""
+    stepper = _PlanStepper()
+    _apply_log(stepper, task, 0)
+    stepper.set_outer(*_outer_status(task, 0))
     if task.status == "error":
         st.error(t("planning_error", error=task.error or "unknown error"))
     elif task.status == "stopped":
@@ -242,28 +403,28 @@ def _render_planning_progress(task: _PlanningTask) -> None:
 
 
 def _planning_live(task: _PlanningTask) -> None:
-    """Render the live stepper, redrawing only when the run actually advances.
+    """Drive the live stepper until the run reaches a terminal state.
 
-    The loop idles on the worker queue instead of on a timer: while the agent is
-    thinking no delta is sent, so the stepper does not flicker and a collapsed
-    stepper is not re-expanded on its own. The single empty placeholder is an
-    invisible yield point, which is what lets Streamlit process a queued Stop
-    click while this script is still running.
-
-    args:
-        task (_PlanningTask): the active planning task.
-
-    returns:
-        None: blocks until the task reaches a terminal state, having drawn the
-        stepper once and then once per change.
+    The loop blocks on the worker queue (no busy timer), repainting only when an
+    agent update arrives or the 2s reasoning-title tick rolls over. The single
+    empty placeholder is an invisible yield point, which is what lets Streamlit
+    process a queued Stop click while this script is still running.
     """
-    _render_planning_progress(task)
+    stepper = _PlanStepper()
     yield_point = st.empty()
+    started = time.monotonic()
+    cursor = _apply_log(stepper, task, 0)
+    last_tick = 0
+    stepper.set_outer(*_outer_status(task, last_tick))
     while _task_is_active(task):
-        if _drain_planning_task(task, wait=_IDLE_WAIT):
-            _render_planning_progress(task)
-        else:
-            yield_point.empty()
+        progressed = _drain_planning_task(task, wait=_IDLE_WAIT)
+        if progressed:
+            cursor = _apply_log(stepper, task, cursor)
+        tick = int((time.monotonic() - started) // _TICK_SECONDS)
+        if progressed or tick != last_tick:
+            last_tick = tick
+            stepper.set_outer(*_outer_status(task, tick))
+        yield_point.empty()
 
 
 def _render_planning_result(task: _PlanningTask, kb) -> None:
@@ -351,6 +512,18 @@ def _engine_badge(engine: str | None, model: str = "") -> str:
     return f" ({engine}{suffix})"
 
 
+def _engine_for(node: str, result: dict) -> tuple[str | None, str]:
+    """Return the ``(engine, model)`` pair for an agent node's badge."""
+    if node == "plan":
+        return result.get("plan_engine"), result.get("plan_model") or ""
+    return result.get(f"{node}_engine"), ""
+
+
+def _result_label(node: str) -> str:
+    """Return the bold section caption shown above an agent's detail card."""
+    return t(_RESULT_LABEL_KEY[node])
+
+
 _WINDOW_RE = re.compile(r"\[(Day \d, \d{2}:\d{2} \u2192 Day \d, \d{2}:\d{2})\]")
 
 
@@ -370,9 +543,41 @@ def _step_state(status, result: dict) -> None:
         None: draws into the status container.
     """
     c = status.container()
-    c.markdown(f"**\u2713 {t('agent_state')}{_engine_badge(result.get('state_engine'))}**")
-    c.write(f"{t('trace_where')} {tr(result['game_state'].location)}")
-    c.write(result["state_summary"])
+    c.markdown(f"**{_result_label('state')}**")
+    gs = result["game_state"]
+    _state_fields(c, gs)
+    # The summary's field line is now redundant; keep the quest-progress tail.
+    progress = str(result.get("state_summary", "")).partition("\n")[2]
+    if progress:
+        c.caption(progress)
+
+
+def _state_fields(scope, gs) -> None:
+    """Render the game state as one bulleted markdown block.
+
+    A single markdown list keeps the four fields tight and indented exactly
+    like the agent activity timelines and the other detail-card lists. Shared
+    by the live State Agent card and the trace tab.
+
+    args:
+        scope: the container to draw into.
+        gs: the canonicalised game state.
+
+    returns:
+        None: draws into the scope container.
+    """
+    items = ", ".join(tr(item) for item in gs.inventory) or t("trace_none")
+    masks = ", ".join(tr(mask) for mask in gs.masks) or t("trace_none")
+    scope.markdown(
+        "\n".join(
+            [
+                f"- **{t('trace_where')}** {tr(gs.location)}",
+                f"- **{t('trace_when')}** {tr(_fmt_clock(gs.time))}",
+                f"- **{t('trace_items')}** {items}",
+                f"- **{t('trace_masks')}** {masks}",
+            ]
+        )
+    )
 
 
 def _step_knowledge(status, result: dict) -> None:
@@ -386,19 +591,19 @@ def _step_knowledge(status, result: dict) -> None:
         None: draws into the status container.
     """
     c = status.container()
-    c.markdown(f"**\u2713 {t('agent_knowledge')}{_engine_badge(result.get('knowledge_engine'))}**")
+    c.markdown(f"**{_result_label('knowledge')}**")
     objectives = result["relevant_objectives"]
     c.write(t("knowledge_objectives", n=len(objectives)))
     for obj in objectives:
-        c.write(f"\u2022 {tr(obj.title)}")
+        c.markdown(f"- {tr(obj.title)}")
     if not objectives:
         c.caption(t("knowledge_empty_hint"))
     retrieval_engine = result.get("retrieval_engine")
     if retrieval_engine:
-        c.caption(f"{t('rag_engine')}: {retrieval_engine}")
+        c.caption(f"{t('rag_engine')}: `{retrieval_engine}`")
     retrieval_status = result.get("retrieval_status")
     if retrieval_status:
-        c.caption(f"{t('rag_status')}: {retrieval_status}")
+        c.caption(f"{t('rag_status')}: `{retrieval_status}`")
     if result.get("retrieval_wiki_unreachable"):
         c.warning(t("rag_wiki_unreachable"))
     if result.get("retrieval_warning"):
@@ -416,21 +621,17 @@ def _step_plan(status, result: dict) -> None:
         None: draws into the status container.
     """
     c = status.container()
+    c.markdown(f"**{_result_label('plan')}**")
     plan = result["plan"]
-    attempt = result["replan_attempts"]
-    header = (
-        f"**\u2713 {t('agent_planning')}"
-        f"{_engine_badge(result.get('plan_engine'), result.get('plan_model'))} \u2014 "
-        f"{t('step_attempt', n=attempt, max=MAX_PLANNING_ATTEMPTS)}**"
-    )
-    c.markdown(header)
     if not plan or not plan.steps:
         c.write(t("no_plan"))
         return
+    lines = []
     for i, step in enumerate(plan.steps, 1):
         s, e = step.window.start, step.window.end
-        window = f"Day {s.day} {s.hour:02d}:{s.minute:02d}\u2013{e.hour:02d}:{e.minute:02d}"
-        c.write(f"\u2022 {i}. {tr(step.title)} @ {tr(step.location)} ({window})")
+        window = f"Day {s.day} - {s.hour:02d}:{s.minute:02d}\u2013{e.hour:02d}:{e.minute:02d}"
+        lines.append(f"{i}. {tr(step.title)} @ {tr(step.location)} (`{window}`)")
+    c.markdown("\n".join(lines))
 
 
 def _step_critic(status, result: dict) -> None:
@@ -444,10 +645,11 @@ def _step_critic(status, result: dict) -> None:
         None: draws into the status container.
     """
     c = status.container()
-    c.markdown(f"**\u2713 {t('agent_critic')}{_engine_badge(result.get('critic_engine'))}**")
+    c.markdown(f"**{_result_label('critic')}**")
     validation = result["validation"]
     if validation.valid:
-        c.write(f"\u2713 {t('plan_valid')}")
+        # No manual "✓" prefix: t("plan_valid") already carries its own check.
+        c.write(t("plan_valid"))
         return
     c.write(t("replan_line", n=len(validation.issues), max=MAX_PLANNING_ATTEMPTS))
     for issue in validation.issues:
@@ -491,7 +693,10 @@ def _section(title: str, caption: str = "") -> None:
 
 
 def _fmt_clock(t: ClockTime) -> str:
-    """Format a clock as "Day N HH:MM".
+    """Format a clock as inline code "Day N - HH:MM".
+
+    Every instant renders as a code span so times stand out from the
+    surrounding labels, matching models, engines and statuses.
 
     args:
         t (ClockTime): the time to format.
@@ -499,7 +704,41 @@ def _fmt_clock(t: ClockTime) -> str:
     returns:
         str: the readable representation.
     """
-    return f"Day {t.day} {t.hour:02d}:{t.minute:02d}"
+    return f"`Day {t.day} - {t.hour:02d}:{t.minute:02d}`"
+
+
+_MONTHS_SHORT = {
+    "en": ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"),
+    "it": ("gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"),
+}
+
+
+def _fmt_timestamp(iso: str | None) -> str:
+    """Format an ISO timestamp as a short human date in the current language.
+
+    Wiki revisions and retrieval times are UTC instants; they are shown as
+    e.g. "10 ott 2026, 09:49 UTC". An unparsable or missing value falls back
+    to the raw string (or "-"), so a weird wiki timestamp never breaks the
+    sources tab.
+
+    args:
+        iso (str | None): the ISO timestamp to format.
+
+    returns:
+        str: the human-readable representation.
+    """
+    if not iso:
+        return "-"
+    try:
+        dt = datetime.datetime.fromisoformat(str(iso).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return str(iso)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    dt = dt.astimezone(datetime.timezone.utc)
+    lang = st.session_state.get("lang", DEFAULT_LANG)
+    months = _MONTHS_SHORT.get(lang, _MONTHS_SHORT["en"])
+    return f"{dt.day} {months[dt.month - 1]} {dt.year}, {dt.hour:02d}:{dt.minute:02d} UTC"
 
 
 def _render_plan(plan) -> None:
@@ -612,16 +851,19 @@ def _render_sources(objectives, kb) -> None:
 
 
 def _render_rag_source(source) -> None:
-    """Render one indexed wiki page and its complete provenance manifest."""
-    with st.container(border=True):
-        st.markdown(f"**{tr(source.title)}**")
+    """Render one indexed wiki page and its complete provenance manifest.
+
+    The page opens as a collapsed expander headed by its title, so a long
+    indexed list stays scannable while the full provenance stays one click away.
+    """
+    with st.expander(tr(source.title)):
         page_id = source.source_page_id if source.source_page_id is not None else source.id
         if page_id:
             st.caption(f"{t('rag_page_id')}: {page_id}")
         if source.source_revision_id is not None:
             st.caption(
                 f"{t('rag_revision')}: {source.source_revision_id} "
-                f"({source.source_revision_timestamp or '-'})"
+                f"({_fmt_timestamp(source.source_revision_timestamp)})"
             )
         if source.source_url:
             st.markdown(f"{t('rag_revision_url')}: [{source.source_url}]({source.source_url})")
@@ -634,13 +876,13 @@ def _render_rag_source(source) -> None:
             license_text = f"{license_text} · [{t('rag_license_link')}]({source.license_url})"
         st.caption(f"{t('rag_license')}: {license_text}")
         if source.retrieved_at:
-            st.caption(f"{t('rag_retrieved_at')}: {source.retrieved_at}")
+            st.caption(f"{t('rag_retrieved_at')}: {_fmt_timestamp(source.retrieved_at)}")
 
 
 def _render_rag_ingested_page(title: str) -> None:
     """Render a title-only fallback for legacy ingestion results."""
-    with st.container(border=True):
-        st.markdown(f"**{tr(title)}**")
+    with st.expander(tr(title)):
+        pass
 
 
 def _render_rag_evidence(
@@ -661,9 +903,9 @@ def _render_rag_evidence(
     st.markdown(f"**{t('rag_sources')}**")
     st.caption(t("rag_sources_caption"))
     if engine:
-        st.caption(f"{t('rag_engine')}: {engine}")
+        st.caption(f"{t('rag_engine')}: `{engine}`")
     if status:
-        st.caption(f"{t('rag_status')}: {status}")
+        st.caption(f"{t('rag_status')}: `{status}`")
     if wiki_unreachable:
         st.warning(t("rag_wiki_unreachable"))
     if warning:
@@ -707,7 +949,7 @@ def _render_rag_evidence(
             if metadata.source_revision_id is not None:
                 st.caption(
                     f"{t('rag_revision')}: {metadata.source_revision_id} "
-                    f"({metadata.source_revision_timestamp})"
+                    f"({_fmt_timestamp(metadata.source_revision_timestamp)})"
                 )
 
 
@@ -722,12 +964,7 @@ def _render_trace_state(gs) -> None:
     """
     _section(t("understood"), t("understood_caption"))
     with st.container(border=True):
-        st.write(f"**{t('trace_where')}** {tr(gs.location)}")
-        st.write(f"**{t('trace_when')}** {tr(_fmt_clock(gs.time))}")
-        items = ", ".join(tr(x) for x in gs.inventory) or t("trace_none")
-        st.write(f"**{t('trace_items')}** {items}")
-        masks = ", ".join(tr(x) for x in gs.masks) or t("trace_none")
-        st.write(f"**{t('trace_masks')}** {masks}")
+        _state_fields(st, gs)
 
 
 def _render_trace_attempts(n: int) -> None:
