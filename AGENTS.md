@@ -149,7 +149,9 @@ future work; leave clear extension points for them.
   exposed for UI inspection, while only retrieved evidence is appended to
   planner context. `app/rag/evaluation.py`
   provides retrieval-only offline metrics; it does not evaluate plans or
-  trajectories.
+  trajectories. `app/rag/scenarios.py` holds the 14 live calibration queries
+  with frozen wiki titles; `scripts/calibrate_rag.py` reruns the threshold grid
+  (current provisional default `0.60`, calibrated 2026-10-10).
 * `app/llm.py` — LLM provider factory (`get_chat_model()`); raises
   `LLMConfigurationError` when no usable provider is configured. The Planning
   Agent has no rule-based fallback.
@@ -212,8 +214,9 @@ future work; leave clear extension points for them.
   `feat/<feature-name>` or `fix/<fix-name>`.
 * Never use `phase` in branch names (`feat/npcs-schedules-events`, not
   `feat/phase3-game-knowledge`).
-* Open pull requests with `gh` and wait for review; the maintainer reviews
-  and merges them (never self-merge).
+* Open pull requests with `gh` following `.github/pull_request_template.md`
+  (Description/Type/Checks/Workflow) and wait for review; the maintainer
+  reviews and merges them (never self-merge).
 * PR titles and descriptions must always be written in English.
 
 ## Maintaining AGENTS.md

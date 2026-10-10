@@ -137,7 +137,11 @@ class RAGSettings(BaseModel):
 
     qdrant_path: Path = DEFAULT_QDRANT_PATH
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
-    similarity_threshold: float = Field(default=0.72, ge=-1.0, le=1.0)
+    # Provisional 2026-10-10: 0.60 best on 14 live scenarios
+    # (0.60: 7/14, 0.72: 3/14, 0.80: 1/14, top_k=4); see
+    # app/rag/scenarios.py (CALIBRATED_*) and scripts/calibrate_rag.py.
+    # Override via RAG_SIMILARITY_THRESHOLD.
+    similarity_threshold: float = Field(default=0.60, ge=-1.0, le=1.0)
     top_k: int = Field(default=4, gt=0, le=50)
     max_pages_per_miss: int = Field(default=3, gt=0, le=20)
     max_chunks_per_source: int = Field(default=2, gt=0, le=50)
