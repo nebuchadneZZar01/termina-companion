@@ -214,8 +214,9 @@ future work; leave clear extension points for them.
   `feat/<feature-name>` or `fix/<fix-name>`.
 * Never use `phase` in branch names (`feat/npcs-schedules-events`, not
   `feat/phase3-game-knowledge`).
-* Open pull requests with `gh` and wait for review; the maintainer reviews
-  and merges them (never self-merge).
+* Open pull requests with `gh` following `.github/pull_request_template.md`
+  (Description/Type/Checks/Workflow) and wait for review; the maintainer
+  reviews and merges them (never self-merge).
 * PR titles and descriptions must always be written in English.
 
 ## Maintaining AGENTS.md
