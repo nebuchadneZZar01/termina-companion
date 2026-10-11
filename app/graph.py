@@ -12,8 +12,10 @@ import logging
 
 from langgraph.graph import END, START, StateGraph
 
-from app.agents import critic_agent, knowledge_agent, planning_agent, state_agent
+from app.agents import critic_agent, knowledge_agent, memory_agent, planning_agent, state_agent
 from app.domain import GameState, Goal
+from app.memory.models import PlayerPreferences
+from app.memory.store import get_memory_store
 from app.progress import report
 from app.state import PlanningState
 
@@ -52,16 +54,22 @@ def build_graph():
         ``stream``.
     """
     graph = StateGraph(PlanningState)
+    graph.add_node("memory", _with_start("memory", memory_agent.retrieve_run))
+    graph.add_node("memory_store", memory_agent.store_run)
     graph.add_node("state", _with_start("state", state_agent.run))
     graph.add_node("knowledge", _with_start("knowledge", knowledge_agent.run))
     graph.add_node("plan", _with_start("plan", planning_agent.run))
     graph.add_node("critic", _with_start("critic", critic_agent.run))
 
-    graph.add_edge(START, "state")
+    graph.add_edge(START, "memory")
+    graph.add_edge("memory", "state")
     graph.add_edge("state", "knowledge")
     graph.add_edge("knowledge", "plan")
     graph.add_edge("plan", "critic")
-    graph.add_conditional_edges("critic", _route, {"valid": END, "replan": "plan", "give_up": END})
+    graph.add_conditional_edges(
+        "critic", _route, {"valid": "memory_store", "replan": "plan", "give_up": "memory_store"}
+    )
+    graph.add_edge("memory_store", END)
     return graph.compile()
 
 
@@ -88,7 +96,9 @@ def _route(state: PlanningState) -> str:
     return "replan"
 
 
-def run_pipeline(game_state: GameState, goal: Goal) -> PlanningState:
+def run_pipeline(
+    game_state: GameState, goal: Goal, preferences: PlayerPreferences | None = None
+) -> PlanningState:
     """Run the full planning pipeline end to end.
 
     Convenience wrapper over :func:`build_graph`: invokes the graph with the
@@ -97,9 +107,13 @@ def run_pipeline(game_state: GameState, goal: Goal) -> PlanningState:
     args:
         game_state (GameState): the player's current state.
         goal (Goal): what the player wants to achieve.
+        preferences (PlayerPreferences | None): style hints saved to memory
+            before the run; the retrieve node reloads them into state.
 
     returns:
         PlanningState: the final workflow state with plan and validation.
     """
+    if preferences is not None:
+        get_memory_store().save_preferences(preferences)
     result = build_graph().invoke(PlanningState(game_state=game_state, goal=goal))
     return PlanningState.model_validate(result)

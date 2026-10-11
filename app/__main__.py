@@ -11,6 +11,7 @@ from app.domain import ClockTime, GameState, Goal
 from app.graph import MAX_PLANNING_ATTEMPTS, run_pipeline
 from app.llm import LLMConfigurationError
 from app.log import configure_logging
+from app.memory.models import PlayerPreferences
 
 
 def demo() -> None:
@@ -33,15 +34,25 @@ def demo() -> None:
 
     print("Goal:", goal.description)
     print("Player:", game_state.model_dump())
+    print("Memory: in-memory (preferences: completionist demo)")
 
     try:
-        result = run_pipeline(game_state, goal)
+        result = run_pipeline(
+            game_state, goal, preferences=PlayerPreferences(playstyle="completionist")
+        )
     except (LLMConfigurationError, PlanningAgentError) as exc:
         print(f"\nPlanning failed: {exc}")
         return
 
     print("\n--- State Agent understood ---")
     print(result.state_summary)
+
+    print(f"\n--- Memory ({result.memory_engine or 'in-memory'}) ---")
+    if result.relevant_episodes:
+        for ep in result.relevant_episodes:
+            print(f"  - {ep.goal!r} valid={ep.valid}: {ep.plan_summary[:120]}")
+    else:
+        print("  No past episodes.")
 
     print("\n--- Knowledge Agent retrieved ---")
     print(result.retrieved_context)

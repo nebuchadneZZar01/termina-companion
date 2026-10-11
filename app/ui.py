@@ -51,8 +51,9 @@ _IDLE_WAIT = 0.25
 _TICK_SECONDS = 2.0
 
 # Agent nodes in execution order; the stepper shows a step only once it starts.
-_AGENT_NODES = ("state", "knowledge", "plan", "critic")
+_AGENT_NODES = ("memory", "state", "knowledge", "plan", "critic")
 _AGENT_LABEL_KEY = {
+    "memory": "agent_memory",
     "state": "agent_state",
     "knowledge": "agent_knowledge",
     "plan": "agent_planning",
@@ -61,6 +62,7 @@ _AGENT_LABEL_KEY = {
 # Section caption drawn above each agent's detail card, so the card content is
 # not confused with the activity log above it.
 _RESULT_LABEL_KEY = {
+    "memory": "result_memory",
     "state": "result_state",
     "knowledge": "result_knowledge",
     "plan": "result_plan",
@@ -81,6 +83,8 @@ _PROGRESS_PHASES = frozenset(
         "wiki_indexed",
         "reretrieve",
         "context",
+        "retrieve",
+        "store",
         "llm",
         "llm_done",
     }
@@ -383,10 +387,14 @@ def _apply_log(stepper: _PlanStepper, task: _PlanningTask, cursor: int) -> int:
     for entry in task.log[cursor:]:
         kind = entry[0]
         if kind == "start":
+            if entry[1] not in _AGENT_LABEL_KEY:
+                continue
             stepper.start(entry[1])
         elif kind == "progress":
             stepper.progress(entry[1])
         elif kind == "update":
+            if entry[1] == "memory_store":
+                continue
             stepper.finish(entry[1], task.result)
     return len(task.log)
 
@@ -469,6 +477,7 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
     with tab_trace:
         st.caption(t("tab_trace_caption"))
         _render_trace_state(result["game_state"])
+        _render_memory(result.get("relevant_episodes", []))
         _render_trace_attempts(result["replan_attempts"])
         _render_trace_issues(validation)
 
@@ -488,6 +497,8 @@ def _append_step(status, node: str, result: dict) -> None:
     """
     if node == "state":
         _step_state(status, result)
+    elif node == "memory":
+        _step_memory(status, result)
     elif node == "knowledge":
         _step_knowledge(status, result)
     elif node == "plan":
@@ -578,6 +589,19 @@ def _state_fields(scope, gs) -> None:
             ]
         )
     )
+
+
+def _step_memory(status, result: dict) -> None:
+    """Render the Memory Agent's trace card."""
+    c = status.container()
+    c.markdown(f"**{_result_label('memory')}**")
+    episodes = result.get("relevant_episodes", [])
+    c.write(t("memory_episodes_caption"))
+    if not episodes:
+        c.caption(t("memory_none"))
+        return
+    for ep in episodes[:3]:
+        c.markdown(f"- {ep.goal} ({'valid' if ep.valid else 'invalid'})")
 
 
 def _step_knowledge(status, result: dict) -> None:
@@ -967,6 +991,19 @@ def _render_trace_state(gs) -> None:
         _state_fields(st, gs)
 
 
+def _render_memory(episodes) -> None:
+    """Render past episodes recalled by memory in the trace tab."""
+    _section(t("memory_episodes"), t("memory_episodes_caption"))
+    if not episodes:
+        st.caption(t("memory_none"))
+        return
+    for ep in episodes[:3]:
+        with st.container(border=True):
+            st.markdown(f"**{ep.goal}** ({'valid' if ep.valid else 'invalid'})")
+            if ep.plan_summary:
+                st.caption(" ".join(str(ep.plan_summary).split())[:300])
+
+
 def _render_trace_attempts(n: int) -> None:
     """Render the planning-attempt counter in the trace tab.
 
@@ -1144,7 +1181,11 @@ def render() -> None:
         if llm_api_key:
             llm_config["api_key"] = llm_api_key
 
-        initial = {"game_state": game_state, "goal": goal, "llm_config": llm_config}
+        initial = {
+            "game_state": game_state,
+            "goal": goal,
+            "llm_config": llm_config,
+        }
         # Build the cached graph in the main thread: `_graph()` is wrapped in
         # @st.cache_resource, whose dispatcher needs the script run context.
         graph = _graph()

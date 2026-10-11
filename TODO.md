@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Current phase:** Phase 8 — Memory
+**Current phase:** Phase 9 — Guardrails & Reliability (one item left)
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
@@ -30,7 +30,12 @@ Status map:
   provenance, offline warm-cache behavior and Knowledge Agent integration
   implemented; retrieval quality calibrated 2026-10-10 on 14 live scenarios:
   0.60 hits 7/14 vs 0.72 3/14 vs 0.80 1/14 at top_k=4, default now 0.60).
-* Phases 8–12: not started yet.
+* Phase 8 — Memory: complete (in-memory preferences + episodic store,
+  `memory` retrieve node before `state`, `memory_store` after `critic`,
+  planner context only, one episode per finished run).
+* Phase 9 — Guardrails & Reliability: nearly complete (only tool-failure
+  handling left).
+* Phases 10–12: not started yet.
 * Phase 13 — Deployment: not started yet.
 
 ### Target flow
@@ -188,14 +193,14 @@ Phase 11.
 
 # Phase 8 — Memory
 
-* [ ] Define `MemoryStore` interface
-* [ ] Add player preferences
-* [ ] Add episodic memory
-* [ ] Store previous planning attempts
-* [ ] Retrieve relevant previous episodes
-* [ ] Integrate memory into LangGraph
-* [ ] Start with in-memory implementation
-* [ ] Prepare persistent storage extension
+* [x] Define `MemoryStore` interface
+* [x] Add player preferences
+* [x] Add episodic memory
+* [x] Store previous planning attempts
+* [x] Retrieve relevant previous episodes
+* [x] Integrate memory into LangGraph
+* [x] Start with in-memory implementation
+* [x] Prepare persistent storage extension
 
 # Phase 9 — Guardrails & Reliability
 

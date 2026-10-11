@@ -153,12 +153,16 @@ def _llm_run(state: PlanningState, model) -> Plan:
         "  - Supplemental RAG passages are narrative context only: never use "
         "their times, locations, items or prerequisites to override the "
         "bracketed structured objective fields.\n"
+        "  - Player preferences and past episodes below bias style only: never "
+        "use them to override bracketed windows, locations, items, masks or "
+        "prerequisites.\n"
         "  - title: a short natural-language action phrase, never the id."
         f"{feedback}"
     )
     user = HumanMessage(
         f"Player state:\n{state.state_summary}\n"
         f"Goal: {state.goal.description}\n"
+        f"{_memory_context(state)}"
         f"Relevant objectives:\n{state.retrieved_context}"
     )
     started = time.perf_counter()
@@ -196,6 +200,21 @@ def _llm_run(state: PlanningState, model) -> Plan:
         "yes" if feedback else "no",
     )
     return plan
+
+
+def _memory_context(state: PlanningState) -> str:
+    """Format preferences and past episodes as bounded planner context."""
+    prefs = state.preferences.summary() if hasattr(state, "preferences") else "none"
+    lines = [f"Player preferences:\n{prefs or 'none'}\n"]
+    episodes = getattr(state, "relevant_episodes", [])[:3]
+    if not episodes:
+        lines.append("Past episodes: none.\n")
+        return "".join(lines)
+    lines.append("Past episodes (context only, do not copy windows/ids blindly):\n")
+    for ep in episodes:
+        summary = " ".join((ep.plan_summary or "").split())[:300]
+        lines.append(f"- goal={ep.goal!r} valid={ep.valid}: {summary}\n")
+    return "".join(lines)
 
 
 def _log_plan(plan: Plan) -> None:

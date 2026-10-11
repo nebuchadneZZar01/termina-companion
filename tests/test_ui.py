@@ -327,6 +327,7 @@ def test_graph_streams_custom_start_and_agent_progress(monkeypatch) -> None:
 
     custom = [chunk for mode, chunk in emitted if mode == "custom"]
     assert {event["node"] for event in custom if event["phase"] == "start"} == {
+        "memory",
         "state",
         "knowledge",
         "plan",
