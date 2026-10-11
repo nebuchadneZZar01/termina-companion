@@ -157,7 +157,13 @@ future work; leave clear extension points for them.
   Agent has no rule-based fallback.
 * `app/state.py` — `PlanningState`, the workflow state threaded
   through the graph (Pydantic model, used as the LangGraph state schema),
-  including retrieved evidence, indexed-source manifest and retrieval status.
+  including retrieved evidence, indexed-source manifest, retrieval status,
+  player preferences and relevant past episodes.
+* `app/memory/` — player memory: Pydantic `PlayerPreferences`/`Episode` models
+  plus the `MemoryStore` protocol with the thread-safe `InMemoryMemoryStore`
+  (keyword ranking; the protocol is the extension point for future persistence).
+* `app/agents/memory_agent.py` — `retrieve_run` (before `state`) and `store_run`
+  (after `critic`, one episode per finished run, planner context only).
 * `app/graph.py` — graph wiring and the bounded re-planning
   loop (max `MAX_PLANNING_ATTEMPTS = 3`) driven by the Critic Agent. Each node is
   wrapped to announce its start on the custom progress stream.

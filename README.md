@@ -9,7 +9,8 @@ use deterministic logic and structured demo data; the Planning Agent always
 calls a configured LLM. The Knowledge Agent adds supplemental evidence from an
 adaptive Zelda Wiki RAG cache, while MCP tools remain authoritative for game
 rules. Provider configuration is required; local providers such as Ollama can
-run without an external API key. Persistent memory, tracing and full plan
+run without an external API key. In-memory player memory (preferences plus
+past episodes) is active; persistent memory, tracing and full plan
 evaluation remain future work.
 
 ## Install
@@ -249,7 +250,9 @@ architecture is not tied to one quest.
 - **RAG** — tune the provisional threshold, expand wiki search scenarios and
   evaluate multilingual retrieval. Keep Qdrant/wiki access behind the Knowledge
   Agent; never expose RAG as an MCP authority.
-- **Persistent memory** — extend `GameState` and attach a graph checkpointer.
+- **Persistent memory** — in-memory preferences and episodes exist via
+  `MemoryStore`; persist them (extend `GameState`, attach a graph
+  checkpointer or a file/DB store behind the same protocol).
 - **Tracing and audit** — add request IDs and LangGraph/tool/retrieval events.
 - **Plan evaluation** — implement the Phase 11 scenario/trajectory evaluator;
   keep it separate from RAG retrieval evaluation.

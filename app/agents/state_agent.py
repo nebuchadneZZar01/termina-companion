@@ -50,6 +50,9 @@ def run(state: PlanningState) -> dict:
     progress = _progress_summary(gs.quest_progress, _KB, gs.location)
     if progress:
         summary += f"\n{progress}"
+    prefs = state.preferences.summary() if hasattr(state, "preferences") else "none"
+    if prefs and prefs != "none":
+        summary += f"\nPreferences: {prefs}"
     logger.info(
         "State Agent [rule-based]: location %r -> %r — summary=%r",
         state.game_state.location,

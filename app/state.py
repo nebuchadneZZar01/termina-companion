@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.data.mock_knowledge import Objective
 from app.domain import GameState, Goal, Plan, ValidationResult
+from app.memory.models import Episode, PlayerPreferences
 from app.rag.models import Evidence, IndexedSource
 
 
@@ -28,6 +29,9 @@ class PlanningState(BaseModel):
     plan: Plan | None = None
     validation: ValidationResult | None = None
     replan_attempts: int = 0
+    preferences: PlayerPreferences = Field(default_factory=PlayerPreferences)
+    relevant_episodes: list[Episode] = Field(default_factory=list)
+    memory_engine: str = ""
     state_engine: str = ""
     knowledge_engine: str = ""
     plan_engine: str = ""
