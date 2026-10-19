@@ -120,20 +120,32 @@ def _retrieve_evidence(
     query = " ".join(dict.fromkeys(part for part in query_parts if part))
     search_terms = _search_terms(state.goal.description, objectives, npc_schedules or {})
     try:
-        with traced_span("rag.retrieve", kind="RETRIEVER", input_value=query[:200]) as rag_span:
+        # Structured input: the query is a bag of words joined from the goal and
+        # the structured objectives, so showing it as one string is unreadable.
+        # ``span()`` JSON-encodes this and clips it at SPAN_PAYLOAD_LIMIT.
+        with traced_span(
+            "rag.retrieve",
+            kind="RETRIEVER",
+            input_value={"query": query, "search_terms": search_terms},
+        ) as rag_span:
             result = retrieve(query, search_terms=search_terms, on_progress=_progress)
             rag_span.set_attribute("termina.rag.status", result.status)
             rag_span.set_attribute("termina.rag.engine", result.engine)
             rag_span.set_attribute("termina.rag.evidence", len(result.evidence))
+            rag_span.set_attribute("termina.rag.query_chars", len(query))
             set_output(
                 rag_span,
                 {
                     "status": result.status,
                     "engine": result.engine,
+                    "warning": result.warning,
+                    "wiki_unreachable": result.wiki_unreachable,
                     "evidence": [
                         {
-                            "title": getattr(chunk, "title", ""),
-                            "score": getattr(chunk, "score", 0.0),
+                            "title": chunk.chunk.title,
+                            "score": chunk.score,
+                            "matched_terms": chunk.matched_terms,
+                            "text": chunk.chunk.text,
                         }
                         for chunk in result.evidence
                     ],

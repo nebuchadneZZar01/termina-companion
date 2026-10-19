@@ -23,8 +23,10 @@ from opentelemetry.trace import StatusCode
 
 from app import graph as graph_mod
 from app import trace as trace_mod
+from app.agents import knowledge_agent
 from app.domain import ClockTime, GameState, Goal
 from app.graph import _with_start, run_pipeline
+from app.rag.models import Chunk, RetrievalResult, RetrievedChunk, SourceMetadata
 from app.trace import (
     LLM_LOG_PAYLOAD_LIMIT,
     SPAN_PAYLOAD_LIMIT,
@@ -318,3 +320,46 @@ def test_exported_callback_span_kind_and_io(memory_tracing):
     assert chat.attributes["gen_ai.prompt.1.content"] == "find Kafei"
     assert chat.attributes["gen_ai.completion.0.role"] == "assistant"
     assert chat.attributes["gen_ai.completion.0.content"] == "seven steps"
+
+
+def test_exported_rag_span_shows_structured_query_and_evidence(
+    memory_tracing, fake_planner_model, monkeypatch
+):
+    """The rag.retrieve span carries the query parts and the retrieved chunks.
+
+    The query is a bag of words joined from the goal and the structured
+    objectives, so a single string is unreadable; it is emitted as JSON with
+    the query and its search terms. The output then has to show what came
+    back, not just how many chunks, otherwise the span is undebuggable.
+    """
+    exporter, _tracer = memory_tracing
+    chunk = Chunk(
+        id="c1",
+        document_id="d1",
+        title="Anju",
+        text="Anju waits in the kitchen.",
+        metadata=SourceMetadata(id="d1", title="Anju"),
+    )
+    evidence = RetrievedChunk(chunk=chunk, score=0.71, matched_terms=["Anju"])
+
+    def fake_retrieve(query, **_kwargs):
+        return RetrievalResult(query=query, evidence=[evidence], engine="test", status="cache_hit")
+
+    monkeypatch.setattr(knowledge_agent, "retrieve", fake_retrieve)
+    run_pipeline(
+        GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn"),
+        Goal(description="Reunite Anju and Kafei"),
+    )
+
+    span = {s.name: s for s in exporter.get_finished_spans()}["rag.retrieve"]
+    assert span.attributes[trace_mod.SPAN_KIND_ATTR] == "RETRIEVER"
+    query_payload = json.loads(span.attributes[trace_mod.INPUT_VALUE_ATTR])
+    assert query_payload["query"].startswith("Reunite Anju and Kafei")
+    assert "Anju" in query_payload["search_terms"]
+    assert span.attributes["termina.rag.query_chars"] == len(query_payload["query"])
+
+    output = json.loads(span.attributes[trace_mod.OUTPUT_VALUE_ATTR])
+    assert output["status"] == "cache_hit"
+    assert output["evidence"][0]["title"] == "Anju"
+    assert output["evidence"][0]["matched_terms"] == ["Anju"]
+    assert output["evidence"][0]["text"] == "Anju waits in the kitchen."
