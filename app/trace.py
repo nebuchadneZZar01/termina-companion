@@ -47,6 +47,11 @@ SERVICE_NAME = "termina-companion"
 SPAN_KIND_ATTR = "openinference.span.kind"
 INPUT_VALUE_ATTR = "input.value"
 OUTPUT_VALUE_ATTR = "output.value"
+#: Tell Phoenix the payload is JSON so it pretty-prints instead of showing a
+#: raw string. Set only when the payload is not already a plain string.
+INPUT_MIME_TYPE_ATTR = "input.mime_type"
+OUTPUT_MIME_TYPE_ATTR = "output.mime_type"
+JSON_MIME_TYPE = "application/json"
 
 _run_id: ContextVar[str] = ContextVar("termina_run_id", default="")
 _setup_done = False
@@ -227,7 +232,7 @@ def span(name: str, *, kind: str = "", input_value: Any = "", **attributes: Any)
         kind (str, default ""): OpenInference span kind (``CHAIN``, ``TOOL``,
             ``RETRIEVER``, ``LLM``), shown as Kind in the backend.
         input_value (Any, default ""): span input — a string is used as-is,
-            any other payload is JSON-encoded.
+            any other payload is JSON-encoded and tagged with a JSON mime type.
         **attributes: primitive span attributes.
 
     yields:
@@ -238,6 +243,8 @@ def span(name: str, *, kind: str = "", input_value: Any = "", **attributes: Any)
         attrs[SPAN_KIND_ATTR] = kind
     if input_value:
         attrs[INPUT_VALUE_ATTR] = _io_value(input_value)
+        if not isinstance(input_value, str):
+            attrs[INPUT_MIME_TYPE_ATTR] = JSON_MIME_TYPE
     otel_span = get_tracer().start_span(name, attributes=attrs, record_exception=False)
     started = time.perf_counter()
     with trace.use_span(otel_span, end_on_exit=True):
@@ -263,12 +270,14 @@ def set_output(otel_span: Span, payload: Any) -> None:
     args:
         otel_span (Span): the still-open span.
         payload (Any): output payload — a string is used as-is, any other
-            payload is JSON-encoded.
+            payload is JSON-encoded and tagged with a JSON mime type.
 
     returns:
         None: side-effect on the span only.
     """
     otel_span.set_attribute(OUTPUT_VALUE_ATTR, _io_value(payload))
+    if not isinstance(payload, str):
+        otel_span.set_attribute(OUTPUT_MIME_TYPE_ATTR, JSON_MIME_TYPE)
 
 
 def record_node(name: str, duration_s: float, status: str, detail: str = "") -> None:

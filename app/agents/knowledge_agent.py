@@ -10,15 +10,19 @@ indexed-source manifest is kept in workflow state for UI inspection.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+
+from opentelemetry.trace import Span
 
 from app.data.mock_knowledge import Objective
 from app.mcp.tools import get_event, get_npc_schedule, search_quests
 from app.progress import report
+from app.rag.models import RetrievedChunk
 from app.rag.retriever import RetrievalResult, retrieve
 from app.state import PlanningState
-from app.trace import set_output
+from app.trace import SPAN_PAYLOAD_LIMIT, _clip, set_output
 from app.trace import span as traced_span
 
 logger = logging.getLogger(__name__)
@@ -133,6 +137,10 @@ def _retrieve_evidence(
             rag_span.set_attribute("termina.rag.engine", result.engine)
             rag_span.set_attribute("termina.rag.evidence", len(result.evidence))
             rag_span.set_attribute("termina.rag.query_chars", len(query))
+            # Phoenix populates a RETRIEVER span's document panel only from the
+            # flattened OpenInference ``retrieval.documents.*`` attributes; the
+            # generic ``output.value`` below is ignored for that panel.
+            _set_retrieval_documents(rag_span, result.evidence)
             set_output(
                 rag_span,
                 {
@@ -160,6 +168,33 @@ def _retrieve_evidence(
             engine="unavailable",
             status="unavailable",
             warning=str(exc),
+        )
+
+
+def _set_retrieval_documents(otel_span: Span, evidence: list[RetrievedChunk]) -> None:
+    """Attach retrieved chunks as OpenInference retrieve-document attributes.
+
+    Phoenix fills a ``RETRIEVER`` span's document panel only from these
+    flattened ``retrieval.documents.{i}.document.*`` attributes; the generic
+    ``output.value`` is ignored for that panel, so without them the retrieval
+    result is exported but never shown.
+    """
+    for index, item in enumerate(evidence):
+        prefix = f"retrieval.documents.{index}.document"
+        otel_span.set_attribute(f"{prefix}.id", item.chunk.id)
+        otel_span.set_attribute(f"{prefix}.content", _clip(item.chunk.text, SPAN_PAYLOAD_LIMIT))
+        otel_span.set_attribute(f"{prefix}.score", float(item.score))
+        otel_span.set_attribute(
+            f"{prefix}.metadata",
+            json.dumps(
+                {
+                    "title": item.chunk.title,
+                    "section": item.chunk.section,
+                    "matched_terms": list(item.matched_terms),
+                    "source_url": item.chunk.metadata.source_url,
+                },
+                ensure_ascii=False,
+            ),
         )
 
 

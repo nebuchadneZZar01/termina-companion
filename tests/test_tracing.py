@@ -363,3 +363,15 @@ def test_exported_rag_span_shows_structured_query_and_evidence(
     assert output["evidence"][0]["title"] == "Anju"
     assert output["evidence"][0]["matched_terms"] == ["Anju"]
     assert output["evidence"][0]["text"] == "Anju waits in the kitchen."
+
+    # Phoenix fills the retriever's document panel from these flattened
+    # OpenInference attributes, not from output.value.
+    prefix = "retrieval.documents.0.document"
+    assert span.attributes[f"{prefix}.id"] == "c1"
+    assert span.attributes[f"{prefix}.content"] == "Anju waits in the kitchen."
+    assert span.attributes[f"{prefix}.score"] == 0.71
+    metadata = json.loads(span.attributes[f"{prefix}.metadata"])
+    assert metadata["title"] == "Anju"
+    assert metadata["matched_terms"] == ["Anju"]
+    assert span.attributes[trace_mod.INPUT_MIME_TYPE_ATTR] == trace_mod.JSON_MIME_TYPE
+    assert span.attributes[trace_mod.OUTPUT_MIME_TYPE_ATTR] == trace_mod.JSON_MIME_TYPE
