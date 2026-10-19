@@ -222,9 +222,13 @@ future work; leave clear extension points for them.
   output payload. `TraceCallback` is a LangChain callback
   attached at the single LLM call site: it puts the complete system/user/
   assistant prompts into `gen_ai.*` spans (for Phoenix) and writes the same
-  prompts to console logs at `INFO`, bounded by `LLM_LOG_PAYLOAD_LIMIT`. Payload
-  limits are constants (`LLM_LOG_PAYLOAD_LIMIT`, `SPAN_PAYLOAD_LIMIT`), not env
-  vars; the only tracing env var is the endpoint.
+  prompts to console logs at `INFO`, bounded by `LLM_LOG_PAYLOAD_LIMIT`. Spans
+  carry the OpenInference GenAI message attributes (`gen_ai.prompt.N.role`/
+  `.content` and `gen_ai.completion.N.*`) so Phoenix renders each message with
+  its role instead of one concatenated `input.value` blob — the LLM call itself
+  always receives distinct message objects; the concatenation is display-only.
+  Payload limits are constants (`LLM_LOG_PAYLOAD_LIMIT`, `SPAN_PAYLOAD_LIMIT`),
+  not env vars; the only tracing env var is the endpoint.
 * `app/__main__.py` — headless pipeline demo (`python -m app`); it also prints
   the run id, node timeline and any errors after the plan.
 * `docker-compose.yml` — local observability stack: the Arize Phoenix

@@ -27,6 +27,7 @@ from app.domain import ClockTime, GameState, Goal
 from app.graph import _with_start, run_pipeline
 from app.trace import (
     LLM_LOG_PAYLOAD_LIMIT,
+    SPAN_PAYLOAD_LIMIT,
     TraceCallback,
     current_run,
     pipeline_span,
@@ -120,6 +121,44 @@ def test_callback_logs_bounded_prompts(caplog):
     # The truncated marker keeps the console line bounded.
     assert long_system not in info_text
     assert "tokens_in=9" in info_text
+
+
+def test_callback_span_prompts_are_bounded(memory_tracing):
+    """Indexed prompt attributes stay under SPAN_PAYLOAD_LIMIT.
+
+    Phoenix reads ``gen_ai.prompt.N.content``; an oversized prompt must be
+    clipped there too, otherwise a runaway message floods the backend even
+    though the console copy is already bounded.
+    """
+    exporter, _tracer = memory_tracing
+    callback = TraceCallback()
+    huge = "S" * (SPAN_PAYLOAD_LIMIT + 1000)
+    messages = [[SystemMessage(content=huge)]]
+
+    callback.on_chat_model_start({"kwargs": {"model_name": "llama3.2"}}, messages, run_id="r1")
+    callback.on_llm_end(_llm_result("ok"), run_id="r1")
+
+    chat = {span.name: span for span in exporter.get_finished_spans()}["gen_ai.chat"]
+    content = chat.attributes["gen_ai.prompt.0.content"]
+    # Clipped at the limit plus an explicit marker, never the full payload.
+    assert huge not in content
+    assert "[truncated 1000 char]" in content
+    assert len(content) <= SPAN_PAYLOAD_LIMIT + len("... [truncated 1000 char]")
+    assert chat.attributes["gen_ai.completion.0.content"] == "ok"
+
+
+def test_callback_nonchat_prompts_are_indexed(memory_tracing):
+    """The on_llm_start fallback also tags each prompt with a role."""
+    exporter, _tracer = memory_tracing
+    callback = TraceCallback()
+
+    callback.on_llm_start({}, ["first", "second"], run_id="r2")
+    callback.on_llm_end(_llm_result("done"), run_id="r2")
+
+    chat = {span.name: span for span in exporter.get_finished_spans()}["gen_ai.chat"]
+    assert chat.attributes["gen_ai.prompt.0.role"] == "user"
+    assert chat.attributes["gen_ai.prompt.0.content"] == "first"
+    assert chat.attributes["gen_ai.prompt.1.content"] == "second"
 
 
 def test_callback_error_records_on_run():
@@ -271,3 +310,11 @@ def test_exported_callback_span_kind_and_io(memory_tracing):
     assert "[user] find Kafei" in chat.attributes[trace_mod.INPUT_VALUE_ATTR]
     assert chat.attributes[trace_mod.OUTPUT_VALUE_ATTR] == "seven steps"
     assert chat.status.status_code is StatusCode.OK
+    # OpenInference indexed messages: Phoenix renders these as two distinct
+    # role-tagged messages instead of one concatenated input blob.
+    assert chat.attributes["gen_ai.prompt.0.role"] == "system"
+    assert chat.attributes["gen_ai.prompt.0.content"] == "be brief"
+    assert chat.attributes["gen_ai.prompt.1.role"] == "user"
+    assert chat.attributes["gen_ai.prompt.1.content"] == "find Kafei"
+    assert chat.attributes["gen_ai.completion.0.role"] == "assistant"
+    assert chat.attributes["gen_ai.completion.0.content"] == "seven steps"

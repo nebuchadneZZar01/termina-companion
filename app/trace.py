@@ -23,7 +23,7 @@ import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator
 
 from langchain_core.callbacks import BaseCallbackHandler
 from opentelemetry import trace
@@ -310,16 +310,20 @@ class TraceCallback(BaseCallbackHandler):
     ) -> None:
         """Open the gen_ai.chat span and log every outgoing message."""
         model = str(serialized.get("kwargs", {}).get("model_name", "")) if serialized else ""
-        prompt_text = "\n".join(f"[{_role_of(m)}] {_text_of(m)}" for m in _iter_messages(messages))
+        flat = list(_iter_messages(messages))
+        prompt_text = "\n".join(f"[{_role_of(m)}] {_text_of(m)}" for m in flat)
+        attributes = {
+            "gen_ai.request.model": model,
+            SPAN_KIND_ATTR: "LLM",
+            INPUT_VALUE_ATTR: _clip(prompt_text),
+        }
+        # Indexed prompts follow the OpenInference GenAI convention Phoenix
+        # reads: without them the whole request renders as one blob, even
+        # though the LLM call itself carries distinct system/user messages.
+        attributes.update(_prompt_attributes((_role_of(m), _text_of(m)) for m in flat))
         span = get_tracer().start_span(
             "gen_ai.chat",
-            attributes=_with_run_id(
-                {
-                    "gen_ai.request.model": model,
-                    SPAN_KIND_ATTR: "LLM",
-                    INPUT_VALUE_ATTR: _clip(prompt_text),
-                }
-            ),
+            attributes=_with_run_id(attributes),
         )
         for message in _iter_messages(messages):
             role, content = _role_of(message), _text_of(message)
@@ -340,11 +344,14 @@ class TraceCallback(BaseCallbackHandler):
         self, serialized: dict, prompts: list[str], *, run_id: str, **kwargs: Any
     ) -> None:
         """Fallback span for non-chat completions."""
+        attributes: dict[str, Any] = {
+            SPAN_KIND_ATTR: "LLM",
+            INPUT_VALUE_ATTR: _clip("\n".join(prompts)),
+        }
+        attributes.update(_prompt_attributes(("user", prompt) for prompt in prompts))
         span = get_tracer().start_span(
             "gen_ai.chat",
-            attributes=_with_run_id(
-                {SPAN_KIND_ATTR: "LLM", INPUT_VALUE_ATTR: _clip("\n".join(prompts))}
-            ),
+            attributes=_with_run_id(attributes),
         )
         for prompt in prompts:
             span.add_event("gen_ai.user.message", {"message.content": _clip(prompt)})
@@ -362,6 +369,12 @@ class TraceCallback(BaseCallbackHandler):
                     "gen_ai.choice", {"message.content": _clip(content, SPAN_PAYLOAD_LIMIT)}
                 )
                 span.set_attribute(OUTPUT_VALUE_ATTR, _clip(content, SPAN_PAYLOAD_LIMIT))
+                # OpenInference GenAI completion: Phoenix renders this as the
+                # assistant message instead of an anonymous output blob.
+                span.set_attribute("gen_ai.completion.0.role", "assistant")
+                span.set_attribute(
+                    "gen_ai.completion.0.content", _clip(content, SPAN_PAYLOAD_LIMIT)
+                )
             input_tokens = usage.get("input_tokens")
             output_tokens = usage.get("output_tokens")
             if input_tokens is not None:
@@ -397,6 +410,20 @@ def _with_run_id(attributes: dict[str, Any]) -> dict[str, Any]:
     if run_id:
         out["termina.run_id"] = run_id
     return out
+
+
+def _prompt_attributes(messages: Iterable[tuple[str, str]]) -> dict[str, Any]:
+    """OpenInference ``gen_ai.prompt.N.role`` / ``.content`` attributes.
+
+    Phoenix renders each indexed entry as its own message with its role;
+    a single concatenated ``input.value`` shows up as one anonymous blob
+    even when the LLM call carries distinct system/user messages.
+    """
+    attrs: dict[str, Any] = {}
+    for index, (role, text) in enumerate(messages):
+        attrs[f"gen_ai.prompt.{index}.role"] = role
+        attrs[f"gen_ai.prompt.{index}.content"] = _clip(text, SPAN_PAYLOAD_LIMIT)
+    return attrs
 
 
 def _iter_messages(messages: list) -> Iterator[Any]:
