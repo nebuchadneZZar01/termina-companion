@@ -155,6 +155,20 @@ future work; leave clear extension points for them.
 * `app/llm.py` — LLM provider factory (`get_chat_model()`); raises
   `LLMConfigurationError` when no usable provider is configured. The Planning
   Agent has no rule-based fallback.
+* `app/log.py` — console logging setup: `configure_logging()`, called from both
+  entry points, installs one timestamped handler
+  (`%(asctime)s %(levelname)s [%(name)s] %(message)s`) and reads a single
+  `LOG_LEVEL` env var (default `INFO`). It replaces existing root handlers
+  instead of calling `logging.basicConfig`, which is a silent no-op once the
+  MCP server has installed its bare `%(message)s` handler at import, and sets
+  the root level last so it wins over whatever the libraries configured.
+  `INFO` shows every first-party log, including the planning system/user
+  messages and the raw assistant answer; `DEBUG` additionally opens
+  third-party noise (Streamlit's file watcher, LangChain, the MCP server).
+  Chatty third-party watchers (`_NOISY_LOGGERS`, currently `watchdog`) are
+  muted at `INFO` and reset to inherit at `DEBUG`. Message bodies are always
+  bounded by `LLM_LOG_PAYLOAD_LIMIT`, so one runaway prompt cannot flood the
+  console at either level.
 * `app/state.py` — `PlanningState`, the workflow state threaded
   through the graph (Pydantic model, used as the LangGraph state schema),
   including retrieved evidence, indexed-source manifest, retrieval status,
@@ -166,7 +180,9 @@ future work; leave clear extension points for them.
   (after `critic`, one episode per finished run, planner context only).
 * `app/graph.py` — graph wiring and the bounded re-planning
   loop (max `MAX_PLANNING_ATTEMPTS = 3`) driven by the Critic Agent. Each node is
-  wrapped to announce its start on the custom progress stream.
+  wrapped to announce its start on the custom progress stream, open one
+  `node.*` trace span and record its outcome (duration, status, detail) for
+  the run audit; a failing node is also added to the run's error list.
 * `app/ui.py` — Streamlit frontend logic (`render()`); requires a configured
   LLM provider, with local providers supported for offline runs. Planning runs
   as a session-scoped background task: Generate is disabled while active and
@@ -181,16 +197,49 @@ future work; leave clear extension points for them.
   new event or a timer tick, so nothing flickers; the single empty placeholder is
   an invisible yield point that lets Streamlit process a queued Stop click during
   a long agent call (`_IDLE_WAIT`). The task keeps an ordered replayable log, so
-  the finished stepper is re-rendered statically after the final rerun.
+  the finished stepper is re-rendered statically after the final rerun. The
+  worker run is wrapped in `pipeline_span`, and the Trace tab's audit section
+  shows the run id, a Phoenix link, the node timeline and errors only (in
+  `st.code`); full LLM prompts are deliberately not shown in the UI.
 * `app/progress.py` — the streaming progress seam: `report()` publishes custom
   LangGraph events and is a silent no-op outside a stream (headless, tests). The
   graph wraps each node to announce its start, and the Knowledge and Planning
   agents publish phase events (objectives, MCP data, wiki search/fetch/index,
   second retrieval, LLM call). The retriever takes an optional `on_progress`
   callback, so RAG stays decoupled from LangGraph.
-* `app/__main__.py` — headless pipeline demo (`python -m app`).
-* `tests/` — domain model, validation, re-planning, RAG corpus/retrieval and
-  Knowledge Agent integration tests, including hermetic wiki/cache scenarios.
+* `app/trace.py` — OpenTelemetry tracing seam (Phase 10). `setup_tracing()`
+  (called from `main.py` and `app/__main__.py`) installs a `TracerProvider`
+  that exports over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (e.g.
+  the local Phoenix container) and is a cheap no-op otherwise, so tests, the
+  demo and CI never need a backend. Every span carries the OpenInference
+  attributes Phoenix reads for its dashboard — `openinference.span.kind`
+  (`CHAIN`/`TOOL`/`RETRIEVER`/`LLM`), `input.value`/`output.value`, and an
+  explicit `OK`/`ERROR` status set before the span closes. `pipeline_span()`
+  opens one root span per
+  run and feeds a per-run in-memory `RunTrace` (run id, node timeline, errors)
+  that the UI reads. `span()` traces one MCP call, the RAG retrieval or a
+  validation and records failures; use `set_output()` inside the block for the
+  output payload. `TraceCallback` is a LangChain callback
+  attached at the single LLM call site: it puts the complete system/user/
+  assistant prompts into `gen_ai.*` spans (for Phoenix) and writes the same
+  prompts to console logs at `INFO`, bounded by `LLM_LOG_PAYLOAD_LIMIT`. Spans
+  carry the OpenInference GenAI message attributes (`gen_ai.prompt.N.role`/
+  `.content` and `gen_ai.completion.N.*`) so Phoenix renders each message with
+  its role instead of one concatenated `input.value` blob — the LLM call itself
+  always receives distinct message objects; the concatenation is display-only.
+  Payload limits are constants (`LLM_LOG_PAYLOAD_LIMIT`, `SPAN_PAYLOAD_LIMIT`),
+  not env vars; the only tracing env var is the endpoint.
+* `app/__main__.py` — headless pipeline demo (`python -m app`); it also prints
+  the run id, node timeline and any errors after the plan.
+* `docker-compose.yml` — local observability stack: the Arize Phoenix
+  container (web UI and OTLP/HTTP receiver share `:6006`; Phoenix has no
+  `:4318` listener — that port belongs to the generic OTel Collector). The
+  Streamlit app runs on the host; start this with `docker compose up -d` and
+  set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006` to export spans. The
+  app is fully functional (no-op tracing) when it is not running.
+* `tests/` — domain model, validation, re-planning, RAG corpus/retrieval,
+  tracing and Knowledge Agent integration tests, including hermetic
+  wiki/cache scenarios.
 
 ## Tooling
 

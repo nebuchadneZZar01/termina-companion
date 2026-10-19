@@ -27,6 +27,7 @@ from app.domain import ClockTime, Plan, PlanStep, TimeWindow
 from app.llm import get_chat_model
 from app.progress import report
 from app.state import PlanningState
+from app.trace import TraceCallback
 
 _SLOT = 1  # hours per step
 
@@ -181,7 +182,9 @@ def _llm_run(state: PlanningState, model) -> Plan:
         }
     )
     try:
-        raw = model.with_structured_output(_DraftPlan).invoke([prompt, user])
+        raw = model.with_structured_output(_DraftPlan).invoke(
+            [prompt, user], config={"callbacks": [TraceCallback()]}
+        )
         plan = None if raw is None else _materialize_plan(raw, state)
     except Exception as exc:
         logger.error("Planning Agent: LLM invocation failed: %s", exc)
@@ -200,7 +203,7 @@ def _llm_run(state: PlanningState, model) -> Plan:
         }
     )
     logger.info(
-        "Planning Agent [LLM]: %d step(s) (%.2fs), replan feedback=%s",
+        "Planning Agent [LLM]: raw proposal %d step(s) (%.2fs), replan feedback=%s",
         len(plan.steps),
         elapsed,
         "yes" if feedback else "no",
@@ -224,14 +227,19 @@ def _memory_context(state: PlanningState) -> str:
 
 
 def _log_plan(plan: Plan) -> None:
-    """Log each plan step with its window, location and needs.
+    """Log the final, post-processed plan step by step.
+
+    The header makes clear this is the reconciled plan (grounded, deduped,
+    clamped and rebuilt against the prerequisite chain), not the LLM's raw
+    proposal logged earlier by ``_llm_run``.
 
     args:
-        plan (Plan): the plan to log.
+        plan (Plan): the final plan to log.
 
     returns:
         None: logging only.
     """
+    logger.info("Planning Agent: final plan (%d step(s)):", len(plan.steps))
     for i, step in enumerate(plan.steps, 1):
         s, e = step.window.start, step.window.end
         window = f"Day {s.day} {s.hour:02d}:{s.minute:02d}-{e.hour:02d}:{e.minute:02d}"

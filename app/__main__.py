@@ -12,6 +12,7 @@ from app.graph import MAX_PLANNING_ATTEMPTS, run_pipeline
 from app.llm import LLMConfigurationError
 from app.log import configure_logging
 from app.memory.models import PlayerPreferences
+from app.trace import current_run, setup_tracing
 
 
 def demo() -> None:
@@ -21,10 +22,11 @@ def demo() -> None:
         (none)
 
     returns:
-        None: prints the goal, state, retrieved context, plan and
-        validation to stdout.
+        None: prints the goal, state, retrieved context, plan,
+        validation and the run trace to stdout.
     """
     configure_logging()
+    setup_tracing()
     game_state = GameState(
         time=ClockTime(day=2, hour=8, minute=0),
         location="Stockpot Inn",
@@ -104,6 +106,17 @@ def demo() -> None:
         print("Valid!" if result.validation.valid else "Invalid:")
         for issue in result.validation.issues:
             print(f"  - [{issue.severity} / {issue.kind}] {issue.message}")
+
+    run = current_run()
+    if run is not None:
+        print(f"\n--- Trace (run {run.run_id}, {run.duration_s():.1f}s) ---")
+        for node in run.nodes:
+            print(
+                f"  {node['name']:<14} {node['duration_s'] * 1000:8.1f} ms  {node['status']}"
+                + (f"  ({node['detail']})" if node["detail"] else "")
+            )
+        for error in run.errors:
+            print(f"  error [{error['source']}]: {error['message']}")
 
     print(
         "\nOutcome:"

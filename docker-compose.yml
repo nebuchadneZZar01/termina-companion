@@ -1,0 +1,28 @@
+# Local observability stack (Phase 10).
+#
+# The Streamlit app runs on the host (`uv run streamlit run main.py`); this
+# file only provides the tracing backend. Start it with:
+#
+#   docker compose up -d
+#
+# then set in .env:
+#
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006
+#
+# Open http://localhost:6006 to browse the traces of each planning run. Note:
+# Phoenix serves BOTH the web UI and the OTLP/HTTP receiver on :6006 (it has
+# no :4318 listener — that port belongs to the generic OTel Collector).
+# The app stays fully functional (no-op tracing) when this is not running.
+
+services:
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: termina-phoenix
+    ports:
+      - "6006:6006" # Phoenix web UI + OTLP/HTTP trace receiver (/v1/traces)
+    volumes:
+      - phoenix_data:/root/.phoenix
+    restart: unless-stopped
+
+volumes:
+  phoenix_data:

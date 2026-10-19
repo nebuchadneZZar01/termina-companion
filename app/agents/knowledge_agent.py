@@ -10,14 +10,20 @@ indexed-source manifest is kept in workflow state for UI inspection.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+
+from opentelemetry.trace import Span
 
 from app.data.mock_knowledge import Objective
 from app.mcp.tools import get_event, get_npc_schedule, search_quests
 from app.progress import report
+from app.rag.models import RetrievedChunk
 from app.rag.retriever import RetrievalResult, retrieve
 from app.state import PlanningState
+from app.trace import SPAN_PAYLOAD_LIMIT, _clip, set_output
+from app.trace import span as traced_span
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +33,13 @@ _SEARCH_TOKEN_RE = re.compile(r"[A-ZÀ-ÖØ-Ý][\wÀ-ÖØ-öø-ÿ'’-]+")
 def run(state: PlanningState) -> dict:
     """Gather objectives, schedules, events and supplemental wiki evidence."""
     try:
-        quests = search_quests(state.goal.description, state.game_state.quest_progress)
+        with traced_span(
+            "mcp.search_quests",
+            kind="TOOL",
+            input_value=state.goal.description[:200],
+        ) as tool_span:
+            quests = search_quests(state.goal.description, state.game_state.quest_progress)
+            set_output(tool_span, quests)
     except Exception as exc:
         logger.warning("Knowledge Agent: search_quests failed: %s", exc)
         quests = []
@@ -51,7 +63,11 @@ def run(state: PlanningState) -> dict:
         if not obj.npc_id:
             continue
         try:
-            npc_schedules[obj.npc_id] = get_npc_schedule(obj.npc_id)
+            with traced_span(
+                "mcp.get_npc_schedule", kind="TOOL", input_value=obj.npc_id
+            ) as tool_span:
+                npc_schedules[obj.npc_id] = get_npc_schedule(obj.npc_id)
+                set_output(tool_span, npc_schedules[obj.npc_id])
         except Exception as exc:
             logger.warning("Knowledge Agent: get_npc_schedule(%s) failed: %s", obj.npc_id, exc)
             continue
@@ -61,7 +77,9 @@ def run(state: PlanningState) -> dict:
         if not obj.event_ref:
             continue
         try:
-            events[obj.event_ref] = get_event(obj.event_ref)
+            with traced_span("mcp.get_event", kind="TOOL", input_value=obj.event_ref) as tool_span:
+                events[obj.event_ref] = get_event(obj.event_ref)
+                set_output(tool_span, events[obj.event_ref])
         except Exception as exc:
             logger.warning("Knowledge Agent: get_event(%s) failed: %s", obj.event_ref, exc)
             continue
@@ -106,7 +124,42 @@ def _retrieve_evidence(
     query = " ".join(dict.fromkeys(part for part in query_parts if part))
     search_terms = _search_terms(state.goal.description, objectives, npc_schedules or {})
     try:
-        return retrieve(query, search_terms=search_terms, on_progress=_progress)
+        # Structured input: the query is a bag of words joined from the goal and
+        # the structured objectives, so showing it as one string is unreadable.
+        # ``span()`` JSON-encodes this and clips it at SPAN_PAYLOAD_LIMIT.
+        with traced_span(
+            "rag.retrieve",
+            kind="RETRIEVER",
+            input_value={"query": query, "search_terms": search_terms},
+        ) as rag_span:
+            result = retrieve(query, search_terms=search_terms, on_progress=_progress)
+            rag_span.set_attribute("termina.rag.status", result.status)
+            rag_span.set_attribute("termina.rag.engine", result.engine)
+            rag_span.set_attribute("termina.rag.evidence", len(result.evidence))
+            rag_span.set_attribute("termina.rag.query_chars", len(query))
+            # Phoenix populates a RETRIEVER span's document panel only from the
+            # flattened OpenInference ``retrieval.documents.*`` attributes; the
+            # generic ``output.value`` below is ignored for that panel.
+            _set_retrieval_documents(rag_span, result.evidence)
+            set_output(
+                rag_span,
+                {
+                    "status": result.status,
+                    "engine": result.engine,
+                    "warning": result.warning,
+                    "wiki_unreachable": result.wiki_unreachable,
+                    "evidence": [
+                        {
+                            "title": chunk.chunk.title,
+                            "score": chunk.score,
+                            "matched_terms": chunk.matched_terms,
+                            "text": chunk.chunk.text,
+                        }
+                        for chunk in result.evidence
+                    ],
+                },
+            )
+        return result
     except Exception as exc:
         logger.warning("Knowledge Agent: supplemental retrieval failed: %s", exc)
         return RetrievalResult(
@@ -115,6 +168,33 @@ def _retrieve_evidence(
             engine="unavailable",
             status="unavailable",
             warning=str(exc),
+        )
+
+
+def _set_retrieval_documents(otel_span: Span, evidence: list[RetrievedChunk]) -> None:
+    """Attach retrieved chunks as OpenInference retrieve-document attributes.
+
+    Phoenix fills a ``RETRIEVER`` span's document panel only from these
+    flattened ``retrieval.documents.{i}.document.*`` attributes; the generic
+    ``output.value`` is ignored for that panel, so without them the retrieval
+    result is exported but never shown.
+    """
+    for index, item in enumerate(evidence):
+        prefix = f"retrieval.documents.{index}.document"
+        otel_span.set_attribute(f"{prefix}.id", item.chunk.id)
+        otel_span.set_attribute(f"{prefix}.content", _clip(item.chunk.text, SPAN_PAYLOAD_LIMIT))
+        otel_span.set_attribute(f"{prefix}.score", float(item.score))
+        otel_span.set_attribute(
+            f"{prefix}.metadata",
+            json.dumps(
+                {
+                    "title": item.chunk.title,
+                    "section": item.chunk.section,
+                    "matched_terms": list(item.matched_terms),
+                    "source_url": item.chunk.metadata.source_url,
+                },
+                ensure_ascii=False,
+            ),
         )
 
 
