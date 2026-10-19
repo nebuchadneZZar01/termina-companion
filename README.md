@@ -75,8 +75,9 @@ uv run streamlit run main.py         # or: uv run python -m app
 
 Then open http://localhost:6006 to browse each run's full trace, including the
 complete system/user/assistant prompts of every LLM call (with model, token
-usage and latency). Full prompts also go to console logs, but only at
-`LOG_LEVEL=DEBUG` and with a bounded length. In the app, the Trace tab shows the
+usage and latency). Full prompts also go to console logs at `INFO`, bounded in
+length by `LLM_LOG_PAYLOAD_LIMIT` so one runaway prompt cannot flood the
+console. In the app, the Trace tab shows the
 `run_id`, the node timeline and any errors — errors only, no prompt bodies.
 
 ## Adaptive Zelda Wiki RAG

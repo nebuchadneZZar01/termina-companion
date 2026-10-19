@@ -18,12 +18,15 @@ def restore_root_logging():
     root = logging.getLogger()
     handlers = list(root.handlers)
     level = root.level
+    noisy = {name: logging.getLogger(name).level for name in log_mod._NOISY_LOGGERS}
     yield
     for handler in list(root.handlers):
         root.removeHandler(handler)
     for handler in handlers:
         root.addHandler(handler)
     root.setLevel(level)
+    for name, logger_level in noisy.items():
+        logging.getLogger(name).setLevel(logger_level)
 
 
 def test_configure_logging_installs_timestamped_formatter(restore_root_logging, monkeypatch):
@@ -53,6 +56,30 @@ def test_configure_logging_defaults_to_info(restore_root_logging, monkeypatch):
     monkeypatch.delenv("LOG_LEVEL", raising=False)
     configure_logging()
     assert logging.getLogger().level == logging.INFO
+
+
+def test_configure_logging_silences_watchdogs_at_info(restore_root_logging, monkeypatch):
+    """A noisy file watcher is muted at INFO but reopened at DEBUG.
+
+    ``streamlit run`` registers its file watcher before us, so every
+    filesystem event would otherwise flood an INFO console with inotify
+    noise while the planning prompts scroll by. At DEBUG the caller asked
+    for everything, so the watcher is deliberately left alone.
+    """
+    for name in log_mod._NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.DEBUG)
+    monkeypatch.setenv("LOG_LEVEL", "INFO")
+
+    configure_logging()
+
+    for name in log_mod._NOISY_LOGGERS:
+        assert logging.getLogger(name).level == logging.WARNING
+
+    monkeypatch.setenv("LOG_LEVEL", "DEBUG")
+    configure_logging()
+
+    for name in log_mod._NOISY_LOGGERS:
+        assert logging.getLogger(name).level != logging.WARNING
 
 
 def _kafei_objectives():

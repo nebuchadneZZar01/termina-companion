@@ -157,12 +157,18 @@ future work; leave clear extension points for them.
   Agent has no rule-based fallback.
 * `app/log.py` — console logging setup: `configure_logging()`, called from both
   entry points, installs one timestamped handler
-  (`%(asctime)s %(levelname)s [%(name)s] %(message)s`); `LOG_LEVEL` (default
-  `INFO`) controls verbosity. It replaces existing root handlers instead of
-  calling `logging.basicConfig`, which is a silent no-op once the MCP server has
-  installed its bare `%(message)s` handler at import. `LOG_LEVEL=DEBUG` shows
-  the planning system/user messages and the raw assistant answer on the console,
-  each bounded by `LLM_LOG_PAYLOAD_LIMIT`.
+  (`%(asctime)s %(levelname)s [%(name)s] %(message)s`) and reads a single
+  `LOG_LEVEL` env var (default `INFO`). It replaces existing root handlers
+  instead of calling `logging.basicConfig`, which is a silent no-op once the
+  MCP server has installed its bare `%(message)s` handler at import, and sets
+  the root level last so it wins over whatever the libraries configured.
+  `INFO` shows every first-party log, including the planning system/user
+  messages and the raw assistant answer; `DEBUG` additionally opens
+  third-party noise (Streamlit's file watcher, LangChain, the MCP server).
+  Chatty third-party watchers (`_NOISY_LOGGERS`, currently `watchdog`) are
+  muted at `INFO` and reset to inherit at `DEBUG`. Message bodies are always
+  bounded by `LLM_LOG_PAYLOAD_LIMIT`, so one runaway prompt cannot flood the
+  console at either level.
 * `app/state.py` — `PlanningState`, the workflow state threaded
   through the graph (Pydantic model, used as the LangGraph state schema),
   including retrieved evidence, indexed-source manifest, retrieval status,
@@ -215,10 +221,10 @@ future work; leave clear extension points for them.
   validation and records failures; use `set_output()` inside the block for the
   output payload. `TraceCallback` is a LangChain callback
   attached at the single LLM call site: it puts the complete system/user/
-  assistant prompts into `gen_ai.*` spans (for Phoenix) and writes only a
-  bounded DEBUG copy to console logs. Payload limits are constants
-  (`LLM_LOG_PAYLOAD_LIMIT`, `SPAN_PAYLOAD_LIMIT`), not env vars; the only
-  tracing env var is the endpoint.
+  assistant prompts into `gen_ai.*` spans (for Phoenix) and writes the same
+  prompts to console logs at `INFO`, bounded by `LLM_LOG_PAYLOAD_LIMIT`. Payload
+  limits are constants (`LLM_LOG_PAYLOAD_LIMIT`, `SPAN_PAYLOAD_LIMIT`), not env
+  vars; the only tracing env var is the endpoint.
 * `app/__main__.py` — headless pipeline demo (`python -m app`); it also prints
   the run id, node timeline and any errors after the plan.
 * `docker-compose.yml` — local observability stack: the Arize Phoenix

@@ -239,7 +239,8 @@ Tracing uses OpenTelemetry. Spans (pipeline, agents, LLM, RAG, MCP,
 validation) are exported to a local Arize Phoenix container over OTLP/HTTP
 when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; without it the tracer is a no-op,
 so tests, the demo and CI never need a backend. Full LLM prompts go to spans
-(visible in Phoenix) and to console logs at DEBUG with a bounded length. The
+(visible in Phoenix) and to console logs at `INFO`, bounded in length by
+`LLM_LOG_PAYLOAD_LIMIT`. The
 Trace tab shows the run id, a node timeline and errors only. Structured
 monitoring is served by these spans plus the existing text logs.
 

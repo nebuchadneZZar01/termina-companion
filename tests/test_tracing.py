@@ -100,25 +100,25 @@ def test_span_records_tool_error_and_reraised():
     assert any(e["source"] == "mcp.get_event" for e in run.errors)
 
 
-def test_callback_logs_truncated_messages_at_debug(caplog):
-    """Full prompts go to spans; DEBUG console shows bounded content."""
+def test_callback_logs_bounded_prompts(caplog):
+    """Prompts log at INFO and stay bounded, so no level floods the console."""
     long_system = "S" * (LLM_LOG_PAYLOAD_LIMIT + 500)
     callback = TraceCallback()
     messages = [[SystemMessage(content=long_system), HumanMessage(content="find Kafei")]]
 
-    with caplog.at_level(logging.DEBUG, logger="app.trace"):
+    # INFO, not DEBUG: the prompts must be visible without a verbose run.
+    with caplog.at_level(logging.INFO, logger="app.trace"):
         callback.on_chat_model_start({"kwargs": {"model_name": "llama3.2"}}, messages, run_id="r1")
         callback.on_llm_end(
             _llm_result("ok", usage={"input_tokens": 9, "output_tokens": 3, "total_tokens": 12}),
             run_id="r1",
         )
 
-    debug_text = "\n".join(r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG)
-    assert "find Kafei" in debug_text
-    assert "[truncated" in debug_text
-    # The truncated marker keeps the console line bounded.
-    assert long_system not in debug_text
     info_text = "\n".join(r.getMessage() for r in caplog.records if r.levelno == logging.INFO)
+    assert "find Kafei" in info_text
+    assert "[truncated" in info_text
+    # The truncated marker keeps the console line bounded.
+    assert long_system not in info_text
     assert "tokens_in=9" in info_text
 
 

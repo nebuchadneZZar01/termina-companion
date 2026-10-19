@@ -9,7 +9,8 @@ tests, the headless demo and CI never need a backend.
 The same run also feeds a small in-memory :class:`RunTrace` collector that the
 Streamlit UI reads to render the audit section of the Trace tab. Console logs
 stay human-readable text; full LLM prompts go to spans (visible in Phoenix),
-while console logging shows them only at DEBUG with a bounded length.
+and console logging shows the same prompts at INFO, bounded by
+``LLM_LOG_PAYLOAD_LIMIT`` so one runaway prompt cannot flood the console.
 """
 
 from __future__ import annotations
@@ -34,7 +35,8 @@ from opentelemetry.trace import Span, Status, StatusCode
 
 logger = logging.getLogger(__name__)
 
-#: Console log truncation for individual LLM messages (``LOG_LEVEL=DEBUG``).
+#: Console log truncation for individual LLM messages. Applied at INFO and
+#: above, so a single oversized prompt can never flood the console.
 LLM_LOG_PAYLOAD_LIMIT = 2000
 #: Hard cap for message content attached to spans, so one runaway response
 #: cannot flood the trace backend. Full prompts stay well under this.
@@ -325,7 +327,7 @@ class TraceCallback(BaseCallbackHandler):
                 f"gen_ai.{role}.message",
                 {"message.content": _clip(content, SPAN_PAYLOAD_LIMIT)},
             )
-            logger.debug("--- %s ---\n%s", role, _clip(content, LLM_LOG_PAYLOAD_LIMIT))
+            logger.info("--- %s ---\n%s", role, _clip(content, LLM_LOG_PAYLOAD_LIMIT))
         logger.info(
             "LLM request run_id=%s model=%s messages=%d",
             current_run_id(),
@@ -368,7 +370,7 @@ class TraceCallback(BaseCallbackHandler):
                 span.set_attribute("gen_ai.usage.output_tokens", int(output_tokens))
             span.set_status(Status(StatusCode.OK))
             span.end()
-        logger.debug("--- assistant ---\n%s", _clip(content, LLM_LOG_PAYLOAD_LIMIT))
+        logger.info("--- assistant ---\n%s", _clip(content, LLM_LOG_PAYLOAD_LIMIT))
         logger.info(
             "LLM response run_id=%s tokens_in=%s tokens_out=%s",
             current_run_id(),
