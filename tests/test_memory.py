@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.agents import memory_agent, planning_agent
+from app.data.mock_knowledge import build_default_knowledge
 from app.domain import ClockTime, GameState, Goal
 from app.graph import run_pipeline
 from app.memory.models import Episode, PlayerPreferences
@@ -128,11 +129,16 @@ def test_planning_prompt_includes_preferences(monkeypatch, store):
     monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: _CaptureModel())
     store.save_preferences(PlayerPreferences(playstyle="completionista"))
     gs = GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn")
+    kb = build_default_knowledge()
+    objective = next(
+        obj for quest in kb.quests for obj in quest.objectives if obj.id == "ak_talk_to_anju"
+    )
     state = PlanningState(
         game_state=gs,
         goal=Goal(description="Reunite Anju and Kafei"),
         state_summary="Stockpot Inn at Day 2",
         retrieved_context="- [ak_talk_to_anju] x",
+        relevant_objectives=[objective],
         relevant_episodes=[],
         preferences=PlayerPreferences(playstyle="completionista"),
     )

@@ -4,8 +4,15 @@ import pytest
 
 from app.agents import planning_agent, state_agent
 from app.agents.planning_agent import PlanningAgentError
+from app.data.mock_knowledge import build_default_knowledge
 from app.domain import ClockTime, GameState, Goal
 from app.state import PlanningState
+
+
+def _kafei_objectives():
+    """Objectives matched for the Anju & Kafei goal, for prompt-only tests."""
+    kb = build_default_knowledge()
+    return [obj for quest in kb.quests for obj in quest.objectives if obj.id.startswith("ak_")]
 
 
 def test_state_agent_logs_rule_based_path(caplog):
@@ -35,6 +42,7 @@ def test_planning_agent_logs_llm_failure(caplog, monkeypatch):
     state = PlanningState(
         game_state=GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn"),
         goal=Goal(description="Reunite Anju and Kafei"),
+        relevant_objectives=_kafei_objectives(),
     )
     with caplog.at_level(logging.ERROR, logger="app.agents.planning_agent"):
         with pytest.raises(PlanningAgentError, match="LLM invocation failed"):

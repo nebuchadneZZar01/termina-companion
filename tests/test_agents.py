@@ -81,6 +81,15 @@ def test_planning_agent_requires_llm(monkeypatch):
         planning_agent.run(_state())
 
 
+def test_planning_agent_fails_clearly_without_objectives(monkeypatch):
+    """No relevant objectives (e.g. a down knowledge tool) is named explicitly."""
+    monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: _FakeModel())
+    state = _state()
+    state.relevant_objectives = []
+    with pytest.raises(PlanningAgentError, match="No relevant objectives"):
+        planning_agent.run(state)
+
+
 def test_planning_agent_threads_llm_config(monkeypatch):
     """The LLM config set on the state is forwarded to get_chat_model."""
     captured: dict = {}
