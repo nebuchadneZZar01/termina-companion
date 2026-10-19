@@ -19,6 +19,24 @@ from app.data.mock_knowledge import Objective, build_default_knowledge
 _KB = build_default_knowledge()
 
 
+def _require_id(value: str | None, name: str) -> str:
+    """Return a stripped, non-empty identifier or raise ``ValueError``.
+
+    args:
+        value (str | None): the raw identifier supplied by the caller.
+        name (str): the parameter name, used in the error message.
+
+    returns:
+        str: the normalized identifier.
+
+    raises:
+        ValueError: when the identifier is missing or blank.
+    """
+    if value is None or not str(value).strip():
+        raise ValueError(f"Missing {name}")
+    return str(value).strip()
+
+
 def search_quests(goal_text: str, quest_progress: dict[str, str] | None = None) -> list[dict]:
     """Find quests whose objectives match the player's goal keywords.
 
@@ -72,8 +90,9 @@ def get_npc_schedule(npc_id: str) -> dict:
         the time windows as readable strings.
 
     raises:
-        ValueError: when the NPC id is unknown.
+        ValueError: when the NPC id is missing or unknown.
     """
+    npc_id = _require_id(npc_id, "npc_id")
     npc = _KB.npc(npc_id)
     if npc is None:
         raise ValueError(f"Unknown NPC: {npc_id}")
@@ -96,8 +115,9 @@ def get_quest_info(quest_id: str) -> dict:
         JSON-serialized ``Objective``.
 
     raises:
-        ValueError: when the quest id is unknown.
+        ValueError: when the quest id is missing or unknown.
     """
+    quest_id = _require_id(quest_id, "quest_id")
     quest = next((q for q in _KB.quests if q.id == quest_id), None)
     if quest is None:
         raise ValueError(f"Unknown quest: {quest_id}")
@@ -119,8 +139,9 @@ def get_event(event_id: str) -> dict:
         window is the readable time window string.
 
     raises:
-        ValueError: when the event id is unknown.
+        ValueError: when the event id is missing or unknown.
     """
+    event_id = _require_id(event_id, "event_id")
     event = _KB.event(event_id)
     if event is None:
         raise ValueError(f"Unknown event: {event_id}")
@@ -143,8 +164,9 @@ def get_location(location_id: str) -> dict:
         dict: ``{"id", "name", "area"}``.
 
     raises:
-        ValueError: when the location id is unknown.
+        ValueError: when the location id is missing or unknown.
     """
+    location_id = _require_id(location_id, "location_id")
     loc = next((loc for loc in _KB.locations if loc.id == location_id), None)
     if loc is None:
         raise ValueError(f"Unknown location: {location_id}")
@@ -174,8 +196,9 @@ def check_prerequisites(
         "unmet_prerequisites"}``.
 
     raises:
-        ValueError: when the objective id is unknown.
+        ValueError: when the objective id is missing or unknown.
     """
+    objective_id = _require_id(objective_id, "objective_id")
     obj = _find_objective(objective_id)
     if obj is None:
         raise ValueError(f"Unknown objective: {objective_id}")

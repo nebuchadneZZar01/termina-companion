@@ -465,3 +465,23 @@ def test_progress_templates_style_model_query_and_titles(monkeypatch) -> None:
 
 def test_plan_controls_require_a_model_before_planning() -> None:
     assert ui._plan_controls_disabled(None, "  ") == (True, True)
+
+
+def test_app_renders_headless_without_error() -> None:
+    """The real Streamlit entry point boots and renders the main controls.
+
+    Uses Streamlit's AppTest to execute ``main.py`` end to end (no provider
+    needed to render); a regression here means the UI no longer starts.
+    """
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60).run()
+
+    labels = [button.label for button in at.button]
+    assert not at.exception
+    assert any("Termina Companion" in title.value for title in at.title)
+    assert any("Pianifica" in label for label in labels)
+    assert any(label == "Stop" for label in labels)

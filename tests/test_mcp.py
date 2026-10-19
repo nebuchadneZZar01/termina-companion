@@ -80,6 +80,46 @@ def test_get_npc_schedule_unknown_raises():
         get_npc_schedule("nobody")
 
 
+@pytest.mark.parametrize("bad", ["", "   ", None])
+def test_get_npc_schedule_missing_id_raises(bad):
+    """get_npc_schedule rejects a missing/blank NPC id."""
+    with pytest.raises(ValueError, match="Missing npc_id"):
+        get_npc_schedule(bad)
+
+
+@pytest.mark.parametrize("bad", ["", "   ", None])
+def test_get_event_missing_id_raises(bad):
+    """get_event rejects a missing/blank event id."""
+    with pytest.raises(ValueError, match="Missing event_id"):
+        get_event(bad)
+
+
+@pytest.mark.parametrize("bad", ["", "   ", None])
+def test_get_quest_info_missing_id_raises(bad):
+    """get_quest_info rejects a missing/blank quest id."""
+    with pytest.raises(ValueError, match="Missing quest_id"):
+        get_quest_info(bad)
+
+
+@pytest.mark.parametrize("bad", ["", "   ", None])
+def test_get_location_missing_id_raises(bad):
+    """get_location rejects a missing/blank location id."""
+    with pytest.raises(ValueError, match="Missing location_id"):
+        get_location(bad)
+
+
+@pytest.mark.parametrize("bad", ["", "   ", None])
+def test_check_prerequisites_missing_id_raises(bad):
+    """check_prerequisites rejects a missing/blank objective id."""
+    with pytest.raises(ValueError, match="Missing objective_id"):
+        check_prerequisites(bad)
+
+
+def test_tool_ids_are_stripped():
+    """Surrounding whitespace in ids is normalized, not treated as unknown."""
+    assert get_npc_schedule("  anju  ")["id"] == "anju"
+
+
 # ---------------------------------------------------------------------------
 # get_quest_info
 # ---------------------------------------------------------------------------

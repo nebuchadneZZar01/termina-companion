@@ -86,6 +86,12 @@ def run(state: PlanningState) -> dict:
             "Planning Agent requires a configured LLM. Set LLM_PROVIDER and its credentials."
         )
 
+    if not state.relevant_objectives:
+        logger.error("Planning Agent: no relevant objectives to plan from")
+        raise PlanningAgentError(
+            "No relevant objectives were found for this goal; nothing to plan."
+        )
+
     plan_model = getattr(model, "model_name", "") or model.__class__.__name__
     report(
         {

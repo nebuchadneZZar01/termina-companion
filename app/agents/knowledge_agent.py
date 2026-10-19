@@ -26,12 +26,46 @@ _SEARCH_TOKEN_RE = re.compile(r"[A-ZÀ-ÖØ-Ý][\wÀ-ÖØ-öø-ÿ'’-]+")
 
 def run(state: PlanningState) -> dict:
     """Gather objectives, schedules, events and supplemental wiki evidence."""
-    quests = search_quests(state.goal.description, state.game_state.quest_progress)
-    objectives = [Objective.model_validate(obj) for quest in quests for obj in quest["objectives"]]
+    try:
+        quests = search_quests(state.goal.description, state.game_state.quest_progress)
+    except Exception as exc:
+        logger.warning("Knowledge Agent: search_quests failed: %s", exc)
+        quests = []
+
+    objectives: list[Objective] = []
+    for quest in quests:
+        try:
+            for obj in quest.get("objectives", []):
+                try:
+                    objectives.append(Objective.model_validate(obj))
+                except Exception as exc:
+                    logger.warning("Knowledge Agent: skipping invalid objective: %s", exc)
+        except Exception as exc:
+            logger.warning("Knowledge Agent: skipping invalid quest data: %s", exc)
+
     _log_objectives(objectives)
     report({"node": "knowledge", "phase": "objectives", "n": len(objectives)})
-    npc_schedules = {obj.npc_id: get_npc_schedule(obj.npc_id) for obj in objectives if obj.npc_id}
-    events = {obj.event_ref: get_event(obj.event_ref) for obj in objectives if obj.event_ref}
+
+    npc_schedules: dict[str, dict] = {}
+    for obj in objectives:
+        if not obj.npc_id:
+            continue
+        try:
+            npc_schedules[obj.npc_id] = get_npc_schedule(obj.npc_id)
+        except Exception as exc:
+            logger.warning("Knowledge Agent: get_npc_schedule(%s) failed: %s", obj.npc_id, exc)
+            continue
+
+    events: dict[str, dict] = {}
+    for obj in objectives:
+        if not obj.event_ref:
+            continue
+        try:
+            events[obj.event_ref] = get_event(obj.event_ref)
+        except Exception as exc:
+            logger.warning("Knowledge Agent: get_event(%s) failed: %s", obj.event_ref, exc)
+            continue
+
     report(
         {
             "node": "knowledge",
@@ -196,11 +230,12 @@ def _format(objectives, npc_schedules: dict, events: dict) -> str:
         lines.append(f"- [{obj.id}] {obj.title} ({obj.location}, {obj.window})")
         npc = npc_schedules.get(obj.npc_id)
         if npc:
-            schedule = ", ".join(npc["schedule"])
-            lines.append(f"  - {npc['name']}: schedule {schedule}")
+            schedule = ", ".join(npc.get("schedule") or [])
+            lines.append(f"  - {npc.get('name', obj.npc_id)}: schedule {schedule}")
         event = events.get(obj.event_ref)
         if event:
-            lines.append(f"  - event: {event['name']} ({event['window']})")
+            name = event.get("name", obj.event_ref)
+            lines.append(f"  - event: {name} ({event.get('window', '')})")
         if obj.requires_masks:
             lines.append(f"  - masks needed: {', '.join(obj.requires_masks)}")
         if obj.requires_items:
