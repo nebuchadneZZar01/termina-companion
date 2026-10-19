@@ -74,7 +74,9 @@ def get_npc_schedule(npc_id: str) -> dict:
     raises:
         ValueError: when the NPC id is unknown.
     """
-    npc = _KB.npc(npc_id)
+    if not npc_id or not str(npc_id).strip():
+        raise ValueError("Missing npc_id")
+    npc = _KB.npc(str(npc_id).strip())
     if npc is None:
         raise ValueError(f"Unknown NPC: {npc_id}")
     return {
@@ -121,7 +123,9 @@ def get_event(event_id: str) -> dict:
     raises:
         ValueError: when the event id is unknown.
     """
-    event = _KB.event(event_id)
+    if not event_id or not str(event_id).strip():
+        raise ValueError("Missing event_id")
+    event = _KB.event(str(event_id).strip())
     if event is None:
         raise ValueError(f"Unknown event: {event_id}")
     return {
