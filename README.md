@@ -59,6 +59,26 @@ Supported providers: `openai`, `openrouter`, `ollama`, `lmstudio`, `anthropic`,
 configuration, invocation errors and empty model output fail explicitly. The
 Planning Agent never substitutes a rule-based fallback plan.
 
+## Observability (tracing)
+
+Every planning run gets a `run_id` and emits OpenTelemetry spans: the pipeline
+root, each agent node, every LLM call, MCP tool call, RAG retrieval and the
+critic's validation. By default the tracer is a **no-op** — no connection is
+opened, so tests, the demo and CI run offline. To export spans to a local
+[Arize Phoenix](https://phoenix.arize.com/) backend:
+
+```sh
+docker compose up -d                 # starts Phoenix (UI :6006, OTLP :4318)
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+uv run streamlit run main.py         # or: uv run python -m app
+```
+
+Then open http://localhost:6006 to browse each run's full trace, including the
+complete system/user/assistant prompts of every LLM call (with model, token
+usage and latency). Full prompts also go to console logs, but only at
+`LOG_LEVEL=DEBUG` and with a bounded length. In the app, the Trace tab shows the
+`run_id`, the node timeline and any errors — errors only, no prompt bodies.
+
 ## Adaptive Zelda Wiki RAG
 
 RAG is supplemental and always enabled. There is no `RAG_ENABLED` switch and no
@@ -238,8 +258,10 @@ validation.
 | `app/state.py` | `PlanningState`, including RAG evidence, status, warning, ingested pages and indexed-source manifest. |
 | `app/graph.py` | LangGraph wiring and `MAX_PLANNING_ATTEMPTS = 3` loop. |
 | `app/ui.py` | Streamlit frontend and provenance display. |
+| `app/trace.py` | OpenTelemetry tracing seam: run spans, LLM prompt capture and the no-op/OTLP setup. |
+| `docker-compose.yml` | Local Arize Phoenix observability container. |
 | `app/__main__.py` | Headless pipeline demo. |
-| `tests/` | Domain, validation, graph, RAG persistence and integration tests. |
+| `tests/` | Domain, validation, graph, RAG persistence, tracing and integration tests. |
 
 Mock data spans Clock Town, Southern Swamp, Mountain Village, Great Bay, Ikana
 Canyon and Romani Ranch, but is deliberately not lore-complete. The

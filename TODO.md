@@ -36,7 +36,12 @@ Status map:
 * Phase 9 — Guardrails & Reliability: complete (the Knowledge Agent degrades
   gracefully when MCP tools fail, malformed payloads are skipped and the
   headless/UI paths continue on structured context).
-* Phases 10–12: not started yet.
+* Phase 10 — Tracing & Audit: complete (OpenTelemetry run/agent/LLM/RAG/MCP
+  spans exported to a local Phoenix container via OTLP when configured, a
+  cheap no-op otherwise; full LLM prompts go to spans, the Trace tab shows a
+  run header, node timeline and errors only).
+* Phase 11 — Evaluation: not started yet.
+* Phase 12 — Production Readiness: not started yet.
 * Phase 13 — Deployment: not started yet.
 
 ### Target flow
@@ -219,18 +224,24 @@ Phase 11.
 
 # Phase 10 — Tracing & Audit
 
-* [ ] Define run/request identifier
-* [ ] Trace user request
-* [ ] Trace agent execution
-* [ ] Trace LLM calls
-* [ ] Trace retrieval
-* [ ] Trace tool/MCP calls
-* [ ] Trace validation
-* [ ] Trace replanning
-* [ ] Trace final response
-* [ ] Expose useful trace information in the UI
+* [x] Define run/request identifier
+* [x] Trace user request
+* [x] Trace agent execution
+* [x] Trace LLM calls
+* [x] Trace retrieval
+* [x] Trace tool/MCP calls
+* [x] Trace validation
+* [x] Trace replanning
+* [x] Trace final response
+* [x] Expose useful trace information in the UI
 
-Use ContextTracing or the selected tracing solution once the core workflow is stable.
+Tracing uses OpenTelemetry. Spans (pipeline, agents, LLM, RAG, MCP,
+validation) are exported to a local Arize Phoenix container over OTLP/HTTP
+when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; without it the tracer is a no-op,
+so tests, the demo and CI never need a backend. Full LLM prompts go to spans
+(visible in Phoenix) and to console logs at DEBUG with a bounded length. The
+Trace tab shows the run id, a node timeline and errors only. Structured
+monitoring is served by these spans plus the existing text logs.
 
 # Phase 11 — Evaluation
 
@@ -267,7 +278,8 @@ Use ContextTracing or the selected tracing solution once the core workflow is st
 # Phase 13 — Deployment
 
 Approach: GitHub Actions CI, container build for local use, lite monitoring
-(structured logs + healthcheck; no external services for now).
+(healthcheck + the OpenTelemetry spans from Phase 10; no external services
+for now).
 
 * [ ] Add `Dockerfile` for the Streamlit app
 * [ ] Add `docker-compose.yml` for local orchestration
@@ -277,7 +289,6 @@ Approach: GitHub Actions CI, container build for local use, lite monitoring
 * [ ] Build and tag the container image in CI
 * [ ] Publish the image to a container registry (optional)
 * [ ] Add deployment documentation to `README.md`
-* [ ] Monitoring: structured logs for the app
 * [ ] Alerting on failed healthchecks / app errors
 * [ ] Verify deployment on a clean environment
 
