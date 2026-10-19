@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Current phase:** Phase 9 — Guardrails & Reliability (one item left)
+**Current phase:** Phase 10 — Tracing & Audit
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
@@ -33,8 +33,9 @@ Status map:
 * Phase 8 — Memory: complete (in-memory preferences + episodic store,
   `memory` retrieve node before `state`, `memory_store` after `critic`,
   planner context only, one episode per finished run).
-* Phase 9 — Guardrails & Reliability: nearly complete (only tool-failure
-  handling left).
+* Phase 9 — Guardrails & Reliability: complete (the Knowledge Agent degrades
+  gracefully when MCP tools fail, malformed payloads are skipped and the
+  headless/UI paths continue on structured context).
 * Phases 10–12: not started yet.
 * Phase 13 — Deployment: not started yet.
 
@@ -212,7 +213,7 @@ Phase 11.
 * [x] Validate deadlines
 * [x] Return explicit PASS/FAIL
 * [x] Trigger replanning on FAIL
-* [ ] Handle tool failures
+* [x] Handle tool failures
 * [x] Prevent infinite replanning loops
 * [x] Add reliability tests
 
