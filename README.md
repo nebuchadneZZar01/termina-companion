@@ -68,8 +68,8 @@ opened, so tests, the demo and CI run offline. To export spans to a local
 [Arize Phoenix](https://phoenix.arize.com/) backend:
 
 ```sh
-docker compose up -d                 # starts Phoenix (UI :6006, OTLP :4318)
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+docker compose up -d                 # starts Phoenix (UI + OTLP/HTTP on :6006)
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006
 uv run streamlit run main.py         # or: uv run python -m app
 ```
 

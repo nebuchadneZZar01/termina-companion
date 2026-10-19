@@ -209,10 +209,11 @@ future work; leave clear extension points for them.
 * `app/__main__.py` — headless pipeline demo (`python -m app`); it also prints
   the run id, node timeline and any errors after the plan.
 * `docker-compose.yml` — local observability stack: the Arize Phoenix
-  container (UI on `:6006`, OTLP/HTTP receiver on `:4318`). The Streamlit app
-  runs on the host; start this with `docker compose up -d` and set
-  `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` to export spans. The app
-  is fully functional (no-op tracing) when it is not running.
+  container (web UI and OTLP/HTTP receiver share `:6006`; Phoenix has no
+  `:4318` listener — that port belongs to the generic OTel Collector). The
+  Streamlit app runs on the host; start this with `docker compose up -d` and
+  set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006` to export spans. The
+  app is fully functional (no-op tracing) when it is not running.
 * `tests/` — domain model, validation, re-planning, RAG corpus/retrieval,
   tracing and Knowledge Agent integration tests, including hermetic
   wiki/cache scenarios.

@@ -73,13 +73,35 @@ class RunTrace:
 _current: RunTrace | None = None
 
 
+def _otlp_traces_url(endpoint: str) -> str:
+    """Resolve the base OTLP endpoint to the full OTLP/HTTP traces URL.
+
+    ``OTEL_EXPORTER_OTLP_ENDPOINT`` is a **base** URL (standard OTel
+    semantics), but the exporter's constructor ``endpoint`` argument is a
+    full signal URL used as-is, with no path appended. Phoenix serves the
+    OTLP/HTTP receiver on ``:6006`` at ``/v1/traces`` (same port as the web
+    UI; it has no ``:4318`` listener), so the signal path is appended here.
+
+    args:
+        endpoint (str): base endpoint, e.g. ``http://localhost:6006``.
+
+    returns:
+        str: the full traces URL, e.g. ``http://localhost:6006/v1/traces``.
+    """
+    base = endpoint.strip().removesuffix("/")
+    if base.endswith("/v1/traces"):
+        return base
+    return f"{base}/v1/traces"
+
+
 def setup_tracing() -> None:
     """Configure the global TracerProvider once.
 
     Reads ``OTEL_EXPORTER_OTLP_ENDPOINT``: when set, spans are exported there
-    over OTLP/HTTP (e.g. ``http://localhost:4318`` for the local Phoenix
-    container); when unset, a no-op provider is installed so span creation
-    stays cheap and offline runs never open a connection.
+    over OTLP/HTTP (e.g. ``http://localhost:6006`` for the local Phoenix
+    container, whose receiver shares the UI port); when unset, a no-op
+    provider is installed so span creation stays cheap and offline runs never
+    open a connection.
 
     args:
         (none)
@@ -95,11 +117,12 @@ def setup_tracing() -> None:
     provider = TracerProvider(resource=Resource.create({"service.name": SERVICE_NAME}))
     endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
     if endpoint:
+        traces_url = _otlp_traces_url(endpoint)
         provider.add_span_processor(
-            BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, timeout=10))
+            BatchSpanProcessor(OTLPSpanExporter(endpoint=traces_url, timeout=10))
         )
         _exporter_active = True
-        logger.info("Tracing: exporting OTLP spans to %s", endpoint)
+        logger.info("Tracing: exporting OTLP spans to %s", traces_url)
     else:
         logger.info("Tracing: no OTEL_EXPORTER_OTLP_ENDPOINT configured — spans are no-op")
     trace.set_tracer_provider(provider)

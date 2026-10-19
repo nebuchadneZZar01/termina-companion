@@ -13,6 +13,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 import streamlit as st
 
@@ -47,11 +48,11 @@ _NO_MESSAGE = object()
 
 
 def _phoenix_ui_url() -> str:
-    """Derive the Phoenix UI URL from the OTLP endpoint (UI on :6006).
+    """Derive the Phoenix UI URL from the OTLP endpoint.
 
-    The OTLP/HTTP trace endpoint defaults to Phoenix's ``:4318``; its web UI
-    lives on ``:6006``. Both come from the same container, so swapping the
-    port is enough — no extra configuration.
+    Phoenix serves the web UI and the OTLP/HTTP trace receiver on the same
+    port (``:6006``), so the UI origin is scheme + host of the configured
+    endpoint with the port forced to 6006 — no extra configuration.
 
     args:
         (none)
@@ -59,11 +60,13 @@ def _phoenix_ui_url() -> str:
     returns:
         str: the Phoenix UI base URL, e.g. ``http://localhost:6006``.
     """
-    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip().rstrip("/")
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
     if not endpoint:
         return "http://localhost:6006"
-    swapped = re.sub(r":\d+$", ":6006", endpoint)
-    return swapped if swapped != endpoint else f"{endpoint}:6006"
+    parsed = urlsplit(endpoint)
+    if not parsed.scheme or not parsed.hostname:
+        return "http://localhost:6006"
+    return f"{parsed.scheme}://{parsed.hostname}:6006"
 
 
 PHOENIX_UI_URL = _phoenix_ui_url()
