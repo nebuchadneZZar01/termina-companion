@@ -2,11 +2,56 @@ import logging
 
 import pytest
 
+from app import log as log_mod
 from app.agents import planning_agent, state_agent
 from app.agents.planning_agent import PlanningAgentError
 from app.data.mock_knowledge import build_default_knowledge
 from app.domain import ClockTime, GameState, Goal
+from app.log import configure_logging
 from app.state import PlanningState
+
+
+@pytest.fixture
+def restore_root_logging():
+    """Snapshot and restore the root logger so configure_logging is hermetic."""
+    root = logging.getLogger()
+    handlers = list(root.handlers)
+    level = root.level
+    yield
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+    for handler in handlers:
+        root.addHandler(handler)
+    root.setLevel(level)
+
+
+def test_configure_logging_installs_timestamped_formatter(restore_root_logging, monkeypatch):
+    """The root handler uses our format, even if one was installed at import.
+
+    Importing the app pulls in the MCP server, which calls
+    ``logging.basicConfig`` with a bare ``%(message)s`` format; the old
+    ``basicConfig``-based implementation was a silent no-op in that case and
+    every console line lost date, level and logger name.
+    """
+    root = logging.getLogger()
+    # Simulate the pre-existing handler that basicConfig would have left alone.
+    root.addHandler(logging.StreamHandler())
+    monkeypatch.setenv("LOG_LEVEL", "DEBUG")
+
+    configure_logging()
+
+    assert len(root.handlers) == 1
+    formatter = root.handlers[0].formatter
+    assert formatter._fmt == log_mod._FORMAT
+    assert "%(asctime)s" in formatter._fmt
+    assert root.level == logging.DEBUG
+
+
+def test_configure_logging_defaults_to_info(restore_root_logging, monkeypatch):
+    """Without LOG_LEVEL the root logger defaults to INFO."""
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    configure_logging()
+    assert logging.getLogger().level == logging.INFO
 
 
 def _kafei_objectives():
