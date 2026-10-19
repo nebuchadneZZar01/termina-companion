@@ -470,6 +470,18 @@ _STRINGS: dict[str, dict[str, str]] = {
             "The canonicalized reading of your state \u2014 this is what the planner worked from."
         ),
         "trace_validation_caption": ("Issues the critic found when checking feasibility."),
+        # run audit (Phase 10)
+        "audit_header": (
+            "Run `{run_id}` \u00b7 {seconds}s \u00b7 {attempts}/{max} attempt(s) \u00b7 {outcome}"
+        ),
+        "audit_valid": "\u2705 valid plan",
+        "audit_invalid": "\u274c no valid plan",
+        "audit_timeline": "Timeline",
+        "audit_step": "Step",
+        "audit_duration": "Duration",
+        "audit_status": "Status",
+        "audit_detail": "Details",
+        "audit_errors": "Errors",
     },
     "it": {
         "title": "Termina Companion",
@@ -669,6 +681,18 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Il dietro le quinte tecnico: cosa ha capito il sistema, "
             "quanti tentativi ha fatto e gli esiti della validazione."
         ),
+        # run audit (Phase 10)
+        "audit_header": (
+            "Run `{run_id}` \u00b7 {seconds}s \u00b7 {attempts}/{max} tentativi \u00b7 {outcome}"
+        ),
+        "audit_valid": "\u2705 piano valido",
+        "audit_invalid": "\u274c nessun piano valido",
+        "audit_timeline": "Cronologia",
+        "audit_step": "Fase",
+        "audit_duration": "Durata",
+        "audit_status": "Stato",
+        "audit_detail": "Dettagli",
+        "audit_errors": "Errori",
     },
 }
 

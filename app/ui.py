@@ -7,6 +7,7 @@ Entry points: ``uv run streamlit run main.py`` (preferred) or
 from __future__ import annotations
 
 import datetime
+import os
 import queue
 import re
 import threading
@@ -19,6 +20,7 @@ from app.data.mock_knowledge import MASKS, build_default_knowledge
 from app.domain import ClockTime, GameState, Goal, TimeWindow
 from app.graph import MAX_PLANNING_ATTEMPTS, build_graph
 from app.i18n import DEFAULT_LANG, spinner_lines, t, tr, tr_msg
+from app.trace import current_run, pipeline_span
 
 
 @st.cache_resource
@@ -42,6 +44,31 @@ _PLANNING_TASK_KEY = "_planning_task"
 _ACTIVE_STATUSES = frozenset({"running", "stopping"})
 _STOP_SENTINEL = object()
 _NO_MESSAGE = object()
+
+
+def _phoenix_ui_url() -> str:
+    """Derive the Phoenix UI URL from the OTLP endpoint (UI on :6006).
+
+    The OTLP/HTTP trace endpoint defaults to Phoenix's ``:4318``; its web UI
+    lives on ``:6006``. Both come from the same container, so swapping the
+    port is enough — no extra configuration.
+
+    args:
+        (none)
+
+    returns:
+        str: the Phoenix UI base URL, e.g. ``http://localhost:6006``.
+    """
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip().rstrip("/")
+    if not endpoint:
+        return "http://localhost:6006"
+    swapped = re.sub(r":\d+$", ":6006", endpoint)
+    return swapped if swapped != endpoint else f"{endpoint}:6006"
+
+
+PHOENIX_UI_URL = _phoenix_ui_url()
+# The Phoenix link is shown only when tracing actually exports somewhere.
+PHOENIX_ENABLED = bool(os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip())
 # Idle wait used by the live progress loop. It only bounds how long we block on
 # the worker queue before emitting an invisible yield point, so a queued Stop
 # click is handled promptly. It never triggers a redraw on its own.
@@ -146,13 +173,16 @@ def _run_stream(
     if stop_event.is_set():
         events.put(_STOP_SENTINEL)
         return
+    goal = initial.get("goal")
+    goal_text = getattr(goal, "description", "") if goal is not None else ""
     try:
-        for item in graph.stream(initial, stream_mode=["updates", "custom"]):
-            if stop_event.is_set():
-                events.put(_STOP_SENTINEL)
-                return
-            mode, chunk = item
-            events.put(_Progress(chunk) if mode == "custom" else chunk)
+        with pipeline_span(goal_text):
+            for item in graph.stream(initial, stream_mode=["updates", "custom"]):
+                if stop_event.is_set():
+                    events.put(_STOP_SENTINEL)
+                    return
+                mode, chunk = item
+                events.put(_Progress(chunk) if mode == "custom" else chunk)
         events.put(_STOP_SENTINEL if stop_event.is_set() else None)
     except Exception as exc:
         if stop_event.is_set():
@@ -476,10 +506,59 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
         )
     with tab_trace:
         st.caption(t("tab_trace_caption"))
+        _render_run_audit(result)
         _render_trace_state(result["game_state"])
         _render_memory(result.get("relevant_episodes", []))
         _render_trace_attempts(result["replan_attempts"])
         _render_trace_issues(validation)
+
+
+def _render_run_audit(result: dict) -> None:
+    """Render the run header, node timeline and errors (errors only).
+
+    args:
+        result (dict): the final workflow state of this run.
+
+    returns:
+        None: draws into the current tab.
+    """
+    run = current_run()
+    if run is None:
+        return
+    validation = result.get("validation")
+    attempts = result.get("replan_attempts", 1)
+    outcome = t("audit_valid") if getattr(validation, "valid", False) else t("audit_invalid")
+    header = t(
+        "audit_header",
+        run_id=run.run_id,
+        seconds=f"{run.duration_s():.1f}",
+        attempts=attempts,
+        max=MAX_PLANNING_ATTEMPTS,
+        outcome=outcome,
+    )
+    if PHOENIX_ENABLED:
+        header = f"{header} \u00b7 [Open Phoenix \u2197]({PHOENIX_UI_URL})"
+    st.markdown(header)
+    if run.nodes:
+        st.markdown(f"**{t('audit_timeline')}**")
+        st.table(
+            [
+                {
+                    t("audit_step"): node["name"],
+                    t("audit_duration"): f"{node['duration_s'] * 1000:.0f} ms",
+                    t("audit_status"): "\u2705" if node["status"] == "ok" else "\u274c",
+                    t("audit_detail"): node["detail"],
+                }
+                for node in run.nodes
+            ]
+        )
+    if run.errors:
+        st.markdown(f"**{t('audit_errors')}**")
+        for error in run.errors:
+            block = f"[{error['source']}] {error['message']}"
+            if error["detail"]:
+                block = f"{block}\n{error['detail']}"
+            st.code(block, language="text")
 
 
 def _append_step(status, node: str, result: dict) -> None:
