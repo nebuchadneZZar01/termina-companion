@@ -111,7 +111,7 @@ def test_planning_prompt_includes_preferences(monkeypatch, store):
         def with_structured_output(self, _schema):
             return self
 
-        def invoke(self, msgs):
+        def invoke(self, msgs, **_kwargs):
             _CaptureModel._invoked = msgs
             w = TimeWindow(start=ClockTime(day=2, hour=9), end=ClockTime(day=2, hour=10))
             return Plan(

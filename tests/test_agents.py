@@ -223,7 +223,7 @@ class _FakeModel:
         """Pretend to bind a structured-output schema and return self."""
         return self
 
-    def invoke(self, msgs):
+    def invoke(self, msgs, **_kwargs):
         """Capture the prompt and return a canned grounded Plan."""
         _FakeModel._invoked = msgs
         start = ClockTime(day=2, hour=9)
@@ -261,7 +261,7 @@ class _EmptyModel:
     def with_structured_output(self, _schema):
         return self
 
-    def invoke(self, _msgs):
+    def invoke(self, _msgs, **_kwargs):
         return Plan(goal="x", steps=[])
 
 
@@ -521,7 +521,7 @@ class _DegenerateWindowModel:
     def with_structured_output(self, _schema):
         return self
 
-    def invoke(self, _msgs):
+    def invoke(self, _msgs, **_kwargs):
         return {
             "goal": "Reunite Anju and Kafei",
             "steps": [

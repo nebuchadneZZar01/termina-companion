@@ -18,6 +18,7 @@ from app.mcp.tools import get_event, get_npc_schedule, search_quests
 from app.progress import report
 from app.rag.retriever import RetrievalResult, retrieve
 from app.state import PlanningState
+from app.trace import span as traced_span
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,8 @@ _SEARCH_TOKEN_RE = re.compile(r"[A-ZÀ-ÖØ-Ý][\wÀ-ÖØ-öø-ÿ'’-]+")
 def run(state: PlanningState) -> dict:
     """Gather objectives, schedules, events and supplemental wiki evidence."""
     try:
-        quests = search_quests(state.goal.description, state.game_state.quest_progress)
+        with traced_span("mcp.search_quests", goal=state.goal.description[:200]):
+            quests = search_quests(state.goal.description, state.game_state.quest_progress)
     except Exception as exc:
         logger.warning("Knowledge Agent: search_quests failed: %s", exc)
         quests = []
@@ -51,7 +53,8 @@ def run(state: PlanningState) -> dict:
         if not obj.npc_id:
             continue
         try:
-            npc_schedules[obj.npc_id] = get_npc_schedule(obj.npc_id)
+            with traced_span("mcp.get_npc_schedule", npc_id=obj.npc_id):
+                npc_schedules[obj.npc_id] = get_npc_schedule(obj.npc_id)
         except Exception as exc:
             logger.warning("Knowledge Agent: get_npc_schedule(%s) failed: %s", obj.npc_id, exc)
             continue
@@ -61,7 +64,8 @@ def run(state: PlanningState) -> dict:
         if not obj.event_ref:
             continue
         try:
-            events[obj.event_ref] = get_event(obj.event_ref)
+            with traced_span("mcp.get_event", event_id=obj.event_ref):
+                events[obj.event_ref] = get_event(obj.event_ref)
         except Exception as exc:
             logger.warning("Knowledge Agent: get_event(%s) failed: %s", obj.event_ref, exc)
             continue
@@ -106,7 +110,12 @@ def _retrieve_evidence(
     query = " ".join(dict.fromkeys(part for part in query_parts if part))
     search_terms = _search_terms(state.goal.description, objectives, npc_schedules or {})
     try:
-        return retrieve(query, search_terms=search_terms, on_progress=_progress)
+        with traced_span("rag.retrieve", query=query[:200]) as rag_span:
+            result = retrieve(query, search_terms=search_terms, on_progress=_progress)
+            rag_span.set_attribute("termina.rag.status", result.status)
+            rag_span.set_attribute("termina.rag.engine", result.engine)
+            rag_span.set_attribute("termina.rag.evidence", len(result.evidence))
+        return result
     except Exception as exc:
         logger.warning("Knowledge Agent: supplemental retrieval failed: %s", exc)
         return RetrievalResult(

@@ -27,6 +27,7 @@ from app.domain import ClockTime, Plan, PlanStep, TimeWindow
 from app.llm import get_chat_model
 from app.progress import report
 from app.state import PlanningState
+from app.trace import TraceCallback
 
 _SLOT = 1  # hours per step
 
@@ -181,7 +182,9 @@ def _llm_run(state: PlanningState, model) -> Plan:
         }
     )
     try:
-        raw = model.with_structured_output(_DraftPlan).invoke([prompt, user])
+        raw = model.with_structured_output(_DraftPlan).invoke(
+            [prompt, user], config={"callbacks": [TraceCallback()]}
+        )
         plan = None if raw is None else _materialize_plan(raw, state)
     except Exception as exc:
         logger.error("Planning Agent: LLM invocation failed: %s", exc)

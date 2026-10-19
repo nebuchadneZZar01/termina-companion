@@ -17,6 +17,7 @@ _ENV = (
     "LLM_API_KEY",
     "LLM_MODEL",
     "LLM_BASE_URL",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
     "RAG_QDRANT_PATH",
     "RAG_EMBEDDING_MODEL",
     "RAG_SIMILARITY_THRESHOLD",
@@ -36,7 +37,7 @@ class _TestPlannerModel:
     def with_structured_output(self, _schema):
         return self
 
-    def invoke(self, messages):
+    def invoke(self, messages, **_kwargs):
         context = next(
             message.content for message in messages if getattr(message, "type", "") == "human"
         )
