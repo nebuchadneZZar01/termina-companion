@@ -230,11 +230,12 @@ def _format(objectives, npc_schedules: dict, events: dict) -> str:
         lines.append(f"- [{obj.id}] {obj.title} ({obj.location}, {obj.window})")
         npc = npc_schedules.get(obj.npc_id)
         if npc:
-            schedule = ", ".join(npc["schedule"])
-            lines.append(f"  - {npc['name']}: schedule {schedule}")
+            schedule = ", ".join(npc.get("schedule") or [])
+            lines.append(f"  - {npc.get('name', obj.npc_id)}: schedule {schedule}")
         event = events.get(obj.event_ref)
         if event:
-            lines.append(f"  - event: {event['name']} ({event['window']})")
+            name = event.get("name", obj.event_ref)
+            lines.append(f"  - event: {name} ({event.get('window', '')})")
         if obj.requires_masks:
             lines.append(f"  - masks needed: {', '.join(obj.requires_masks)}")
         if obj.requires_items:
