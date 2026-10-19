@@ -1,19 +1,27 @@
 """Phase 10 tracing: run collection, spans and the LLM callback.
 
-These tests are hermetic: the tracer runs with its default no-op provider (no
+These tests are hermetic: the default tracer is the no-op provider (no
 ``OTEL_EXPORTER_OTLP_ENDPOINT``), so nothing is exported and no backend is
-needed. They assert the in-memory run audit and the console behaviour.
+needed. The exported-span tests patch the tracers onto a real SDK provider
+with an ``InMemorySpanExporter`` and assert the OpenInference attributes
+(Kind, Status, Input/Output) the Phoenix dashboard displays.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
+from opentelemetry.sdk.trace import TracerProvider as SDKTracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
 
+from app import graph as graph_mod
 from app import trace as trace_mod
 from app.domain import ClockTime, GameState, Goal
 from app.graph import _with_start, run_pipeline
@@ -29,6 +37,18 @@ def _llm_result(content: str = "done", usage: dict | None = None) -> LLMResult:
     """Build a minimal LLMResult with one AI message."""
     message = AIMessage(content=content, usage_metadata=usage)
     return LLMResult(generations=[[ChatGeneration(message=message)]])
+
+
+@pytest.fixture
+def memory_tracing(monkeypatch):
+    """Patch the app tracers onto a real SDK provider exporting in memory."""
+    exporter = InMemorySpanExporter()
+    provider = SDKTracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracer = provider.get_tracer("termina-tests")
+    monkeypatch.setattr(trace_mod, "get_tracer", lambda *args, **kwargs: tracer)
+    yield exporter, tracer
+    provider.shutdown()
 
 
 def test_pipeline_span_records_run_and_nodes(fake_planner_model):
@@ -149,3 +169,105 @@ def test_phoenix_ui_url_derivation(monkeypatch):
     # Unset -> default local UI.
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
     assert _phoenix_ui_url() == "http://localhost:6006"
+
+
+def test_exported_spans_carry_kind_status_and_io(memory_tracing):
+    """Spans end with OpenInference kind, explicit OK status and input/output."""
+    exporter, _tracer = memory_tracing
+    with pipeline_span("find Kafei") as run:
+        with trace_mod.span(
+            "mcp.get_event", kind="TOOL", input_value="e1", event_id="e1"
+        ) as tool_span:
+            trace_mod.set_output(tool_span, {"id": "e1", "title": "Missing Sword"})
+    spans = {span.name: span for span in exporter.get_finished_spans()}
+
+    root = spans["pipeline.run"]
+    assert root.attributes[trace_mod.SPAN_KIND_ATTR] == "CHAIN"
+    assert root.attributes[trace_mod.INPUT_VALUE_ATTR] == "find Kafei"
+    assert root.status.status_code is StatusCode.OK
+    root_output = json.loads(root.attributes[trace_mod.OUTPUT_VALUE_ATTR])
+    assert root_output["run_id"] == run.run_id
+    assert root.attributes["termina.run_id"] == run.run_id
+
+    tool = spans["mcp.get_event"]
+    assert tool.attributes[trace_mod.SPAN_KIND_ATTR] == "TOOL"
+    assert tool.attributes[trace_mod.INPUT_VALUE_ATTR] == "e1"
+    assert tool.attributes["event_id"] == "e1"  # plain attributes still work
+    assert tool.status.status_code is StatusCode.OK
+    assert json.loads(tool.attributes[trace_mod.OUTPUT_VALUE_ATTR])["id"] == "e1"
+    assert tool.attributes["termina.duration_ms"] >= 0
+
+
+def test_exported_span_error_status_is_not_lost(memory_tracing):
+    """A failing span ends with ERROR status, set before the span ends."""
+    exporter, _tracer = memory_tracing
+    with pipeline_span("x") as run:
+        with pytest.raises(RuntimeError, match="tool down"):
+            with trace_mod.span("mcp.get_event", kind="TOOL", input_value="e1"):
+                raise RuntimeError("tool down")
+    spans = {span.name: span for span in exporter.get_finished_spans()}
+
+    tool = spans["mcp.get_event"]
+    assert tool.status.status_code is StatusCode.ERROR
+    assert "tool down" in (tool.status.description or "")
+    # The root span itself succeeded: the failure was audited, not propagated.
+    assert spans["pipeline.run"].status.status_code is StatusCode.OK
+    assert any(e["source"] == "mcp.get_event" for e in run.errors)
+
+
+def test_exported_pipeline_error_span(memory_tracing):
+    """A crash inside the pipeline marks the root span ERROR with an output."""
+    exporter, _tracer = memory_tracing
+    with pytest.raises(RuntimeError, match="run exploded"):
+        with pipeline_span("x"):
+            raise RuntimeError("run exploded")
+    root = {span.name: span for span in exporter.get_finished_spans()}["pipeline.run"]
+    assert root.status.status_code is StatusCode.ERROR
+    assert "run exploded" in (root.status.description or "")
+    output = json.loads(root.attributes[trace_mod.OUTPUT_VALUE_ATTR])
+    assert output["errors"]
+
+
+def test_exported_node_span_kind_status_and_io(memory_tracing, monkeypatch):
+    """Node spans carry CHAIN kind, OK status and a structured output."""
+    exporter, tracer = memory_tracing
+    monkeypatch.setattr(graph_mod, "get_tracer", lambda *args, **kwargs: tracer)
+    wrapped = _with_start("state", lambda _state: {"state_summary": "On day 2 at Stockpot Inn"})
+    with pipeline_span("x"):
+        wrapped(None)
+    node = {span.name: span for span in exporter.get_finished_spans()}["node.state"]
+    assert node.attributes[trace_mod.SPAN_KIND_ATTR] == "CHAIN"
+    assert node.status.status_code is StatusCode.OK
+    assert "On day 2" in node.attributes[trace_mod.OUTPUT_VALUE_ATTR]
+
+
+def test_exported_node_error_span_status(memory_tracing, monkeypatch):
+    """A crashing node ends its span with ERROR status."""
+    exporter, tracer = memory_tracing
+    monkeypatch.setattr(graph_mod, "get_tracer", lambda *args, **kwargs: tracer)
+
+    def boom(_state):
+        raise ValueError("node exploded")
+
+    wrapped = _with_start("boom", boom)
+    with pipeline_span("x"):
+        with pytest.raises(ValueError, match="node exploded"):
+            wrapped(None)
+    node = {span.name: span for span in exporter.get_finished_spans()}["node.boom"]
+    assert node.status.status_code is StatusCode.ERROR
+    assert "node exploded" in (node.status.description or "")
+
+
+def test_exported_callback_span_kind_and_io(memory_tracing):
+    """The gen_ai.chat span shows LLM kind and the full prompt/answer."""
+    exporter, _tracer = memory_tracing
+    callback = TraceCallback()
+    messages = [[SystemMessage(content="be brief"), HumanMessage(content="find Kafei")]]
+    callback.on_chat_model_start({"kwargs": {"model_name": "llama3.2"}}, messages, run_id="r3")
+    callback.on_llm_end(_llm_result("seven steps"), run_id="r3")
+    chat = {span.name: span for span in exporter.get_finished_spans()}["gen_ai.chat"]
+    assert chat.attributes[trace_mod.SPAN_KIND_ATTR] == "LLM"
+    assert "[system] be brief" in chat.attributes[trace_mod.INPUT_VALUE_ATTR]
+    assert "[user] find Kafei" in chat.attributes[trace_mod.INPUT_VALUE_ATTR]
+    assert chat.attributes[trace_mod.OUTPUT_VALUE_ATTR] == "seven steps"
+    assert chat.status.status_code is StatusCode.OK

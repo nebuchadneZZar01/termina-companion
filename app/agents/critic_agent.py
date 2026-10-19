@@ -19,6 +19,7 @@ from app.domain import (
     ValidationResult,
 )
 from app.state import PlanningState
+from app.trace import set_output
 from app.trace import span as traced_span
 
 logger = logging.getLogger(__name__)
@@ -284,10 +285,20 @@ def run(state: PlanningState) -> dict:
         dict: the ``validation`` result and ``critic_engine``.
     """
     npcs = _KB.npcs
-    with traced_span("validation") as validation_span:
+    plan_input = f"{len(state.plan.steps)} step(s)" if state.plan else "no plan"
+    with traced_span("validation", kind="CHAIN", input_value=plan_input) as validation_span:
         result = validate_plan(state.plan, state.game_state, state.relevant_objectives, npcs)
         validation_span.set_attribute("termina.validation.valid", result.valid)
         validation_span.set_attribute("termina.validation.issues", len(result.issues))
+        set_output(
+            validation_span,
+            {
+                "valid": result.valid,
+                "issues": [
+                    f"[{issue.severity}/{issue.kind}] {issue.message}" for issue in result.issues
+                ],
+            },
+        )
     _log_result(result)
     return {"validation": result, "critic_engine": "rule-based"}
 

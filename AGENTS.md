@@ -197,10 +197,15 @@ future work; leave clear extension points for them.
   (called from `main.py` and `app/__main__.py`) installs a `TracerProvider`
   that exports over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (e.g.
   the local Phoenix container) and is a cheap no-op otherwise, so tests, the
-  demo and CI never need a backend. `pipeline_span()` opens one root span per
+  demo and CI never need a backend. Every span carries the OpenInference
+  attributes Phoenix reads for its dashboard — `openinference.span.kind`
+  (`CHAIN`/`TOOL`/`RETRIEVER`/`LLM`), `input.value`/`output.value`, and an
+  explicit `OK`/`ERROR` status set before the span closes. `pipeline_span()`
+  opens one root span per
   run and feeds a per-run in-memory `RunTrace` (run id, node timeline, errors)
   that the UI reads. `span()` traces one MCP call, the RAG retrieval or a
-  validation and records failures. `TraceCallback` is a LangChain callback
+  validation and records failures; use `set_output()` inside the block for the
+  output payload. `TraceCallback` is a LangChain callback
   attached at the single LLM call site: it puts the complete system/user/
   assistant prompts into `gen_ai.*` spans (for Phoenix) and writes only a
   bounded DEBUG copy to console logs. Payload limits are constants

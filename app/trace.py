@@ -14,6 +14,7 @@ while console logging shows them only at DEBUG with a bounded length.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -39,6 +40,11 @@ LLM_LOG_PAYLOAD_LIMIT = 2000
 #: cannot flood the trace backend. Full prompts stay well under this.
 SPAN_PAYLOAD_LIMIT = 50_000
 SERVICE_NAME = "termina-companion"
+#: OpenInference attributes the Phoenix dashboard reads for its Kind and
+#: Input/Output columns (Status comes from the OTel status code instead).
+SPAN_KIND_ATTR = "openinference.span.kind"
+INPUT_VALUE_ATTR = "input.value"
+OUTPUT_VALUE_ATTR = "output.value"
 
 _run_id: ContextVar[str] = ContextVar("termina_run_id", default="")
 _setup_done = False
@@ -162,6 +168,10 @@ def begin_run(goal: str = "") -> RunTrace:
 def pipeline_span(goal: str = "") -> Iterator[RunTrace]:
     """Wrap a whole planning run: run id, root span and error bookkeeping.
 
+    The root span carries ``CHAIN`` kind, the goal as ``input.value`` and a
+    compact run summary (node statuses, error sources) as ``output.value``,
+    with an explicit OK/ERROR status for the backend's Status column.
+
     args:
         goal (str, default ""): the player goal, stored on the run and set as
             the root span input attribute.
@@ -172,7 +182,13 @@ def pipeline_span(goal: str = "") -> Iterator[RunTrace]:
     run = begin_run(goal)
     span = get_tracer().start_span(
         "pipeline.run",
-        attributes={"termina.run_id": run.run_id, "gen_ai.user.input": _clip(goal)},
+        attributes=_with_run_id(
+            {
+                "gen_ai.user.input": _clip(goal),
+                SPAN_KIND_ATTR: "CHAIN",
+                INPUT_VALUE_ATTR: _clip(goal),
+            }
+        ),
     )
     with trace.use_span(span, end_on_exit=True):
         try:
@@ -182,40 +198,75 @@ def pipeline_span(goal: str = "") -> Iterator[RunTrace]:
             span.record_exception(exc)
             run.add_error("pipeline", str(exc))
             raise
+        else:
+            span.set_status(Status(StatusCode.OK))
+        finally:
+            set_output(
+                span,
+                {
+                    "run_id": run.run_id,
+                    "nodes": [f"{n['name']}: {n['status']}" for n in run.nodes],
+                    "errors": [f"{e['source']}: {e['message']}" for e in run.errors],
+                },
+            )
 
 
 @contextmanager
-def span(name: str, **attributes: Any) -> Iterator[Span]:
+def span(name: str, *, kind: str = "", input_value: Any = "", **attributes: Any) -> Iterator[Span]:
     """Trace one MCP tool call, the RAG retrieval or a validation run.
 
     Failures are recorded on the current :class:`RunTrace` and re-raised, so
-    callers keep their own degradation logic unchanged.
+    callers keep their own degradation logic unchanged. Every span ends with
+    an explicit OK/ERROR status; use :func:`set_output` inside the block for
+    the ``output.value`` payload.
 
     args:
         name (str): the span name, e.g. ``mcp.get_npc_schedule``.
+        kind (str, default ""): OpenInference span kind (``CHAIN``, ``TOOL``,
+            ``RETRIEVER``, ``LLM``), shown as Kind in the backend.
+        input_value (Any, default ""): span input — a string is used as-is,
+            any other payload is JSON-encoded.
         **attributes: primitive span attributes.
 
     yields:
         Span: the active OpenTelemetry span.
     """
-    otel_span = get_tracer().start_span(
-        name, attributes=_with_run_id(attributes), record_exception=False
-    )
+    attrs = _with_run_id(attributes)
+    if kind:
+        attrs[SPAN_KIND_ATTR] = kind
+    if input_value:
+        attrs[INPUT_VALUE_ATTR] = _io_value(input_value)
+    otel_span = get_tracer().start_span(name, attributes=attrs, record_exception=False)
     started = time.perf_counter()
-    try:
-        with trace.use_span(otel_span, end_on_exit=True):
-            try:
-                yield otel_span
-            finally:
-                elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
-                otel_span.set_attribute("termina.duration_ms", elapsed_ms)
-    except Exception as exc:  # noqa: BLE001 - recorded, then re-raised
-        otel_span.set_status(Status(StatusCode.ERROR, str(exc)))
-        otel_span.record_exception(exc)
-        run = current_run()
-        if run is not None:
-            run.add_error(name, str(exc))
-        raise
+    with trace.use_span(otel_span, end_on_exit=True):
+        try:
+            yield otel_span
+        except Exception as exc:  # noqa: BLE001 - recorded, then re-raised
+            otel_span.set_status(Status(StatusCode.ERROR, str(exc)))
+            otel_span.record_exception(exc)
+            run = current_run()
+            if run is not None:
+                run.add_error(name, str(exc))
+            raise
+        else:
+            otel_span.set_status(Status(StatusCode.OK))
+        finally:
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+            otel_span.set_attribute("termina.duration_ms", elapsed_ms)
+
+
+def set_output(otel_span: Span, payload: Any) -> None:
+    """Attach a span's OpenInference ``output.value`` before it ends.
+
+    args:
+        otel_span (Span): the still-open span.
+        payload (Any): output payload — a string is used as-is, any other
+            payload is JSON-encoded.
+
+    returns:
+        None: side-effect on the span only.
+    """
+    otel_span.set_attribute(OUTPUT_VALUE_ATTR, _io_value(payload))
 
 
 def record_node(name: str, duration_s: float, status: str, detail: str = "") -> None:
@@ -257,8 +308,16 @@ class TraceCallback(BaseCallbackHandler):
     ) -> None:
         """Open the gen_ai.chat span and log every outgoing message."""
         model = str(serialized.get("kwargs", {}).get("model_name", "")) if serialized else ""
+        prompt_text = "\n".join(f"[{_role_of(m)}] {_text_of(m)}" for m in _iter_messages(messages))
         span = get_tracer().start_span(
-            "gen_ai.chat", attributes=_with_run_id({"gen_ai.request.model": model})
+            "gen_ai.chat",
+            attributes=_with_run_id(
+                {
+                    "gen_ai.request.model": model,
+                    SPAN_KIND_ATTR: "LLM",
+                    INPUT_VALUE_ATTR: _clip(prompt_text),
+                }
+            ),
         )
         for message in _iter_messages(messages):
             role, content = _role_of(message), _text_of(message)
@@ -279,7 +338,12 @@ class TraceCallback(BaseCallbackHandler):
         self, serialized: dict, prompts: list[str], *, run_id: str, **kwargs: Any
     ) -> None:
         """Fallback span for non-chat completions."""
-        span = get_tracer().start_span("gen_ai.chat", attributes=_with_run_id({}))
+        span = get_tracer().start_span(
+            "gen_ai.chat",
+            attributes=_with_run_id(
+                {SPAN_KIND_ATTR: "LLM", INPUT_VALUE_ATTR: _clip("\n".join(prompts))}
+            ),
+        )
         for prompt in prompts:
             span.add_event("gen_ai.user.message", {"message.content": _clip(prompt)})
         self._spans[str(run_id)] = span
@@ -295,6 +359,7 @@ class TraceCallback(BaseCallbackHandler):
                 span.add_event(
                     "gen_ai.choice", {"message.content": _clip(content, SPAN_PAYLOAD_LIMIT)}
                 )
+                span.set_attribute(OUTPUT_VALUE_ATTR, _clip(content, SPAN_PAYLOAD_LIMIT))
             input_tokens = usage.get("input_tokens")
             output_tokens = usage.get("output_tokens")
             if input_tokens is not None:
@@ -375,3 +440,10 @@ def _clip(text: str, limit: int = SPAN_PAYLOAD_LIMIT) -> str:
     if len(text) <= limit:
         return text
     return f"{text[:limit]}... [truncated {len(text) - limit} char]"
+
+
+def _io_value(payload: Any) -> str:
+    """Render an input/output payload: strings as-is, anything else as JSON."""
+    if isinstance(payload, str):
+        return _clip(payload)
+    return _clip(json.dumps(payload, ensure_ascii=False, default=str, separators=(",", ":")))
