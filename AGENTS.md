@@ -155,6 +155,14 @@ future work; leave clear extension points for them.
 * `app/llm.py` — LLM provider factory (`get_chat_model()`); raises
   `LLMConfigurationError` when no usable provider is configured. The Planning
   Agent has no rule-based fallback.
+* `app/log.py` — console logging setup: `configure_logging()`, called from both
+  entry points, installs one timestamped handler
+  (`%(asctime)s %(levelname)s [%(name)s] %(message)s`); `LOG_LEVEL` (default
+  `INFO`) controls verbosity. It replaces existing root handlers instead of
+  calling `logging.basicConfig`, which is a silent no-op once the MCP server has
+  installed its bare `%(message)s` handler at import. `LOG_LEVEL=DEBUG` shows
+  the planning system/user messages and the raw assistant answer on the console,
+  each bounded by `LLM_LOG_PAYLOAD_LIMIT`.
 * `app/state.py` — `PlanningState`, the workflow state threaded
   through the graph (Pydantic model, used as the LangGraph state schema),
   including retrieved evidence, indexed-source manifest, retrieval status,

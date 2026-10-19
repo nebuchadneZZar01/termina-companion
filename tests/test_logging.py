@@ -7,6 +7,7 @@ from app.agents import planning_agent, state_agent
 from app.agents.planning_agent import PlanningAgentError
 from app.data.mock_knowledge import build_default_knowledge
 from app.domain import ClockTime, GameState, Goal
+from app.graph import run_pipeline
 from app.log import configure_logging
 from app.state import PlanningState
 
@@ -93,3 +94,19 @@ def test_planning_agent_logs_llm_failure(caplog, monkeypatch):
         with pytest.raises(PlanningAgentError, match="LLM invocation failed"):
             planning_agent.run(state)
     assert any("LLM invocation failed" in r.message for r in caplog.records)
+
+
+def test_planner_labels_raw_proposal_and_final_plan(caplog, fake_planner_model):
+    """The planner separates the LLM's raw proposal from the reconciled plan.
+
+    Both counts are logged, so a reader is never left wondering why a plan
+    proposes N steps but prints fewer: the final plan is the one rebuilt by the
+    post-processing (grounding, dedup, clamping and prerequisite chain).
+    """
+    state = GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn")
+    goal = Goal(description="Reunite Anju and Kafei")
+    with caplog.at_level(logging.INFO, logger="app.agents.planning_agent"):
+        run_pipeline(state, goal)
+    messages = [r.message for r in caplog.records]
+    assert any("raw proposal" in message and "step(s)" in message for message in messages)
+    assert any("final plan (" in message and "step(s)):" in message for message in messages)
