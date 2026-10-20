@@ -37,8 +37,6 @@ def _graph():
     return build_graph()
 
 
-_PROVIDERS = ("openai", "openrouter", "ollama", "lmstudio", "anthropic", "google")
-
 _LANGS = {"en": "\U0001f1ec\U0001f1e7 English", "it": "\U0001f1ee\U0001f1f9 Italiano"}
 
 _PLANNING_TASK_KEY = "_planning_task"
@@ -149,21 +147,20 @@ def _task_is_active(task: _PlanningTask | None) -> bool:
     return task is not None and task.status in _ACTIVE_STATUSES
 
 
-def _plan_controls_disabled(task: _PlanningTask | None, llm_model: str) -> tuple[bool, bool]:
+def _plan_controls_disabled(task: _PlanningTask | None) -> tuple[bool, bool]:
     """Return the ``(generate, stop)`` disabled flags for the planning controls.
 
     args:
         task (_PlanningTask | None): the session planning task, if any.
-        llm_model (str): the model typed in the sidebar.
 
     returns:
-        tuple[bool, bool]: Generate is disabled while a run is active or no
-        model is configured; Stop is enabled only while a run is running, not
-        while a stop request is already pending.
+        tuple[bool, bool]: Generate is disabled while a run is active; Stop
+        is enabled only while a run is running, not while a stop request is
+        already pending.
     """
     active = _task_is_active(task)
     stopping = task is not None and task.status == "stopping"
-    return active or not llm_model.strip(), stopping or not active
+    return active, stopping or not active
 
 
 def _run_stream(
@@ -1158,11 +1155,19 @@ def render() -> None:
         st.selectbox(t("language"), list(_LANGS), key="lang", format_func=lambda c: _LANGS[c])
         st.divider()
         _section(t("llm_settings"))
-        llm_provider = st.selectbox(t("llm_provider"), list(_PROVIDERS))
-        llm_model = st.text_input(t("llm_model"), placeholder="gpt-4o-mini")
-        llm_api_key = st.text_input(t("llm_api_key"), type="password")
-        if not llm_model.strip():
-            st.caption(t("llm_model_required"))
+        provider = os.getenv("LLM_PROVIDER", "").strip()
+        model = os.getenv("LLM_MODEL", "").strip()
+        base_url = os.getenv("LLM_BASE_URL", "").strip()
+        if provider:
+            st.markdown(f"- **LLM Provider**: `{provider}`")
+            if model:
+                st.markdown(f"- **Modello**: `{model}`")
+            elif base_url:
+                st.markdown(f"- **LLM_BASE_URL**: `{base_url}`")
+        else:
+            st.warning(
+                "LLM not configured. Set LLM_PROVIDER (and credentials) in .env (see .env.example)."
+            )
 
     st.title(f"\U0001f319 {t('title')}")
     st.caption(t("subtitle"))
@@ -1221,7 +1226,9 @@ def render() -> None:
         )
         st.markdown('<div style="padding:0.4rem;"></div>', unsafe_allow_html=True)
         task = st.session_state.get(_PLANNING_TASK_KEY)
-        generate_disabled, stop_disabled = _plan_controls_disabled(task, llm_model)
+        generate_disabled, stop_disabled = _plan_controls_disabled(task)
+        if not (goal_text or "").strip():
+            generate_disabled = True
         run_col, stop_col = st.columns([4, 1])
         with run_col:
             run = st.button(
@@ -1245,7 +1252,7 @@ def render() -> None:
         task.status = "stopping"
         st.rerun()
 
-    if run and not _task_is_active(task):
+    if run and not _task_is_active(task) and (goal_text or "").strip():
         game_state = GameState(
             time=ClockTime(day=day, hour=tm.hour, minute=tm.minute),
             location=location,
@@ -1255,18 +1262,10 @@ def render() -> None:
         )
         goal = Goal(description=goal_text)
 
-        llm_config: dict[str, str] = {}
-        if llm_provider:
-            llm_config["provider"] = llm_provider
-        if llm_model:
-            llm_config["model"] = llm_model
-        if llm_api_key:
-            llm_config["api_key"] = llm_api_key
-
         initial = {
             "game_state": game_state,
             "goal": goal,
-            "llm_config": llm_config,
+            "llm_config": {},
         }
         # Build the cached graph in the main thread: `_graph()` is wrapped in
         # @st.cache_resource, whose dispatcher needs the script run context.

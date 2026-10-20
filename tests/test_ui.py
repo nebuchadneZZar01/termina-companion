@@ -294,7 +294,7 @@ def test_plan_controls_are_disabled_while_a_run_is_active(
 ) -> None:
     task = ui._PlanningTask(status=status) if status else None
 
-    assert ui._plan_controls_disabled(task, "gpt-4o-mini") == expected
+    assert ui._plan_controls_disabled(task) == expected
 
 
 def test_graph_streams_custom_start_and_agent_progress(monkeypatch) -> None:
@@ -464,7 +464,7 @@ def test_progress_templates_style_model_query_and_titles(monkeypatch) -> None:
 
 
 def test_plan_controls_require_a_model_before_planning() -> None:
-    assert ui._plan_controls_disabled(None, "  ") == (True, True)
+    assert ui._plan_controls_disabled(None) == (False, True)
 
 
 def test_app_renders_headless_without_error() -> None:

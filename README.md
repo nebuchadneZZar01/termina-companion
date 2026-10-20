@@ -47,6 +47,8 @@ Ollama or LM Studio work locally without an external API key.
 
 ## Run with an LLM
 
+LLM configuration is done **only via environment variables** (no UI fields).
+
 ```sh
 export LLM_PROVIDER=openai
 export LLM_API_KEY=sk-...
@@ -55,9 +57,9 @@ uv run streamlit run main.py
 
 Supported providers: `openai`, `openrouter`, `ollama`, `lmstudio`, `anthropic`,
 `google`. Configure `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY` and
-`LLM_BASE_URL`; `.env.example` is the complete annotated reference. Missing
-configuration, invocation errors and empty model output fail explicitly. The
-Planning Agent never substitutes a rule-based fallback plan.
+`LLM_BASE_URL` (or set them in `.env`); `.env.example` is the complete
+annotated reference. Missing configuration, invocation errors and empty model
+output fail explicitly. The Planning Agent never substitutes a fallback plan.
 
 ## Observability (tracing)
 
