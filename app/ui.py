@@ -7,6 +7,7 @@ Entry points: ``uv run streamlit run main.py`` (preferred) or
 from __future__ import annotations
 
 import datetime
+import datetime as _datetime
 import os
 import queue
 import re
@@ -21,6 +22,7 @@ from app.data.mock_knowledge import MASKS, build_default_knowledge
 from app.domain import ClockTime, GameState, Goal, TimeWindow
 from app.graph import MAX_PLANNING_ATTEMPTS, build_graph
 from app.i18n import DEFAULT_LANG, spinner_lines, t, tr, tr_msg
+from app.save import load_state, save_state
 from app.trace import current_run, pipeline_span
 
 
@@ -1154,6 +1156,49 @@ def render() -> None:
     with st.sidebar:
         st.selectbox(t("language"), list(_LANGS), key="lang", format_func=lambda c: _LANGS[c])
         st.divider()
+        _section(t("save_load"))
+        col_s, col_l = st.columns(2)
+        with col_s:
+            if st.button(t("save_button"), use_container_width=True):
+                goal_val = st.session_state.get("save_goal", "")
+                tm_val = st.session_state.get("save_time") or _datetime.time(6, 0)
+                day_val = int(st.session_state.get("save_day", 1))
+                data = {
+                    "version": 1,
+                    "day": day_val,
+                    "time": {"day": day_val, "hour": tm_val.hour, "minute": tm_val.minute},
+                    "location": st.session_state.get("save_location") or "South Clock Town",
+                    "masks": list(st.session_state.get("save_masks") or []),
+                    "inventory": list(st.session_state.get("save_inventory") or []),
+                    "quest_progress": list(st.session_state.get("save_quests") or []),
+                    "goal": goal_val or "",
+                }
+                try:
+                    _ = save_state(data)
+                    st.success(t("save_ok"))
+                except Exception as exc:
+                    st.error(str(exc))
+        with col_l:
+            if st.button(t("load_button"), use_container_width=True):
+                snapshot = load_state()
+                if not snapshot:
+                    st.warning(t("load_none"))
+                else:
+                    try:
+                        st.session_state["save_day"] = int(snapshot.day)
+                        st.session_state["save_time"] = _datetime.time(
+                            snapshot.time.hour, snapshot.time.minute
+                        )
+                        if snapshot.location:
+                            st.session_state["save_location"] = snapshot.location
+                        st.session_state["save_masks"] = list(snapshot.masks)
+                        st.session_state["save_inventory"] = list(snapshot.inventory)
+                        st.session_state["save_quests"] = list(snapshot.quest_progress)
+                        st.session_state["save_goal"] = snapshot.goal or ""
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(str(exc))
+        st.divider()
         _section(t("llm_settings"))
         provider = os.getenv("LLM_PROVIDER", "").strip()
         model = os.getenv("LLM_MODEL", "").strip()
@@ -1179,12 +1224,16 @@ def render() -> None:
         _section(t("game_state"), t("game_state_caption"))
         c1, c2 = st.columns([1, 1])
         with c1:
-            day = st.selectbox(t("day"), [1, 2, 3], index=1)
+            day = st.selectbox(t("day"), [1, 2, 3], index=0, key="save_day")
         with c2:
-            tm = st.time_input(t("time"), datetime.time(8, 0))
+            tm = st.time_input(t("time"), datetime.time(6, 0), key="save_time")
 
         locations = sorted({loc.name for loc in kb.locations})
-        location = st.selectbox(t("location"), locations or ["Termina Field"], format_func=tr)
+        default_loc = "South Clock Town"
+        idx = locations.index(default_loc) if default_loc in locations else 0
+        location = st.selectbox(
+            t("location"), locations or ["Termina Field"], index=idx, format_func=tr
+        )
 
         masks = st.pills(
             t("masks"),
@@ -1193,6 +1242,7 @@ def render() -> None:
             format_func=tr,
             help=t("masks_help"),
             wrap=True,
+            key="save_masks",
         )
         item_options = sorted(
             {i for quest in kb.quests for o in quest.objectives for i in o.requires_items}
@@ -1204,6 +1254,7 @@ def render() -> None:
             help=t("inventory_help"),
             placeholder=t("inventory_placeholder"),
             accept_new_options=True,
+            key="save_inventory",
         )
         quest_names = {q.name: q.id for q in kb.quests}
         done_q = st.pills(
@@ -1213,6 +1264,7 @@ def render() -> None:
             format_func=tr,
             help=t("quest_progress_help"),
             wrap=True,
+            key="save_quests",
         )
         st.caption(t("legend"))
 
@@ -1223,6 +1275,7 @@ def render() -> None:
             placeholder=t("goal_example"),
             height=180,
             label_visibility="collapsed",
+            key="save_goal",
         )
         st.markdown('<div style="padding:0.4rem;"></div>', unsafe_allow_html=True)
         task = st.session_state.get(_PLANNING_TASK_KEY)
