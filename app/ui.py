@@ -1247,15 +1247,46 @@ def render() -> None:
         item_options = sorted(
             {i for quest in kb.quests for o in quest.objectives for i in o.requires_items}
         )
-        inventory = st.multiselect(
+        # Custom items enter through the input below the pills; the add is
+        # applied at the start of the next run, before the widgets exist, so
+        # save_inventory/save_inventory_new are only written pre-instantiation.
+        pending_add = st.session_state.pop("_inventory_add_pending", None)
+        if pending_add:
+            current = list(st.session_state.get("save_inventory") or [])
+            if pending_add not in current:
+                st.session_state["save_inventory"] = [*current, pending_add]
+            st.session_state["save_inventory_new"] = ""
+        # Pills render only options: merge the current selection so custom
+        # items (typed or loaded from a save) stay visible and deselectable.
+        owned_now = st.session_state.get("save_inventory") or []
+        inventory_options = sorted(set(item_options) | set(owned_now))
+        inventory = st.pills(
             t("inventory"),
-            item_options or ["Kafei's Letter"],
+            inventory_options or ["Kafei's Letter"],
+            selection_mode="multi",
             format_func=tr,
             help=t("inventory_help"),
-            placeholder=t("inventory_placeholder"),
-            accept_new_options=True,
+            wrap=True,
             key="save_inventory",
         )
+        add_col, button_col = st.columns([4, 1])
+        with add_col:
+            st.text_input(
+                t("inventory_add"),
+                key="save_inventory_new",
+                label_visibility="collapsed",
+                placeholder=t("inventory_add"),
+            )
+        with button_col:
+            if st.button(
+                t("inventory_add_button"),
+                use_container_width=True,
+                key="save_inventory_add",
+            ):
+                typed = (st.session_state.get("save_inventory_new") or "").strip()
+                if typed:
+                    st.session_state["_inventory_add_pending"] = typed
+                    st.rerun()
         quest_names = {q.name: q.id for q in kb.quests}
         done_q = st.pills(
             t("quest_progress"),

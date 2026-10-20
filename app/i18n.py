@@ -293,8 +293,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "masks": "Masks you own",
         "masks_help": "Select the masks you carry. Selected = owned.",
         "inventory": "Inventory",
-        "inventory_help": "Select the items you carry. Selected = you have it.",
-        "inventory_placeholder": "Choose or add items",
+        "inventory_help": (
+            "Select the items you carry. Selected = owned. Add any other item below."
+        ),
+        "inventory_add": "Add a custom item",
+        "inventory_add_button": "Add",
         "quest_progress": "Quest Progress",
         "quest_progress_help": ("Select quests already completed \u2014 they\u2019ll be skipped."),
         "legend": "\u2713 Selected = owned / completed",
@@ -503,8 +506,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         "masks": "Maschere in tuo possesso",
         "masks_help": ("Seleziona le maschere che porti. Selezionato = in possesso."),
         "inventory": "Inventario",
-        "inventory_help": ("Seleziona gli oggetti che porti con te. Selezionato = lo possiedi."),
-        "inventory_placeholder": "Seleziona o aggiungi oggetti",
+        "inventory_help": (
+            "Seleziona gli oggetti che porti con te. Selezionato = lo possiedi. "
+            "Aggiungi altri oggetti qui sotto."
+        ),
+        "inventory_add": "Aggiungi oggetto personalizzato",
+        "inventory_add_button": "Aggiungi",
         "quest_progress": "Missioni completate",
         "quest_progress_help": (
             "Seleziona le missioni gi\u00e0 completate \u2014 verranno saltate."

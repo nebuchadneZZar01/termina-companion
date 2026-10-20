@@ -485,3 +485,32 @@ def test_app_renders_headless_without_error() -> None:
     assert any("Termina Companion" in title.value for title in at.title)
     assert any("Pianifica" in label for label in labels)
     assert any(label == "Stop" for label in labels)
+
+
+def test_inventory_pills_add_custom_item_and_keep_it_selected() -> None:
+    """A typed custom item becomes a selected pill and clears the input.
+
+    Runs the real entry point in English: with translated labels AppTest
+    cannot match the selectbox options (pre-existing formatter mismatch).
+    """
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at.session_state["lang"] = "en"
+    at.run()
+    assert not at.exception
+    assert "Kafei's Letter" in at.get_by_key("save_inventory").options
+
+    at.text_input(key="save_inventory_new").set_value("Deku Leaf")
+    at.run()
+    at.button(key="save_inventory_add").click()
+    at.run()
+
+    assert not at.exception
+    pills = at.get_by_key("save_inventory")
+    assert "Deku Leaf" in pills.options
+    assert pills.value == ["Deku Leaf"]
+    assert at.get_by_key("save_inventory_new").value == ""
