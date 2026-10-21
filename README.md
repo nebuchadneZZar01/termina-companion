@@ -271,7 +271,7 @@ player would phrase it, and the objectives the plan is expected to contain:
 
 The evaluator is deterministic and never calls an LLM. It reads game knowledge
 only through the MCP tools (`search_quests`, `check_prerequisites`), so it
-measures what the Knowledge Agent could have known, and it runs six checks:
+measures what the Knowledge Agent could have known, and it runs nine checks:
 
 | Check | Fails when |
 |---|---|
@@ -281,6 +281,14 @@ measures what the Knowledge Agent could have known, and it runs six checks:
 | `prerequisites` | A step's items, masks or prerequisite objectives are not satisfied when it happens |
 | `tool_usage` | The Knowledge Agent skipped a tool the goal needed (quest search, NPC schedule, event) |
 | `critic` | The Critic rejected the plan |
+| `trajectory_order` | The run produced its plan without consulting the MCP tools, or without a Critic verdict |
+| `replan_bound` | The run overshot `MAX_PLANNING_ATTEMPTS` (a late acceptance is a warning) |
+| `proposal_fidelity` | The LLM's raw proposal omitted expected objectives the deterministic rebuild had to add (warning) |
+
+The last three evaluate the **trajectory** — how the run reached its plan, not
+only what came out. They only fire on a recorded run (the planner exposes its
+untouched proposal before reconciliation, and the Critic appends one
+`AttemptRecord` per attempt); a plan evaluated on its own is exempt.
 
 A scenario passes when no check reports an error; warnings are reported but do
 not fail it. A run that crashes (LLM error, no plan produced) is a failure
@@ -318,7 +326,10 @@ Every run also writes its report to the shared store
 (`app/evaluation/storage.py`): `last_evaluation.json` in the save directory
 derived from `RAG_QDRANT_PATH` (`.cache/saves/` by default, gitignored) plus a
 timestamped copy in `evaluations/` underneath it. `--json` writes an extra
-copy at an explicit path.
+copy at an explicit path. The report records its sweep metadata — the RAG
+flag, the model that produced each plan, the repeat count and a creation
+timestamp — so two saved sweeps can be compared instead of retyped from the
+terminal.
 
 ### Evaluation tab
 
@@ -339,7 +350,9 @@ The Planning Agent rebuilds the objective chain deterministically after the
 LLM answers (`_reconcile_plan`), so the step set of a plan follows from the
 retrieved objectives and the LLM mainly influences the step windows. The pass
 rate is therefore mostly a regression signal over retrieval, chain
-reconciliation and the critic — not a measure of LLM creativity.
+reconciliation and the critic — not a measure of LLM creativity. The
+`proposal_fidelity` warnings are where the LLM's own contribution shows: how
+often its raw proposal already contained the expected objectives.
 
 ## Architecture
 
@@ -392,7 +405,7 @@ architecture is not tied to one quest.
   `MemoryStore`; persist them (extend `GameState`, attach a graph
   checkpointer or a file/DB store behind the same protocol).
 - **Tracing and audit** — add request IDs and LangGraph/tool/retrieval events.
-- **Plan evaluation** — the scenario/plan evaluator is in place; the next step
-  is trajectory evaluation (the sequence of agent decisions, not only the final
-  plan) and evaluating the LLM proposal before the deterministic chain rebuild,
-  so the LLM's contribution becomes measurable.
+- **Plan evaluation** — the scenario/plan evaluator and the trajectory checks
+  are in place; the next step is comparing a sweep against the stored history
+  to flag regressions (per-scenario deltas over pass rate, check kinds and
+  `proposal_fidelity` warnings).

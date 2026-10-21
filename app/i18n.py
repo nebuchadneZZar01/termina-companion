@@ -511,6 +511,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_load_last": "Load last report",
         "eval_no_saved_report": "No saved evaluation report yet.",
         "eval_saved_report": "Every sweep is saved to {path}.",
+        "eval_report_meta": "Model: {model} · wiki retrieval: {rag} · repeats: {repeats}",
+        "eval_rag_on": "on",
+        "eval_rag_off": "off",
+        "eval_unknown": "unknown",
         "llm_base_url_hint": (
             "The local OpenAI-compatible server needs the /v1 path "
             "(e.g. http://localhost:11434/v1)."
@@ -523,6 +527,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_tool_usage": "tool usage",
         "kind_critic": "critic",
         "kind_run_error": "run error",
+        "kind_trajectory_order": "agent order",
+        "kind_replan_bound": "re-plan bound",
+        "kind_proposal_fidelity": "LLM proposal fidelity",
         # trace sections
         "trace_understood": "What the system understood",
         "trace_understood_caption": (
@@ -788,6 +795,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_load_last": "Carica ultimo report",
         "eval_no_saved_report": "Nessun report di valutazione salvato.",
         "eval_saved_report": "Ogni sweep viene salvato in {path}.",
+        "eval_report_meta": "Modello: {model} · retrieval wiki: {rag} · ripetizioni: {repeats}",
+        "eval_rag_on": "attivo",
+        "eval_rag_off": "disattivo",
+        "eval_unknown": "sconosciuto",
         "llm_base_url_hint": (
             "Il server locale compatibile con OpenAI richiede il percorso /v1 "
             "(es. http://localhost:11434/v1)."
@@ -800,6 +811,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_tool_usage": "uso degli strumenti",
         "kind_critic": "critic",
         "kind_run_error": "errore di esecuzione",
+        "kind_trajectory_order": "ordine degli agenti",
+        "kind_replan_bound": "limite re-plan",
+        "kind_proposal_fidelity": "fedeltà proposta LLM",
         # run audit
         "audit_header": (
             "Run `{run_id}` \u00b7 {seconds}s \u00b7 {attempts}/{max} tentativi \u00b7 {outcome}"

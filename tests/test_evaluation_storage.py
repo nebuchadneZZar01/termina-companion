@@ -23,12 +23,19 @@ def _report_dir(tmp_path, monkeypatch):
 def _report() -> EvaluationReport:
     return EvaluationReport(
         results=[
-            ScenarioResult(scenario_id="anju-kafei", passed=True, step_count=4, duration_s=12.4),
+            ScenarioResult(
+                scenario_id="anju-kafei",
+                passed=True,
+                step_count=4,
+                duration_s=12.4,
+                model="llama3.2",
+            ),
             ScenarioResult(
                 scenario_id="deed-chain",
                 passed=False,
                 step_count=3,
                 duration_s=9.1,
+                model="llama3.2",
                 error="boom",
                 issues=[
                     EvaluationIssue(
@@ -39,7 +46,9 @@ def _report() -> EvaluationReport:
                     )
                 ],
             ),
-        ]
+        ],
+        rag_on=False,
+        repeats=2,
     )
 
 
@@ -55,16 +64,33 @@ def test_save_and_load_round_trip():
     assert loaded.passed == 1
     assert loaded.failed == 1
     assert loaded.pass_rate == 0.5
+    assert loaded.rag_on is False
+    assert loaded.repeats == 2
+    assert loaded.models == "llama3.2"
+    assert loaded.created_at
 
     first, second = loaded.results
     assert first.scenario_id == "anju-kafei"
     assert first.passed is True
     assert first.step_count == 4
+    assert first.model == "llama3.2"
     assert second.scenario_id == "deed-chain"
     assert second.error == "boom"
     assert second.issues[0].kind == "temporal_ordering"
     assert second.issues[0].step_idx == 1
     assert second.error_count == 2
+
+
+def test_save_stamps_a_report_that_has_no_date():
+    """A report persisted without a creation date is stamped on the way out."""
+    report = EvaluationReport(results=[ScenarioResult(scenario_id="anju-kafei", passed=True)])
+    assert report.created_at == ""
+
+    save_report(report, history=False)
+
+    loaded = load_report()
+    assert loaded is not None
+    assert loaded.created_at.endswith(("Z", "+00:00"))
 
 
 def test_save_keeps_a_timestamped_history_copy():

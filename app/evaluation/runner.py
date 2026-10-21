@@ -72,9 +72,12 @@ def run_scenario(scenario: PlanScenario) -> ScenarioResult:
         scenario,
         tool_calls=state.tool_calls,
         validation=state.validation,
+        plan_proposal=state.plan_proposal,
+        attempt_log=state.attempt_log,
     )
     outcome.duration_s = round(time.perf_counter() - started, 1)
     outcome.retrieval_status = state.retrieval_status
+    outcome.model = state.plan_model or state.plan_engine
     return outcome
 
 
@@ -96,7 +99,8 @@ def run_scenarios(
             each scenario; when it returns True the sweep stops early.
 
     returns:
-        EvaluationReport: the aggregated results.
+        EvaluationReport: the aggregated results, tagged with the sweep
+        metadata (the RAG flag and, from the runs, the producing models).
     """
     previous = os.environ.get(RAG_ENV_VAR)
     os.environ[RAG_ENV_VAR] = "1" if rag_on else "0"
@@ -114,4 +118,4 @@ def run_scenarios(
             os.environ.pop(RAG_ENV_VAR, None)
         else:
             os.environ[RAG_ENV_VAR] = previous
-    return EvaluationReport(results=results)
+    return EvaluationReport(results=results, rag_on=rag_on)

@@ -74,6 +74,21 @@ def test_critic_agent_is_rule_based():
     assert critic_agent.run(_state())["critic_engine"] == "rule-based"
 
 
+def test_critic_agent_records_one_attempt_per_run():
+    """Each Critic run appends one attempt record to the log."""
+    state = _state()
+
+    first = critic_agent.run(state)
+    assert len(first["attempt_log"]) == 1
+    record = first["attempt_log"][0]
+    assert record.valid is first["validation"].valid
+    assert record.attempt == 1
+
+    # A re-plan keeps the earlier records and appends the new one.
+    second = critic_agent.run(state.model_copy(update={"attempt_log": first["attempt_log"]}))
+    assert [r.attempt for r in second["attempt_log"]] == [1, 2]
+
+
 def test_planning_agent_requires_llm(monkeypatch):
     """The Planning Agent fails explicitly when no LLM is available."""
     monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: None)
@@ -311,6 +326,23 @@ def test_planning_agent_llm_plan_is_grounded(monkeypatch):
     assert step.location == "Market District"
     assert step.requires_items == []  # ak_get_letter needs nothing from the player
     assert step.depends_on == [0]
+
+
+def test_planning_agent_keeps_the_raw_proposal(monkeypatch):
+    """The proposal is the LLM's own answer, before grounding and repair."""
+    monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: _FakeModel())
+
+    result = planning_agent.run(_state())
+
+    proposal = result["plan_proposal"]
+    assert proposal is not result["plan"]
+    assert [s.objective_ref for s in proposal.steps] == [
+        "ak_get_letter",
+        "ak_talk_to_anju",
+        "ak_talk_to_anju",
+    ]
+    assert proposal.steps[0].title == "[ak_get_letter]", "the proposal must stay untouched"
+    assert len(result["plan"].steps) == 4, "the reconciled plan is grounded and deduped"
 
 
 def test_planning_prompt_enforces_window_containment(monkeypatch):

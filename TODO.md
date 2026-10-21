@@ -40,11 +40,14 @@ Status map:
   spans exported to a local Phoenix container via OTLP when configured, a
   cheap no-op otherwise; full LLM prompts go to spans, the Trace tab shows a
   run header, node timeline and errors only).
-* Phase 11 — Evaluation: complete (9 evaluation scenarios spanning every game
-  area, a deterministic evaluator with six checks — plan shape, objective
-  achievement, temporal ordering, prerequisites, tool usage, critic — an
-  explicit PASS/FAIL per scenario, an aggregate pass rate, a CLI harness
-  (`scripts/evaluate_plans.py`) and an Evaluation tab in the Streamlit UI).
+* Phase 11 — Evaluation: complete for plan and trajectory evaluation (9
+  evaluation scenarios spanning every game area, a deterministic evaluator
+  with nine checks — plan shape, objective achievement, temporal ordering,
+  prerequisites, tool usage, critic, agent order, re-plan bound, LLM proposal
+  fidelity — an explicit PASS/FAIL per scenario, an aggregate pass rate, sweep
+  metadata, a CLI harness (`scripts/evaluate_plans.py`), an Evaluation tab in
+  the Streamlit UI and a persisted report). The sweep-to-sweep comparison and
+  the `RAG_SIMILARITY_THRESHOLD` revisit stay open.
 * Phase 12 — Production Readiness: not started yet.
 * Phase 13 — Deployment: not started yet.
 
@@ -198,7 +201,7 @@ structured context rather than disabling retrieval.
 Structured game constraints such as schedules and prerequisites remain in MCP
 data/tools. RAG is supplemental narrative evidence and must not create or
 override objectives. Runtime failure records `unavailable`, logs a warning and
-continues with structured MCP context. Full plan/trajectory evaluation is
+continues with structured MCP context. Full plan and trajectory evaluation is
 implemented in Phase 11.
 
 # Phase 8 — Memory
@@ -253,15 +256,24 @@ monitoring is served by these spans plus the existing text logs.
 * [x] Define evaluation scenarios
 * [x] Start with a small scenario set (9 scenarios, one per quest, all areas)
 * [x] Define expected constraints for each scenario
-* [x] Implement plan/trajectory evaluator
+* [x] Implement the plan evaluator
+* [x] Check plan shape
 * [x] Check tool usage
 * [x] Check temporal ordering
 * [x] Check prerequisites
 * [x] Check objective achievement
+* [x] Check critic acceptance
 * [x] Produce explicit PASS/FAIL
 * [x] Calculate aggregate pass rate
 * [x] Add regression scenarios
 * [x] Persist the evaluation report (UI worker auto-save, CLI, *Load last report*)
+* [x] Record sweep metadata (RAG on/off, model, scenario ids, repeats)
+* [x] Evaluate the trajectory (agent decisions, the replan loop and the LLM
+  proposal before the deterministic chain rebuild)
+* [x] Check the agent order of a run (MCP lookups and the Critic verdict)
+* [x] Check the re-plan bound and flag a late acceptance
+* [x] Flag an LLM proposal that missed expected objectives (warning)
+* [ ] Compare a sweep against the stored history and flag regressions
 * [ ] Revisit `RAG_SIMILARITY_THRESHOLD` if plan pass rate degrades from RAG noise/misses
 * [x] Evaluate RAG separately if RAG is implemented (retrieval-only harness)
 

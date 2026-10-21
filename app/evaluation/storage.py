@@ -80,6 +80,8 @@ def save_report(report: EvaluationReport, *, history: bool = True) -> Path:
 
     The report is always written as the last report; with ``history`` it is
     also copied to a timestamped file, so consecutive sweeps can be compared.
+    A report that carries no ``created_at`` is stamped with the current UTC
+    time, so every saved file is self-describing.
 
     args:
         report (EvaluationReport): the report to persist.
@@ -88,6 +90,9 @@ def save_report(report: EvaluationReport, *, history: bool = True) -> Path:
     returns:
         Path: the path of the last report.
     """
+    if not report.created_at:
+        stamped = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+        report = report.model_copy(update={"created_at": stamped})
     payload = report.model_dump_json(indent=2)
     path = get_eval_dir() / LAST_REPORT_NAME
     _write(path, payload)

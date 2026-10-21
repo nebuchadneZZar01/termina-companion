@@ -127,6 +127,10 @@ def print_summary(report: EvaluationReport) -> None:
         None: prints to stdout.
     """
     print()
+    rag = {True: "on", False: "off"}.get(report.rag_on, "unknown")
+    print(
+        f"Sweep: model={report.models or 'unknown'} wiki_retrieval={rag} repeats={report.repeats}"
+    )
     print(f"Pass rate: {report.passed}/{report.total} = {report.pass_rate:.2f}")
     kinds = report.failures_by_kind
     if kinds:
@@ -174,7 +178,7 @@ def main() -> int:
         report = run_scenarios(scenarios, rag_on=args.rag == "on", on_progress=_progress)
         results.extend(report.results)
 
-    report = EvaluationReport(results=results)
+    report = EvaluationReport(results=results, rag_on=args.rag == "on", repeats=repeats)
     print_summary(report)
 
     try:

@@ -72,6 +72,8 @@ class ScenarioResult(BaseModel):
     objective_refs: list[str] = Field(default_factory=list)
     duration_s: float = 0.0
     retrieval_status: str = ""
+    # Model that produced the plan (its name, falling back to its engine).
+    model: str = ""
     # Set when the run itself failed (LLM error, no plan produced).
     error: str = ""
 
@@ -97,6 +99,25 @@ class EvaluationReport(BaseModel):
     """Aggregate metrics over a set of evaluated scenarios."""
 
     results: list[ScenarioResult] = Field(default_factory=list)
+    # Sweep metadata, so two saved reports can be compared. None/empty means
+    # the sweep did not record it (hand-built reports and older reports).
+    rag_on: bool | None = None
+    repeats: int = 1
+    created_at: str = ""
+
+    @computed_field
+    @property
+    def models(self) -> str:
+        """Distinct models that produced the plans, comma-joined.
+
+        args:
+            (none)
+
+        returns:
+            str: the model names, empty when nothing was recorded.
+        """
+        names = {result.model for result in self.results if result.model}
+        return ", ".join(sorted(names))
 
     @computed_field
     @property

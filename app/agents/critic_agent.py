@@ -18,7 +18,7 @@ from app.domain import (
     ValidationIssue,
     ValidationResult,
 )
-from app.state import PlanningState
+from app.state import AttemptRecord, PlanningState
 from app.trace import set_output
 from app.trace import span as traced_span
 
@@ -282,7 +282,8 @@ def run(state: PlanningState) -> dict:
         state (PlanningState): the workflow state with the produced plan.
 
     returns:
-        dict: the ``validation`` result and ``critic_engine``.
+        dict: the ``validation`` result, ``critic_engine`` and the appended
+        ``attempt_log`` record for this attempt.
     """
     npcs = _KB.npcs
     plan_input = f"{len(state.plan.steps)} step(s)" if state.plan else "no plan"
@@ -300,7 +301,32 @@ def run(state: PlanningState) -> dict:
             },
         )
     _log_result(result)
-    return {"validation": result, "critic_engine": "rule-based"}
+    return {
+        "validation": result,
+        "critic_engine": "rule-based",
+        "attempt_log": [*state.attempt_log, _attempt_record(state, result)],
+    }
+
+
+def _attempt_record(state: PlanningState, validation: ValidationResult) -> AttemptRecord:
+    """Summarise the attempt the Critic has just validated.
+
+    args:
+        state (PlanningState): the workflow state with the produced plan and
+            the attempt log, whose length numbers this attempt.
+        validation (ValidationResult): the verdict just reached.
+
+    returns:
+        AttemptRecord: one trajectory record, appended to the attempt log.
+    """
+    plan = state.plan
+    return AttemptRecord(
+        attempt=len(state.attempt_log) + 1,
+        step_count=len(plan.steps) if plan else 0,
+        objective_refs=[step.objective_ref for step in plan.steps] if plan else [],
+        valid=validation.valid,
+        issue_kinds=sorted({i.kind for i in validation.issues if i.severity == "error"}),
+    )
 
 
 def _log_result(result: ValidationResult) -> None:

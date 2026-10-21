@@ -77,8 +77,9 @@ def run(state: PlanningState) -> dict:
         and retrieved objectives.
 
     returns:
-        dict: the generated ``plan``, incremented ``replan_attempts``,
-        ``plan_engine`` (``"llm"``) and ``plan_model``.
+        dict: the generated ``plan``, the untouched LLM ``plan_proposal``
+        (before grounding and reconciliation), the incremented
+        ``replan_attempts``, ``plan_engine`` (``"llm"``) and ``plan_model``.
 
     raises:
         PlanningAgentError: if no model is available or the LLM returns no
@@ -106,6 +107,10 @@ def run(state: PlanningState) -> dict:
         }
     )
     result = _llm_run(state, model)
+    # Keep the untouched proposal: the evaluator compares it with the
+    # reconciled plan to measure what the deterministic rebuild had to fix.
+    # The post-processing mutates in place, so this must be a deep copy.
+    proposal = result.model_copy(deep=True)
     result = _ground_llm_steps(result, state.relevant_objectives)
     result = _dedupe_steps(result)
     result = _clamp_windows(result, state.relevant_objectives)
@@ -113,6 +118,7 @@ def run(state: PlanningState) -> dict:
     _log_plan(result)
     return {
         "plan": result,
+        "plan_proposal": proposal,
         "replan_attempts": state.replan_attempts + 1,
         "plan_engine": "llm",
         "plan_model": plan_model,

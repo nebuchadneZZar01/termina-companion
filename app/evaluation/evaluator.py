@@ -17,6 +17,17 @@ Checks, each producing issues of its own kind:
   are satisfied by the player's state or by an earlier step.
 * ``tool_usage`` — the Knowledge Agent consulted the MCP tools the goal needs.
 * ``critic`` — the Critic Agent did not reject the plan.
+* ``trajectory_order`` — the run reached its plan through the expected agents:
+  the Knowledge Agent consulted the MCP tools before planning, and the Critic
+  validated the plan before it was returned. Only runs with a recorded
+  trajectory are checked; hand-built plans are exempt.
+* ``replan_bound`` — the run stayed within the attempt bound, and a warning is
+  raised when the plan was accepted only after re-planning.
+* ``proposal_fidelity`` — a warning when the LLM's raw proposal omitted
+  expected objectives that the deterministic rebuild had to add.
+
+Warnings never fail a scenario: they measure the quality of the trajectory,
+not the validity of the final plan.
 """
 
 from __future__ import annotations
@@ -27,7 +38,9 @@ from collections.abc import Sequence
 from app.data.mock_knowledge import Objective
 from app.domain import ClockTime, Plan, ValidationResult
 from app.evaluation.models import EvaluationIssue, PlanScenario, ScenarioResult
+from app.graph import MAX_PLANNING_ATTEMPTS
 from app.mcp.tools import check_prerequisites, search_quests
+from app.state import AttemptRecord
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +54,8 @@ def evaluate_plan(
     scenario: PlanScenario,
     tool_calls: Sequence[str] = (),
     validation: ValidationResult | None = None,
+    plan_proposal: Plan | None = None,
+    attempt_log: Sequence[AttemptRecord] = (),
 ) -> ScenarioResult:
     """Check a produced plan against a scenario's expectations.
 
@@ -51,6 +66,10 @@ def evaluate_plan(
             Agent invoked, as ``"tool"`` or ``"tool:<arg>"``.
         validation (ValidationResult | None, default None): the Critic's
             verdict, when the run produced one.
+        plan_proposal (Plan | None, default None): the LLM's proposal before
+            grounding and reconciliation, when the planner recorded it.
+        attempt_log (Sequence[AttemptRecord], default ()): one record per
+            planning attempt, oldest first.
 
     returns:
         ScenarioResult: the outcome, with one issue per failed expectation.
@@ -72,6 +91,11 @@ def evaluate_plan(
     _check_prerequisites(plan, scenario, by_id, issues)
     _check_tool_usage(objectives, tool_calls, issues)
     _check_critic(validation, issues)
+    if attempt_log or validation is not None:
+        # A run's trajectory: hand-built plans pass neither and stay exempt.
+        _check_trajectory(objectives, tool_calls, validation, issues)
+    _check_replan(attempt_log, issues)
+    _check_proposal(scenario, plan_proposal, issues)
 
     passed = not any(issue.severity == "error" for issue in issues)
     return ScenarioResult(
@@ -491,6 +515,112 @@ def _check_critic(validation: ValidationResult | None, issues: list[EvaluationIs
                 kind="critic",
                 message=f"The Critic rejected the plan: {issue.message}",
                 step_idx=issue.step_idx,
+            )
+        )
+
+
+def _check_trajectory(
+    objectives: list[Objective],
+    tool_calls: Sequence[str],
+    validation: ValidationResult | None,
+    issues: list[EvaluationIssue],
+) -> None:
+    """Check that the run reached its plan through the expected agents.
+
+    The planner must not work from its own knowledge: when the goal has
+    objectives to retrieve, the Knowledge Agent must have called the MCP
+    tools first, and the Critic must have run before the plan was returned.
+
+    args:
+        objectives (list[Objective]): the retrieved objectives.
+        tool_calls (Sequence[str]): the MCP tools the Knowledge Agent invoked.
+        validation (ValidationResult | None): the Critic's verdict.
+        issues (list[EvaluationIssue]): the issue list to append to.
+
+    returns:
+        None: appends to ``issues``.
+    """
+    if objectives and not tool_calls:
+        issues.append(
+            EvaluationIssue(
+                severity="error",
+                kind="trajectory_order",
+                message="The plan was produced without any MCP lookup.",
+            )
+        )
+    if validation is None:
+        issues.append(
+            EvaluationIssue(
+                severity="error",
+                kind="trajectory_order",
+                message="The Critic never validated the plan.",
+            )
+        )
+
+
+def _check_replan(attempt_log: Sequence[AttemptRecord], issues: list[EvaluationIssue]) -> None:
+    """Check that re-planning stayed bounded and did not need a rescue.
+
+    args:
+        attempt_log (Sequence[AttemptRecord]): one record per planning
+            attempt, oldest first.
+        issues (list[EvaluationIssue]): the issue list to append to.
+
+    returns:
+        None: appends to ``issues``.
+    """
+    attempts = len(attempt_log)
+    if attempts == 0:
+        return
+    if attempts > MAX_PLANNING_ATTEMPTS:
+        issues.append(
+            EvaluationIssue(
+                severity="error",
+                kind="replan_bound",
+                message=f"The run made {attempts} attempts, more than the allowed "
+                f"{MAX_PLANNING_ATTEMPTS}.",
+            )
+        )
+        return
+    if attempts >= 2 and attempt_log[-1].valid:
+        issues.append(
+            EvaluationIssue(
+                severity="warning",
+                kind="replan_bound",
+                message=f"The plan was accepted only after {attempts} attempts.",
+            )
+        )
+
+
+def _check_proposal(
+    scenario: PlanScenario,
+    plan_proposal: Plan | None,
+    issues: list[EvaluationIssue],
+) -> None:
+    """Compare the LLM's raw proposal with what the scenario expected.
+
+    The deterministic rebuild (grounding, dedup, chain reconciliation) may
+    repair a proposal, but a proposal that misses expected objectives means
+    the LLM contributed less than it should have.
+
+    args:
+        scenario (PlanScenario): the expectations to compare against.
+        plan_proposal (Plan | None): the LLM's proposal before repair.
+        issues (list[EvaluationIssue]): the issue list to append to.
+
+    returns:
+        None: appends to ``issues``.
+    """
+    if plan_proposal is None:
+        return
+    refs = {step.objective_ref for step in plan_proposal.steps}
+    missing = [ref for ref in scenario.required_objective_refs if ref not in refs]
+    if missing:
+        issues.append(
+            EvaluationIssue(
+                severity="warning",
+                kind="proposal_fidelity",
+                message="The LLM proposal omitted expected objectives: " + ", ".join(missing),
             )
         )
 

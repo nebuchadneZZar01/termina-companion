@@ -124,7 +124,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   fits the chain — after its dependencies, after the previous step, before the
   successor's slot — and is re-slotted onto a 1h window otherwise, while a
   re-plan re-slots every window, so the rebuilt plan is always chronological
-  and non-overlapping and the LLM's windows are only advisory. The Knowledge
+  and non-overlapping and the LLM's windows are only advisory. The planner also
+  returns its untouched proposal as `plan_proposal` (the input the
+  `proposal_fidelity` check compares), and the Critic appends one
+  `AttemptRecord` to `attempt_log` per validated attempt. The Knowledge
   Agent calls MCP tools in-process for authoritative
   structured data, then calls `app.rag.retriever.retrieve` for adaptive wiki
   evidence. Retrieval runs immediately before planning; RAG failure is logged
@@ -184,16 +187,21 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
 * `app/state.py` — `PlanningState`, the workflow state threaded
   through the graph (Pydantic model, used as the LangGraph state schema),
   including retrieved evidence, indexed-source manifest, retrieval status,
-  player preferences, relevant past episodes and the `tool_calls` list the
-  Knowledge Agent records (MCP tools as `"tool"` or `"tool:<arg>"`).
+  player preferences, relevant past episodes, the `tool_calls` list the
+  Knowledge Agent records (MCP tools as `"tool"` or `"tool:<arg>"`), plus the
+  trajectory the trajectory checks read: `plan_proposal` (the LLM's plan
+  before grounding and reconciliation) and `attempt_log` (one `AttemptRecord`
+  per planning attempt, appended by the Critic).
 * `app/evaluation/` — plan evaluation. `models.py` holds the
   Pydantic contracts (`PlanScenario`, `EvaluationIssue`, `ScenarioResult`,
   `EvaluationReport`); a crashed run counts as one error and a `run_error`
   failure kind, never as a scenario without issues; `scenarios.py` holds the
   nine shipped scenarios (one
   per quest, spanning every game area); `evaluator.py` is the deterministic
-  evaluator with six checks — plan shape, objective achievement, temporal
-  ordering, prerequisites, tool usage, critic — reading game knowledge only
+  evaluator with nine checks — plan shape, objective achievement, temporal
+  ordering, prerequisites, tool usage, critic, plus the three trajectory checks
+  (agent order, re-plan bound, LLM proposal fidelity) that only fire on a
+  recorded run — reading game knowledge only
   through the MCP tools, never the knowledge base directly, so it measures
   what the Knowledge Agent could have known; `runner.py` runs the scenarios
   against the live pipeline (memory store cleared before each scenario) and is
@@ -201,7 +209,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   the save directory derived from `RAG_QDRANT_PATH` (`last_evaluation.json`
   plus a timestamped `evaluations/` copy), so the checks outlive the session:
   the UI worker writes it when a sweep finishes and *Load last report* reads
-  it back. `RAG_ENABLED` (`rag_enabled()` in
+  it back. The report also carries sweep metadata (RAG flag, producing model,
+  repeat count, creation timestamp) so two saved sweeps can be compared.
+  `RAG_ENABLED` (`rag_enabled()` in
   `app/rag/retriever.py`) switches the supplemental wiki retrieval off for
   A/B runs.
 * `scripts/evaluate_plans.py` — CLI harness for the evaluation sweep:

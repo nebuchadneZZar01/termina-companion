@@ -1166,7 +1166,7 @@ def _render_trace_issues(validation) -> None:
             st.write(t("sev_legend_warning"))
 
 
-def _save_evaluation_report(results: list[ScenarioResult]) -> None:
+def _save_evaluation_report(results: list[ScenarioResult], rag_on: bool) -> None:
     """Persist the outcome of a sweep.
 
     The report is written from the worker thread, so it survives a closed
@@ -1175,6 +1175,7 @@ def _save_evaluation_report(results: list[ScenarioResult]) -> None:
 
     args:
         results (list[ScenarioResult]): the evaluated scenarios.
+        rag_on (bool): whether the supplemental wiki retrieval ran.
 
     returns:
         None: writes the report, logging a warning on failure.
@@ -1182,7 +1183,7 @@ def _save_evaluation_report(results: list[ScenarioResult]) -> None:
     if not results:
         return
     try:
-        path = save_report(EvaluationReport(results=results))
+        path = save_report(EvaluationReport(results=results, rag_on=rag_on))
     except Exception as exc:  # noqa: BLE001 - a failed save must not kill the sweep
         logger.warning("Could not save the evaluation report: %s", exc)
         return
@@ -1229,7 +1230,7 @@ def _run_evaluation(scenarios, rag_on: bool, task: _EvaluationTask) -> None:
     except Exception as exc:  # noqa: BLE001 - the UI shows the failure
         task.events.put(exc)
     finally:
-        _save_evaluation_report(collected)
+        _save_evaluation_report(collected, rag_on=rag_on)
         task.events.put(None)
 
 
@@ -1361,6 +1362,19 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
     if not report.results:
         st.caption(t("eval_no_results"))
         return
+
+    if report.rag_on is not None or report.models:
+        rag_label = {True: t("eval_rag_on"), False: t("eval_rag_off")}.get(
+            report.rag_on, t("eval_unknown")
+        )
+        st.caption(
+            t(
+                "eval_report_meta",
+                model=report.models or t("eval_unknown"),
+                rag=rag_label,
+                repeats=report.repeats,
+            )
+        )
 
     c_rate, c_passed, c_failed, c_kinds = st.columns(4)
     c_rate.metric(t("eval_pass_rate"), f"{report.pass_rate * 100:.0f}%")

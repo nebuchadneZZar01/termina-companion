@@ -14,7 +14,8 @@ from app.domain import ClockTime, Goal, Plan, PlanStep, TimeWindow, ValidationRe
 from app.evaluation.evaluator import evaluate_plan, relevant_objectives
 from app.evaluation.models import EvaluationReport, PlanScenario, ScenarioResult
 from app.evaluation.scenarios import EVALUATION_SCENARIOS, SCENARIOS_BY_ID
-from app.graph import run_pipeline
+from app.graph import MAX_PLANNING_ATTEMPTS, run_pipeline
+from app.state import AttemptRecord
 
 _KB = build_default_knowledge()
 _QUEST_OF_OBJECTIVE = {
@@ -269,6 +270,167 @@ def test_critic_rejection_fails_the_critic_check():
 
 
 # ---------------------------------------------------------------------------
+# Trajectory
+# ---------------------------------------------------------------------------
+
+
+def _accepted_attempt(**overrides) -> AttemptRecord:
+    """A single accepted attempt, the shape a clean run records.
+
+    args:
+        **overrides: field values replacing the accepted defaults.
+
+    returns:
+        AttemptRecord: the attempt record.
+    """
+    fields = {
+        "attempt": 1,
+        "step_count": 3,
+        "valid": True,
+        "issue_kinds": [],
+    }
+    fields.update(overrides)
+    return AttemptRecord(**fields)
+
+
+def _validation(valid: bool = True) -> ValidationResult:
+    return ValidationResult(valid=valid)
+
+
+def test_run_without_tool_calls_fails_the_trajectory_check():
+    """A recorded run that never consulted the MCP tools fails."""
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    result = evaluate_plan(
+        _reference_plan(scenario),
+        scenario,
+        tool_calls=[],
+        validation=_validation(),
+        attempt_log=[_accepted_attempt()],
+    )
+
+    assert not result.passed
+    assert "trajectory_order" in _kinds(result)
+
+
+def test_run_without_a_critic_verdict_fails_the_trajectory_check():
+    """A recorded run the Critic never judged fails."""
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    result = evaluate_plan(
+        _reference_plan(scenario),
+        scenario,
+        tool_calls=_tool_calls(scenario),
+        validation=None,
+        attempt_log=[_accepted_attempt()],
+    )
+
+    assert not result.passed
+    assert "trajectory_order" in _kinds(result)
+
+
+def test_hand_builded_plans_are_exempt_from_the_trajectory_check():
+    """Evaluating a plan without a recorded trajectory stays clean."""
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    result = evaluate_plan(_reference_plan(scenario), scenario, tool_calls=_tool_calls(scenario))
+
+    assert result.passed
+    assert not any(issue.kind == "trajectory_order" for issue in result.issues)
+
+
+def test_accepted_on_the_first_attempt_is_silent():
+    """A clean run records one attempt and raises nothing."""
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    result = evaluate_plan(
+        _reference_plan(scenario),
+        scenario,
+        tool_calls=_tool_calls(scenario),
+        validation=_validation(),
+        attempt_log=[_accepted_attempt()],
+    )
+
+    assert result.passed
+    assert not any(issue.kind == "replan_bound" for issue in result.issues)
+
+
+def test_accepted_only_after_replanning_warns():
+    """The plan passes, but a late acceptance is flagged."""
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+    attempts = [
+        _accepted_attempt(attempt=1, valid=False, issue_kinds=["prerequisites"]),
+        _accepted_attempt(attempt=2),
+    ]
+
+    result = evaluate_plan(
+        _reference_plan(scenario),
+        scenario,
+        tool_calls=_tool_calls(scenario),
+        validation=_validation(),
+        attempt_log=attempts,
+    )
+
+    assert result.passed
+    warnings = [issue for issue in result.issues if issue.kind == "replan_bound"]
+    assert warnings and warnings[0].severity == "warning"
+
+
+def test_more_attempts_than_the_bound_fails():
+    """A run that overshot the attempt bound fails."""
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+    attempts = [_accepted_attempt(attempt=index) for index in range(1, MAX_PLANNING_ATTEMPTS + 2)]
+
+    result = evaluate_plan(
+        _reference_plan(scenario),
+        scenario,
+        tool_calls=_tool_calls(scenario),
+        validation=_validation(),
+        attempt_log=attempts,
+    )
+
+    assert not result.passed
+    assert "replan_bound" in _kinds(result)
+
+
+def test_a_full_proposal_is_silent():
+    """A proposal covering every expected objective raises nothing."""
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    result = evaluate_plan(
+        _reference_plan(scenario),
+        scenario,
+        tool_calls=_tool_calls(scenario),
+        validation=_validation(),
+        plan_proposal=_reference_plan(scenario),
+        attempt_log=[_accepted_attempt()],
+    )
+
+    assert result.passed
+    assert not any(issue.kind == "proposal_fidelity" for issue in result.issues)
+
+
+def test_a_proposal_missing_objectives_warns():
+    """A thin proposal is a warning: the rebuild repaired it."""
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+    full = _reference_plan(scenario)
+    thin = Plan(goal=full.goal, steps=full.steps[:1])
+
+    result = evaluate_plan(
+        full,
+        scenario,
+        tool_calls=_tool_calls(scenario),
+        validation=_validation(),
+        plan_proposal=thin,
+        attempt_log=[_accepted_attempt()],
+    )
+
+    assert result.passed
+    warnings = [issue for issue in result.issues if issue.kind == "proposal_fidelity"]
+    assert warnings and warnings[0].severity == "warning"
+
+
+# ---------------------------------------------------------------------------
 # Report
 # ---------------------------------------------------------------------------
 
@@ -305,6 +467,40 @@ def test_run_errors_are_counted_as_failures():
     assert report.pass_rate == 0.0
     assert report.failures_by_kind == {"run_error": 1}
     assert crashed.error_count == 1
+
+
+def test_report_exposes_the_models_that_produced_the_plans():
+    """The report names its producing models, once, even across repeats."""
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+    results = [
+        ScenarioResult(scenario_id=scenario.id, passed=True, model="llama3.2"),
+        ScenarioResult(scenario_id=scenario.id, passed=True, model="llama3.2"),
+        ScenarioResult(scenario_id=scenario.id, passed=True, model="gemma4"),
+    ]
+
+    report = EvaluationReport(results=results)
+
+    assert report.models == "gemma4, llama3.2"
+    assert EvaluationReport(results=[ScenarioResult(scenario_id=scenario.id)]).models == ""
+
+
+def test_run_scenarios_records_the_sweep_metadata(monkeypatch):
+    """The sweep report carries the RAG flag and the producing model."""
+    from app.evaluation import runner
+
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    def _fake_run_scenario(item):
+        """Stand in for the pipeline run, no LLM involved."""
+        return ScenarioResult(scenario_id=item.id, passed=True, model="test-model")
+
+    monkeypatch.setattr(runner, "run_scenario", _fake_run_scenario)
+
+    report = runner.run_scenarios([scenario], rag_on=False)
+
+    assert report.rag_on is False
+    assert report.models == "test-model"
+    assert [result.scenario_id for result in report.results] == [scenario.id]
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +544,9 @@ def test_pipeline_run_satisfies_the_scenario(monkeypatch):
     result = run_pipeline(scenario.game_state, Goal(description=scenario.goal))
 
     assert result.tool_calls, "the Knowledge Agent must record its MCP calls"
+    assert result.plan_model == "chain-model"
+    assert result.plan_proposal is not None, "the planner must keep its raw proposal"
+    assert result.attempt_log, "the critic must record one attempt"
     outcome = evaluate_plan(
         result.plan,
         scenario,
