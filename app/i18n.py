@@ -472,6 +472,48 @@ _STRINGS: dict[str, dict[str, str]] = {
             "The technical behind-the-scenes: what the system understood, "
             "how many planning attempts it made, and the validation results."
         ),
+        # top-level tabs
+        "tab_play": "Play",
+        "tab_evaluation": "Evaluation",
+        # evaluation tab (Phase 11)
+        "eval_title": "Plan evaluation",
+        "eval_caption": (
+            "Run the shipped scenarios against the live pipeline and check the "
+            "plans it produces: goal reached, timing, prerequisites, tool usage."
+        ),
+        "eval_scenarios": "Scenarios",
+        "eval_scenarios_help": "Pick the scenarios to run. Defaults to all of them.",
+        "eval_rag": "Supplemental wiki retrieval",
+        "eval_rag_help": (
+            "Turn the wiki evidence off to compare plan quality with and without it."
+        ),
+        "eval_run": "Run evaluation",
+        "eval_stop": "Stop evaluation",
+        "eval_running": "Running the evaluation...",
+        "eval_running_scenario": "Running {name}...",
+        "eval_stopped": "The evaluation was stopped.",
+        "eval_result": "Evaluation result",
+        "eval_pass_rate": "Pass rate",
+        "eval_passed": "Passed",
+        "eval_failed": "Failed",
+        "eval_failures_by_kind": "Failures by check",
+        "eval_scenario": "Scenario",
+        "eval_status": "Status",
+        "eval_steps": "Steps",
+        "eval_duration": "Duration",
+        "eval_issues": "Issues",
+        "eval_no_issues": "No issues: the plan satisfies every expectation.",
+        "eval_pass": "PASS",
+        "eval_fail": "FAIL",
+        "eval_run_error": "Run error",
+        "eval_need_llm": "An LLM provider must be configured to run the evaluation.",
+        # evaluation check kinds (reuse the validation legend labels)
+        "kind_plan_shape": "plan shape",
+        "kind_objective_achievement": "goal achievement",
+        "kind_temporal_ordering": "temporal ordering",
+        "kind_prerequisites": "prerequisites",
+        "kind_tool_usage": "tool usage",
+        "kind_critic": "critic",
         # trace sections
         "trace_understood": "What the system understood",
         "trace_understood_caption": (
@@ -698,6 +740,48 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Il dietro le quinte tecnico: cosa ha capito il sistema, "
             "quanti tentativi ha fatto e gli esiti della validazione."
         ),
+        # top-level tabs
+        "tab_play": "Gioca",
+        "tab_evaluation": "Valutazione",
+        # evaluation tab (Phase 11)
+        "eval_title": "Valutazione dei piani",
+        "eval_caption": (
+            "Esegui gli scenari forniti sul pipeline reale e verifica i piani che "
+            "produce: obiettivo raggiunto, tempi, prerequisiti, uso degli strumenti."
+        ),
+        "eval_scenarios": "Scenari",
+        "eval_scenarios_help": "Scegli gli scenari da eseguire. Per default sono tutti.",
+        "eval_rag": "Retrieval wiki supplementare",
+        "eval_rag_help": (
+            "Disattiva le prove dal wiki per confrontare la qualità dei piani con e senza."
+        ),
+        "eval_run": "Esegui la valutazione",
+        "eval_stop": "Interrompi la valutazione",
+        "eval_running": "Valutazione in corso...",
+        "eval_running_scenario": "In esecuzione {name}...",
+        "eval_stopped": "Valutazione interrotta.",
+        "eval_result": "Risultato della valutazione",
+        "eval_pass_rate": "Tasso di successo",
+        "eval_passed": "Superati",
+        "eval_failed": "Falliti",
+        "eval_failures_by_kind": "Fallimenti per controllo",
+        "eval_scenario": "Scenario",
+        "eval_status": "Esito",
+        "eval_steps": "Passi",
+        "eval_duration": "Durata",
+        "eval_issues": "Problemi",
+        "eval_no_issues": "Nessun problema: il piano soddisfa ogni aspettativa.",
+        "eval_pass": "SUPERATO",
+        "eval_fail": "FALLITO",
+        "eval_run_error": "Errore di esecuzione",
+        "eval_need_llm": "Serve un provider LLM configurato per eseguire la valutazione.",
+        # evaluation check kinds (reuse the validation legend labels)
+        "kind_plan_shape": "forma del piano",
+        "kind_objective_achievement": "raggiungimento obiettivo",
+        "kind_temporal_ordering": "ordine temporale",
+        "kind_prerequisites": "prerequisiti",
+        "kind_tool_usage": "uso degli strumenti",
+        "kind_critic": "critic",
         # run audit (Phase 10)
         "audit_header": (
             "Run `{run_id}` \u00b7 {seconds}s \u00b7 {attempts}/{max} tentativi \u00b7 {outcome}"

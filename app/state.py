@@ -18,6 +18,8 @@ class PlanningState(BaseModel):
     llm_config: dict = Field(default_factory=dict)
     state_summary: str = ""
     relevant_objectives: list[Objective] = Field(default_factory=list)
+    # MCP tools invoked by the Knowledge Agent, as "tool" or "tool:<arg>".
+    tool_calls: list[str] = Field(default_factory=list)
     retrieved_context: str = ""
     retrieved_evidence: list[Evidence] = Field(default_factory=list)
     retrieval_engine: str = ""

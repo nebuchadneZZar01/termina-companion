@@ -79,8 +79,8 @@ breaker so a down wiki is not repaid on every run. A wiki failure on that leg
 degrades to a `wiki_miss` with a warning and an explicit `wiki_unreachable`
 flag, so a single slow request never turns retrieval `unavailable`; only an index
 or embedding failure does. Either way the pipeline continues with structured
-context. Persistent memory, broader tracing and formal plan evaluation remain
-future work; leave clear extension points for them.
+context. Persistent memory remains future work; leave clear extension points
+for it. Plan evaluation is implemented in `app/evaluation/` (Phase 11).
 
 ## Development Principles
 
@@ -178,7 +178,25 @@ future work; leave clear extension points for them.
 * `app/state.py` — `PlanningState`, the workflow state threaded
   through the graph (Pydantic model, used as the LangGraph state schema),
   including retrieved evidence, indexed-source manifest, retrieval status,
-  player preferences and relevant past episodes.
+  player preferences, relevant past episodes and the `tool_calls` list the
+  Knowledge Agent records (MCP tools as `"tool"` or `"tool:<arg>"`).
+* `app/evaluation/` — plan evaluation (Phase 11). `models.py` holds the
+  Pydantic contracts (`PlanScenario`, `EvaluationIssue`, `ScenarioResult`,
+  `EvaluationReport`); `scenarios.py` holds the nine shipped scenarios (one
+  per quest, spanning every game area); `evaluator.py` is the deterministic
+  evaluator with six checks — plan shape, objective achievement, temporal
+  ordering, prerequisites, tool usage, critic — reading game knowledge only
+  through the MCP tools, never the knowledge base directly, so it measures
+  what the Knowledge Agent could have known; `runner.py` runs the scenarios
+  against the live pipeline (memory store cleared before each scenario) and is
+  shared by the CLI harness and the UI. `RAG_ENABLED` (`rag_enabled()` in
+  `app/rag/retriever.py`) switches the supplemental wiki retrieval off for
+  A/B runs.
+* `scripts/evaluate_plans.py` — CLI harness for the evaluation sweep:
+  `--scenario`, `--repeat`, `--rag on|off`, `--json`, `--list`; prints one
+  PASS/FAIL line per scenario plus the aggregate pass rate and exits 1 when
+  any scenario fails. It needs a configured LLM provider and is not part of
+  pytest.
 * `app/memory/` — player memory: Pydantic `PlayerPreferences`/`Episode` models
   plus the `MemoryStore` protocol with the thread-safe `InMemoryMemoryStore`
   (keyword ranking; the protocol is the extension point for future persistence).
@@ -190,7 +208,11 @@ future work; leave clear extension points for them.
   `node.*` trace span and record its outcome (duration, status, detail) for
   the run audit; a failing node is also added to the run's error list.
 * `app/ui.py` — Streamlit frontend logic (`render()`); requires a configured
-  LLM provider, with local providers supported for offline runs. Planning runs
+  LLM provider, with local providers supported for offline runs. The page has
+  two top-level tabs: *Play* (`_render_play()`, the state editor and the
+  planning flow) and *Evaluation* (`_render_evaluation()`, the evaluation
+  sweep: scenario picker, RAG toggle, Run/Stop and the per-scenario report).
+  Planning runs
   as a session-scoped background task: Generate is disabled while active and
   Stop requests cooperative cancellation between agent/LLM calls. The progress
   stepper grows with the run instead of redrawing itself: the outer status title

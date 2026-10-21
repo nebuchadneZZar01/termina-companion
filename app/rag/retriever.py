@@ -709,6 +709,10 @@ def retrieve(
     on_progress: Callable[[dict], None] | None = None,
 ) -> RetrievalResult:
     """Retrieve wiki evidence without allowing optional failures to escape."""
+    if not rag_enabled():
+        # Explicitly switched off (evaluation A/B, offline runs): the
+        # structured MCP context stays authoritative and nothing is fetched.
+        return RetrievalResult(query=query, engine="disabled", status="disabled")
     try:
         return build_default_retriever().retrieve(
             query,
@@ -724,6 +728,23 @@ def retrieve(
             status="unavailable",
             warning=str(exc),
         )
+
+
+def rag_enabled() -> bool:
+    """Whether supplemental wiki retrieval is enabled.
+
+    Controlled by ``RAG_ENABLED`` (``0``/``false``/``off`` disables it).
+    Used by the evaluation harness to compare plan quality with and without
+    the supplemental evidence.
+
+    args:
+        (none)
+
+    returns:
+        bool: True when retrieval may run.
+    """
+    raw = os.getenv("RAG_ENABLED", "").strip().casefold()
+    return raw not in {"0", "false", "off", "no"}
 
 
 def safe_retrieve(

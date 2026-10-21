@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Current phase:** Phase 10 — Tracing & Audit
+**Current phase:** Phase 11 — Evaluation
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
@@ -40,7 +40,11 @@ Status map:
   spans exported to a local Phoenix container via OTLP when configured, a
   cheap no-op otherwise; full LLM prompts go to spans, the Trace tab shows a
   run header, node timeline and errors only).
-* Phase 11 — Evaluation: not started yet.
+* Phase 11 — Evaluation: complete (9 evaluation scenarios spanning every game
+  area, a deterministic evaluator with six checks — plan shape, objective
+  achievement, temporal ordering, prerequisites, tool usage, critic — an
+  explicit PASS/FAIL per scenario, an aggregate pass rate, a CLI harness
+  (`scripts/evaluate_plans.py`) and an Evaluation tab in the Streamlit UI).
 * Phase 12 — Production Readiness: not started yet.
 * Phase 13 — Deployment: not started yet.
 
@@ -194,8 +198,8 @@ structured context rather than disabling retrieval.
 Structured game constraints such as schedules and prerequisites remain in MCP
 data/tools. RAG is supplemental narrative evidence and must not create or
 override objectives. Runtime failure records `unavailable`, logs a warning and
-continues with structured MCP context. Full plan/trajectory evaluation remains
-Phase 11.
+continues with structured MCP context. Full plan/trajectory evaluation is
+implemented in Phase 11.
 
 # Phase 8 — Memory
 
@@ -246,19 +250,32 @@ monitoring is served by these spans plus the existing text logs.
 
 # Phase 11 — Evaluation
 
-* [ ] Define evaluation scenarios
-* [ ] Start with a small scenario set
-* [ ] Define expected constraints for each scenario
-* [ ] Implement plan/trajectory evaluator
-* [ ] Check tool usage
-* [ ] Check temporal ordering
-* [ ] Check prerequisites
-* [ ] Check objective achievement
-* [ ] Produce explicit PASS/FAIL
-* [ ] Calculate aggregate pass rate
-* [ ] Add regression scenarios
+* [x] Define evaluation scenarios
+* [x] Start with a small scenario set (9 scenarios, one per quest, all areas)
+* [x] Define expected constraints for each scenario
+* [x] Implement plan/trajectory evaluator
+* [x] Check tool usage
+* [x] Check temporal ordering
+* [x] Check prerequisites
+* [x] Check objective achievement
+* [x] Produce explicit PASS/FAIL
+* [x] Calculate aggregate pass rate
+* [x] Add regression scenarios
 * [ ] Revisit `RAG_SIMILARITY_THRESHOLD` if plan pass rate degrades from RAG noise/misses
 * [x] Evaluate RAG separately if RAG is implemented (retrieval-only harness)
+
+The evaluator reads game knowledge only through the MCP tools, never the
+knowledge base directly, so it measures what the Knowledge Agent could have
+known. Each scenario declares goal-level expectations only; the tool
+expectations are derived from the objectives the goal retrieves. The same
+sweep runs from the CLI (`scripts/evaluate_plans.py`) and from the Evaluation
+tab of the Streamlit UI.
+
+Caveat: the Planning Agent rebuilds the objective chain deterministically
+(`_reconcile_plan`), so the pass rate mainly measures retrieval, the chain
+reconciliation and the critic — the LLM influences the step windows, not the
+step set. The threshold revisit stays open until a live sweep shows a
+degradation caused by RAG noise.
 
 # Phase 12 — Production Readiness
 

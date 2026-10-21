@@ -10,8 +10,8 @@ calls a configured LLM. The Knowledge Agent adds supplemental evidence from an
 adaptive Zelda Wiki RAG cache, while MCP tools remain authoritative for game
 rules. Provider configuration is required; local providers such as Ollama can
 run without an external API key. In-memory player memory (preferences plus
-past episodes) is active; persistent memory, tracing and full plan
-evaluation remain future work.
+past episodes), OpenTelemetry tracing and a plan-evaluation harness are
+active; persistent memory remains future work.
 
 ## Install
 
@@ -35,6 +35,9 @@ outcome. While the agents run, **Generate plan** is disabled and **Stop** can
 request cooperative cancellation after the current agent or LLM call. The
 progress stepper is not on a timer: it repaints only when an agent finishes, so
 the page stays still while the agents reason.
+
+The page has two tabs: **Play** (the state editor and the planning flow) and
+**Evaluation** (the evaluation sweep, see below).
 
 ## Save/Load
 
@@ -239,7 +242,86 @@ count as `unavailable`. Last calibration is recorded as
 changes.
 
 Retrieval quality evaluation is separate from full plan/trajectory evaluation,
-which remains Phase 11.
+which is implemented in the next section.
+
+## Evaluation
+
+The evaluation harness measures whether a plan produced by the pipeline
+actually reaches the player's goal. It ships nine scenarios — one per quest,
+spanning every game area — each with a player state, a goal phrased the way a
+player would phrase it, and the objectives the plan is expected to contain:
+
+| Scenario | What it covers |
+|---|---|
+| `anju-kafei` | Four-step chain over three days, with a letter and a dinner event |
+| `bombers-notebook` | A notebook earned from the leader unlocks the hidden hideout |
+| `darmani-ghost` | Longest mask chain, night meeting at 22:00, lullaby the next day |
+| `mikau-eggs` | The Zora Mask gates every later step, eggs need a daytime window |
+| `mikau-with-zora-mask` | The Zora Mask is already owned, so the shore step must be skipped |
+| `pamela-father` | Night-only slot (00:00-04:00) behind the Gibdo Mask |
+| `deku-princess` | Two-day chain through the Southern Swamp, gated by the Deku Mask |
+| `romani-ranch` | Early-morning purchase, 2 AM alien defence, moonlit milk delivery |
+| `deed-chain` | Five-step trade cycle across three areas and all three days |
+
+The evaluator is deterministic and never calls an LLM. It reads game knowledge
+only through the MCP tools (`search_quests`, `check_prerequisites`), so it
+measures what the Knowledge Agent could have known, and it runs six checks:
+
+| Check | Fails when |
+|---|---|
+| `plan_shape` | No plan, a step count outside the expected range, or a step referencing an unknown objective |
+| `objective_achievement` | A required objective is missing, the goal objective is not reached, or a forbidden objective is present |
+| `temporal_ordering` | Steps are out of order, overlap, start in the past, or fall outside their objective's slot |
+| `prerequisites` | A step's items, masks or prerequisite objectives are not satisfied when it happens |
+| `tool_usage` | The Knowledge Agent skipped a tool the goal needed (quest search, NPC schedule, event) |
+| `critic` | The Critic rejected the plan |
+
+A scenario passes when no check reports an error; warnings are reported but do
+not fail it.
+
+### CLI
+
+```sh
+uv run python scripts/evaluate_plans.py --list
+uv run python scripts/evaluate_plans.py
+uv run python scripts/evaluate_plans.py --scenario anju-kafei --repeat 3
+uv run python scripts/evaluate_plans.py --rag off
+uv run python scripts/evaluate_plans.py --json reports/evaluation.json
+```
+
+The harness runs the full pipeline once per scenario, so it needs a configured
+LLM provider (like the rest of the app). It prints one `PASS`/`FAIL` line per
+scenario with the failed checks, then the aggregate pass rate, and exits `1`
+when any scenario fails — so it can gate a run:
+
+```
+[1/9] anju-kafei             PASS  (12.4s)
+[2/9] bombers-notebook       PASS  (9.8s)
+...
+Pass rate: 9/9 = 1.00
+Failures by check: none
+```
+
+The memory store is cleared before every scenario, so the scenarios never see
+each other's past episodes. `--rag off` disables the supplemental wiki
+retrieval (`RAG_ENABLED=0`) to compare plan quality with and without it.
+
+### Evaluation tab
+
+The same sweep runs in the browser: open the app and switch to the
+**Evaluation** tab, pick the scenarios, and press *Run evaluation*. The sweep
+runs in a background thread with a progress bar and a cooperative *Stop*
+control, then shows the pass rate, a per-scenario table and the failed checks
+of every scenario. Both entry points share `app/evaluation/runner.py`, so they
+measure exactly the same thing.
+
+### What the pass rate measures
+
+The Planning Agent rebuilds the objective chain deterministically after the
+LLM answers (`_reconcile_plan`), so the step set of a plan follows from the
+retrieved objectives and the LLM mainly influences the step windows. The pass
+rate is therefore mostly a regression signal over retrieval, chain
+reconciliation and the critic — not a measure of LLM creativity.
 
 ## Architecture
 
@@ -272,10 +354,12 @@ validation.
 | `app/state.py` | `PlanningState`, including RAG evidence, status, warning, ingested pages and indexed-source manifest. |
 | `app/graph.py` | LangGraph wiring and `MAX_PLANNING_ATTEMPTS = 3` loop. |
 | `app/ui.py` | Streamlit frontend and provenance display. |
+| `app/evaluation/` | Plan-evaluation scenarios, deterministic evaluator and shared sweep runner. |
+| `scripts/evaluate_plans.py` | CLI harness for the evaluation sweep. |
 | `app/trace.py` | OpenTelemetry tracing seam: run spans, LLM prompt capture and the no-op/OTLP setup. |
 | `docker-compose.yml` | Local Arize Phoenix observability container. |
 | `app/__main__.py` | Headless pipeline demo. |
-| `tests/` | Domain, validation, graph, RAG persistence, tracing and integration tests. |
+| `tests/` | Domain, validation, graph, RAG persistence, tracing, evaluation and integration tests. |
 
 Mock data spans Clock Town, Southern Swamp, Mountain Village, Great Bay, Ikana
 Canyon and Romani Ranch, but is deliberately not lore-complete. The
@@ -290,5 +374,7 @@ architecture is not tied to one quest.
   `MemoryStore`; persist them (extend `GameState`, attach a graph
   checkpointer or a file/DB store behind the same protocol).
 - **Tracing and audit** — add request IDs and LangGraph/tool/retrieval events.
-- **Plan evaluation** — implement the Phase 11 scenario/trajectory evaluator;
-  keep it separate from RAG retrieval evaluation.
+- **Plan evaluation** — the Phase 11 scenario/plan evaluator is in place; the
+  next step is trajectory evaluation (the sequence of agent decisions, not only
+  the final plan) and evaluating the LLM proposal before the deterministic
+  chain rebuild, so the LLM's contribution becomes measurable.
