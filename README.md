@@ -27,13 +27,24 @@ uv sync
 uv run streamlit run main.py
 ```
 
-Edit day/hour, location, inventory, masks and quest progress, set a goal, then
+Edit day/hour, location, inventory, masks and quest progress (use the sidebar
+Save/Load buttons to keep the state between sessions), set a goal, then
 press **Generate plan**. The UI shows retrieved knowledge, RAG status, the
 indexed-page manifest, retrieved evidence provenance, plan steps and validation
 outcome. While the agents run, **Generate plan** is disabled and **Stop** can
 request cooperative cancellation after the current agent or LLM call. The
 progress stepper is not on a timer: it repaints only when an agent finishes, so
 the page stays still while the agents reason.
+
+## Save/Load
+
+The sidebar has **Save** and **Load** buttons for the current game state
+(day/time, location, masks, inventory, quest progress and goal).
+
+Saves are written as JSON to `saves/last_save.json` (the directory is
+derived from `RAG_QDRANT_PATH`, so it sits next to `.cache/`). **Load**
+restores every form field from that file; if no valid save exists the app
+shows a warning and keeps the current state.
 
 ## Run the headless demo
 
@@ -47,6 +58,8 @@ Ollama or LM Studio work locally without an external API key.
 
 ## Run with an LLM
 
+LLM configuration is done **only via environment variables** (no UI fields).
+
 ```sh
 export LLM_PROVIDER=openai
 export LLM_API_KEY=sk-...
@@ -55,9 +68,9 @@ uv run streamlit run main.py
 
 Supported providers: `openai`, `openrouter`, `ollama`, `lmstudio`, `anthropic`,
 `google`. Configure `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY` and
-`LLM_BASE_URL`; `.env.example` is the complete annotated reference. Missing
-configuration, invocation errors and empty model output fail explicitly. The
-Planning Agent never substitutes a rule-based fallback plan.
+`LLM_BASE_URL` (or set them in `.env`); `.env.example` is the complete
+annotated reference. Missing configuration, invocation errors and empty model
+output fail explicitly. The Planning Agent never substitutes a fallback plan.
 
 ## Observability (tracing)
 

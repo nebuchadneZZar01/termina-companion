@@ -293,8 +293,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "masks": "Masks you own",
         "masks_help": "Select the masks you carry. Selected = owned.",
         "inventory": "Inventory",
-        "inventory_help": "Select the items you carry. Selected = you have it.",
-        "inventory_placeholder": "Choose or add items",
+        "inventory_help": (
+            "Select the items you carry. Selected = owned. Add any other item below."
+        ),
+        "inventory_add": "Add a custom item",
+        "inventory_add_button": "Add",
         "quest_progress": "Quest Progress",
         "quest_progress_help": ("Select quests already completed \u2014 they\u2019ll be skipped."),
         "legend": "\u2713 Selected = owned / completed",
@@ -306,6 +309,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "stop_plan_help": "Stop after the current agent or LLM call finishes.",
         "info_edit_state": ("Set your state and goal, then press **Plan My Quest**."),
         "llm_settings": "LLM Settings",
+        "save_load": "Save/Load",
+        "save_button": "Save",
+        "load_button": "Load",
+        "save_ok": "Saved successfully",
+        "load_none": "No save found",
         "llm_provider": "Provider",
         "llm_model": "Model",
         "llm_api_key": "API Key",
@@ -498,8 +506,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         "masks": "Maschere in tuo possesso",
         "masks_help": ("Seleziona le maschere che porti. Selezionato = in possesso."),
         "inventory": "Inventario",
-        "inventory_help": ("Seleziona gli oggetti che porti con te. Selezionato = lo possiedi."),
-        "inventory_placeholder": "Seleziona o aggiungi oggetti",
+        "inventory_help": (
+            "Seleziona gli oggetti che porti con te. Selezionato = lo possiedi. "
+            "Aggiungi altri oggetti qui sotto."
+        ),
+        "inventory_add": "Aggiungi oggetto personalizzato",
+        "inventory_add_button": "Aggiungi",
         "quest_progress": "Missioni completate",
         "quest_progress_help": (
             "Seleziona le missioni gi\u00e0 completate \u2014 verranno saltate."
@@ -515,6 +527,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         "info_edit_state": ("Imposta stato e obiettivo, poi premi **Pianifica la mia missione**."),
         "llm_settings": "Impostazioni LLM",
+        "save_load": "Partita",
+        "save_button": "Salva",
+        "load_button": "Carica",
+        "save_ok": "Salvataggio riuscito",
+        "load_none": "Nessun salvataggio trovato",
         "llm_provider": "Provider",
         "llm_model": "Modello",
         "llm_api_key": "Chiave API",

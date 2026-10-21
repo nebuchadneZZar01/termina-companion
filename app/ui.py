@@ -7,6 +7,7 @@ Entry points: ``uv run streamlit run main.py`` (preferred) or
 from __future__ import annotations
 
 import datetime
+import datetime as _datetime
 import os
 import queue
 import re
@@ -21,6 +22,7 @@ from app.data.mock_knowledge import MASKS, build_default_knowledge
 from app.domain import ClockTime, GameState, Goal, TimeWindow
 from app.graph import MAX_PLANNING_ATTEMPTS, build_graph
 from app.i18n import DEFAULT_LANG, spinner_lines, t, tr, tr_msg
+from app.save import load_state, save_state
 from app.trace import current_run, pipeline_span
 
 
@@ -36,8 +38,6 @@ def _graph():
     """
     return build_graph()
 
-
-_PROVIDERS = ("openai", "openrouter", "ollama", "lmstudio", "anthropic", "google")
 
 _LANGS = {"en": "\U0001f1ec\U0001f1e7 English", "it": "\U0001f1ee\U0001f1f9 Italiano"}
 
@@ -149,21 +149,20 @@ def _task_is_active(task: _PlanningTask | None) -> bool:
     return task is not None and task.status in _ACTIVE_STATUSES
 
 
-def _plan_controls_disabled(task: _PlanningTask | None, llm_model: str) -> tuple[bool, bool]:
+def _plan_controls_disabled(task: _PlanningTask | None) -> tuple[bool, bool]:
     """Return the ``(generate, stop)`` disabled flags for the planning controls.
 
     args:
         task (_PlanningTask | None): the session planning task, if any.
-        llm_model (str): the model typed in the sidebar.
 
     returns:
-        tuple[bool, bool]: Generate is disabled while a run is active or no
-        model is configured; Stop is enabled only while a run is running, not
-        while a stop request is already pending.
+        tuple[bool, bool]: Generate is disabled while a run is active; Stop
+        is enabled only while a run is running, not while a stop request is
+        already pending.
     """
     active = _task_is_active(task)
     stopping = task is not None and task.status == "stopping"
-    return active or not llm_model.strip(), stopping or not active
+    return active, stopping or not active
 
 
 def _run_stream(
@@ -1157,12 +1156,63 @@ def render() -> None:
     with st.sidebar:
         st.selectbox(t("language"), list(_LANGS), key="lang", format_func=lambda c: _LANGS[c])
         st.divider()
+        _section(t("save_load"))
+        col_s, col_l = st.columns(2)
+        with col_s:
+            if st.button(t("save_button"), use_container_width=True):
+                goal_val = st.session_state.get("save_goal", "")
+                tm_val = st.session_state.get("save_time") or _datetime.time(6, 0)
+                day_val = int(st.session_state.get("save_day", 1))
+                data = {
+                    "version": 1,
+                    "day": day_val,
+                    "time": {"day": day_val, "hour": tm_val.hour, "minute": tm_val.minute},
+                    "location": st.session_state.get("save_location") or "South Clock Town",
+                    "masks": list(st.session_state.get("save_masks") or []),
+                    "inventory": list(st.session_state.get("save_inventory") or []),
+                    "quest_progress": list(st.session_state.get("save_quests") or []),
+                    "goal": goal_val or "",
+                }
+                try:
+                    _ = save_state(data)
+                    st.success(t("save_ok"))
+                except Exception as exc:
+                    st.error(str(exc))
+        with col_l:
+            if st.button(t("load_button"), use_container_width=True):
+                snapshot = load_state()
+                if not snapshot:
+                    st.warning(t("load_none"))
+                else:
+                    try:
+                        st.session_state["save_day"] = int(snapshot.day)
+                        st.session_state["save_time"] = _datetime.time(
+                            snapshot.time.hour, snapshot.time.minute
+                        )
+                        if snapshot.location:
+                            st.session_state["save_location"] = snapshot.location
+                        st.session_state["save_masks"] = list(snapshot.masks)
+                        st.session_state["save_inventory"] = list(snapshot.inventory)
+                        st.session_state["save_quests"] = list(snapshot.quest_progress)
+                        st.session_state["save_goal"] = snapshot.goal or ""
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(str(exc))
+        st.divider()
         _section(t("llm_settings"))
-        llm_provider = st.selectbox(t("llm_provider"), list(_PROVIDERS))
-        llm_model = st.text_input(t("llm_model"), placeholder="gpt-4o-mini")
-        llm_api_key = st.text_input(t("llm_api_key"), type="password")
-        if not llm_model.strip():
-            st.caption(t("llm_model_required"))
+        provider = os.getenv("LLM_PROVIDER", "").strip()
+        model = os.getenv("LLM_MODEL", "").strip()
+        base_url = os.getenv("LLM_BASE_URL", "").strip()
+        if provider:
+            st.markdown(f"- **LLM Provider**: `{provider}`")
+            if model:
+                st.markdown(f"- **Modello**: `{model}`")
+            elif base_url:
+                st.markdown(f"- **LLM_BASE_URL**: `{base_url}`")
+        else:
+            st.warning(
+                "LLM not configured. Set LLM_PROVIDER (and credentials) in .env (see .env.example)."
+            )
 
     st.title(f"\U0001f319 {t('title')}")
     st.caption(t("subtitle"))
@@ -1174,12 +1224,16 @@ def render() -> None:
         _section(t("game_state"), t("game_state_caption"))
         c1, c2 = st.columns([1, 1])
         with c1:
-            day = st.selectbox(t("day"), [1, 2, 3], index=1)
+            day = st.selectbox(t("day"), [1, 2, 3], index=0, key="save_day")
         with c2:
-            tm = st.time_input(t("time"), datetime.time(8, 0))
+            tm = st.time_input(t("time"), datetime.time(6, 0), key="save_time")
 
         locations = sorted({loc.name for loc in kb.locations})
-        location = st.selectbox(t("location"), locations or ["Termina Field"], format_func=tr)
+        default_loc = "South Clock Town"
+        idx = locations.index(default_loc) if default_loc in locations else 0
+        location = st.selectbox(
+            t("location"), locations or ["Termina Field"], index=idx, format_func=tr
+        )
 
         masks = st.pills(
             t("masks"),
@@ -1188,18 +1242,51 @@ def render() -> None:
             format_func=tr,
             help=t("masks_help"),
             wrap=True,
+            key="save_masks",
         )
         item_options = sorted(
             {i for quest in kb.quests for o in quest.objectives for i in o.requires_items}
         )
-        inventory = st.multiselect(
+        # Custom items enter through the input below the pills; the add is
+        # applied at the start of the next run, before the widgets exist, so
+        # save_inventory/save_inventory_new are only written pre-instantiation.
+        pending_add = st.session_state.pop("_inventory_add_pending", None)
+        if pending_add:
+            current = list(st.session_state.get("save_inventory") or [])
+            if pending_add not in current:
+                st.session_state["save_inventory"] = [*current, pending_add]
+            st.session_state["save_inventory_new"] = ""
+        # Pills render only options: merge the current selection so custom
+        # items (typed or loaded from a save) stay visible and deselectable.
+        owned_now = st.session_state.get("save_inventory") or []
+        inventory_options = sorted(set(item_options) | set(owned_now))
+        inventory = st.pills(
             t("inventory"),
-            item_options or ["Kafei's Letter"],
+            inventory_options or ["Kafei's Letter"],
+            selection_mode="multi",
             format_func=tr,
             help=t("inventory_help"),
-            placeholder=t("inventory_placeholder"),
-            accept_new_options=True,
+            wrap=True,
+            key="save_inventory",
         )
+        add_col, button_col = st.columns([4, 1])
+        with add_col:
+            st.text_input(
+                t("inventory_add"),
+                key="save_inventory_new",
+                label_visibility="collapsed",
+                placeholder=t("inventory_add"),
+            )
+        with button_col:
+            if st.button(
+                t("inventory_add_button"),
+                use_container_width=True,
+                key="save_inventory_add",
+            ):
+                typed = (st.session_state.get("save_inventory_new") or "").strip()
+                if typed:
+                    st.session_state["_inventory_add_pending"] = typed
+                    st.rerun()
         quest_names = {q.name: q.id for q in kb.quests}
         done_q = st.pills(
             t("quest_progress"),
@@ -1208,6 +1295,7 @@ def render() -> None:
             format_func=tr,
             help=t("quest_progress_help"),
             wrap=True,
+            key="save_quests",
         )
         st.caption(t("legend"))
 
@@ -1218,10 +1306,13 @@ def render() -> None:
             placeholder=t("goal_example"),
             height=180,
             label_visibility="collapsed",
+            key="save_goal",
         )
         st.markdown('<div style="padding:0.4rem;"></div>', unsafe_allow_html=True)
         task = st.session_state.get(_PLANNING_TASK_KEY)
-        generate_disabled, stop_disabled = _plan_controls_disabled(task, llm_model)
+        generate_disabled, stop_disabled = _plan_controls_disabled(task)
+        if not (goal_text or "").strip():
+            generate_disabled = True
         run_col, stop_col = st.columns([4, 1])
         with run_col:
             run = st.button(
@@ -1245,7 +1336,7 @@ def render() -> None:
         task.status = "stopping"
         st.rerun()
 
-    if run and not _task_is_active(task):
+    if run and not _task_is_active(task) and (goal_text or "").strip():
         game_state = GameState(
             time=ClockTime(day=day, hour=tm.hour, minute=tm.minute),
             location=location,
@@ -1255,18 +1346,10 @@ def render() -> None:
         )
         goal = Goal(description=goal_text)
 
-        llm_config: dict[str, str] = {}
-        if llm_provider:
-            llm_config["provider"] = llm_provider
-        if llm_model:
-            llm_config["model"] = llm_model
-        if llm_api_key:
-            llm_config["api_key"] = llm_api_key
-
         initial = {
             "game_state": game_state,
             "goal": goal,
-            "llm_config": llm_config,
+            "llm_config": {},
         }
         # Build the cached graph in the main thread: `_graph()` is wrapped in
         # @st.cache_resource, whose dispatcher needs the script run context.

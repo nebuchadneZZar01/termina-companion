@@ -57,10 +57,6 @@ def get_chat_model(
         raise LLMConfigurationError(
             "No LLM provider configured. Set LLM_PROVIDER to a supported provider."
         )
-    if provider == "rule-based":
-        raise LLMConfigurationError(
-            "The rule-based provider is no longer supported; configure an LLM provider."
-        )
     model = (model or os.getenv("LLM_MODEL", "")).strip() or None
     api_key = (api_key or os.getenv("LLM_API_KEY", "")).strip() or None
 

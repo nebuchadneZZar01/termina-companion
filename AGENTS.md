@@ -169,6 +169,12 @@ future work; leave clear extension points for them.
   muted at `INFO` and reset to inherit at `DEBUG`. Message bodies are always
   bounded by `LLM_LOG_PAYLOAD_LIMIT`, so one runaway prompt cannot flood the
   console at either level.
+* `app/save.py` — `SaveSnapshot` plus `save_state`/`load_state`: persists the
+  sidebar form (day/time, location, masks, inventory, quest progress, goal) as
+  JSON in `saves/last_save.json` under the save directory derived from
+  `RAG_QDRANT_PATH`. Corrupt or missing files load as `None` (the UI warns and
+  keeps the current state); the Streamlit sidebar Save/Load buttons are the
+  only caller.
 * `app/state.py` — `PlanningState`, the workflow state threaded
   through the graph (Pydantic model, used as the LangGraph state schema),
   including retrieved evidence, indexed-source manifest, retrieval status,

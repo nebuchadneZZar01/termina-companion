@@ -13,10 +13,10 @@ def test_no_provider_raises(monkeypatch):
         get_chat_model()
 
 
-def test_rule_based_provider_is_rejected(monkeypatch):
-    """The removed rule-based provider is no longer a valid planner mode."""
+def test_rule_based_provider_is_unknown(monkeypatch):
+    """The removed rule-based provider is no longer supported."""
     monkeypatch.setenv("LLM_PROVIDER", "rule-based")
-    with pytest.raises(LLMConfigurationError, match="no longer supported"):
+    with pytest.raises(LLMConfigurationError, match="Unknown LLM_PROVIDER"):
         get_chat_model()
 
 
