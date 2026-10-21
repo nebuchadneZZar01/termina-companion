@@ -312,6 +312,29 @@ def test_retrieve_never_raises_when_default_builder_fails(monkeypatch):
     assert "model unavailable" in result.warning
 
 
+def test_retrieve_disabled_path_returns_disabled_status(monkeypatch):
+    """``RAG_ENABLED=0`` must yield a clean disabled result, not a crash.
+
+    ``status="disabled"`` was missing from ``RetrievalStatus``, so the
+    construction raised a ValidationError *before* the try block: every
+    ``--rag off`` run recorded ``unavailable`` with the pydantic error as
+    its warning, and that text leaked into the planner prompt.
+    """
+    from app.rag import retriever as retriever_module
+
+    def builder_must_not_run():
+        raise AssertionError("disabled retrieval must not build the retriever")
+
+    monkeypatch.setattr(retriever_module, "build_default_retriever", builder_must_not_run)
+    monkeypatch.setenv("RAG_ENABLED", "0")
+    result = retriever_module.retrieve("Anju Kafei")
+
+    assert result.status == "disabled"
+    assert result.engine == "disabled"
+    assert result.warning == ""
+    assert result.evidence == []
+
+
 def test_knowledge_agent_keeps_mcp_authoritative_and_reports_status(monkeypatch):
     evidence = chunk_document(_document())[0]
     fake_result = RetrievalResult(
@@ -334,6 +357,18 @@ def test_knowledge_agent_keeps_mcp_authoritative_and_reports_status(monkeypatch)
     assert result["retrieval_ingested_pages"] == []
     assert len(result["retrieval_indexed_sources"]) == 1
     assert result["retrieval_indexed_sources"][0].source_page_id == 1
+
+
+def test_knowledge_agent_disabled_rag_labels_context(monkeypatch):
+    """A disabled retrieval is reported as such, never as a degradation."""
+    fake_result = RetrievalResult(query="Anju Kafei", engine="disabled", status="disabled")
+    monkeypatch.setattr(knowledge_agent, "retrieve", lambda *_args, **_kwargs: fake_result)
+
+    result = knowledge_agent.run(_state())
+
+    assert result["retrieval_status"] == "disabled"
+    assert "[RAG disabled: structured data only.]" in result["retrieved_context"]
+    assert "[RAG degraded" not in result["retrieved_context"]
 
 
 def test_knowledge_agent_search_terms_include_structured_entities(monkeypatch):

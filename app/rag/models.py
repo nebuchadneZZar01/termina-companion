@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-RetrievalStatus = Literal["cache_hit", "wiki_ingested", "wiki_miss", "unavailable"]
+RetrievalStatus = Literal["cache_hit", "wiki_ingested", "wiki_miss", "unavailable", "disabled"]
 
 
 class SourceMetadata(BaseModel):
@@ -82,10 +82,11 @@ Evidence = RetrievedChunk
 class RetrievalResult(BaseModel):
     """Result of one adaptive cache-aside retrieval request.
 
-    ``status`` reports the outcome (cache hit, ingested, miss, unavailable),
-    while ``wiki_unreachable`` independently records whether the wiki leg failed
-    because the wiki could not be reached. A wiki that is reachable but returns
-    an API error or no usable page is a miss, not an unreachable source.
+    ``status`` reports the outcome (cache hit, ingested, miss, unavailable,
+    disabled), while ``wiki_unreachable`` independently records whether the
+    wiki leg failed because the wiki could not be reached. A wiki that is
+    reachable but returns an API error or no usable page is a miss, not an
+    unreachable source.
     """
 
     query: str
