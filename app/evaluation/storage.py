@@ -75,6 +75,24 @@ def _write(path: Path, payload: str) -> None:
     tmp.replace(path)
 
 
+def stamp_report(report: EvaluationReport) -> EvaluationReport:
+    """Return the report carrying a UTC ``created_at``, stamping it when empty.
+
+    The stamp must happen once, before any write, so the last report, the
+    history copy and an extra ``--json`` copy all describe the same moment.
+
+    args:
+        report (EvaluationReport): the report to stamp.
+
+    returns:
+        EvaluationReport: the stamped report (the input when already stamped).
+    """
+    if report.created_at:
+        return report
+    stamped = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+    return report.model_copy(update={"created_at": stamped})
+
+
 def save_report(report: EvaluationReport, *, history: bool = True) -> Path:
     """Write a report to disk.
 
@@ -90,9 +108,7 @@ def save_report(report: EvaluationReport, *, history: bool = True) -> Path:
     returns:
         Path: the path of the last report.
     """
-    if not report.created_at:
-        stamped = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
-        report = report.model_copy(update={"created_at": stamped})
+    report = stamp_report(report)
     payload = report.model_dump_json(indent=2)
     path = get_eval_dir() / LAST_REPORT_NAME
     _write(path, payload)

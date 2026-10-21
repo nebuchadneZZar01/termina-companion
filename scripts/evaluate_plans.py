@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.evaluation.models import EvaluationReport, PlanScenario, ScenarioResult  # noqa: E402
 from app.evaluation.runner import run_scenarios  # noqa: E402
 from app.evaluation.scenarios import EVALUATION_SCENARIOS, SCENARIOS_BY_ID  # noqa: E402
-from app.evaluation.storage import save_report  # noqa: E402
+from app.evaluation.storage import save_report, stamp_report  # noqa: E402
 from app.log import configure_logging  # noqa: E402
 from app.trace import setup_tracing  # noqa: E402
 
@@ -184,6 +184,7 @@ def main() -> int:
         results.extend(report.results)
 
     report = EvaluationReport(results=results, rag_on=args.rag == "on", repeats=repeats)
+    report = stamp_report(report)
     print_summary(report)
 
     try:

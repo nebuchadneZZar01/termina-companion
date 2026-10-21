@@ -11,6 +11,7 @@ from app.evaluation.storage import (
     list_reports,
     load_report,
     save_report,
+    stamp_report,
 )
 
 
@@ -91,6 +92,19 @@ def test_save_stamps_a_report_that_has_no_date():
     loaded = load_report()
     assert loaded is not None
     assert loaded.created_at.endswith(("Z", "+00:00"))
+
+
+def test_stamp_report_fills_the_date_once():
+    """Stamping before writing keeps the last, history and --json copies equal."""
+    report = EvaluationReport(results=[ScenarioResult(scenario_id="anju-kafei", passed=True)])
+    assert report.created_at == ""
+
+    stamped = stamp_report(report)
+    assert stamped is not report
+    assert stamped.created_at.endswith(("Z", "+00:00"))
+
+    again = stamp_report(stamped)
+    assert again.created_at == stamped.created_at
 
 
 def test_save_keeps_a_timestamped_history_copy():
