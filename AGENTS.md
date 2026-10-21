@@ -142,8 +142,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   evidence/source-manifest contracts, MediaWiki client and HTML cleanup,
   heading-aware chunking, FastEmbed adapter, persistent embedded Qdrant store,
   ingestion lock and cache-aside retrieval. `retrieve` is the Knowledge Agent
-  seam; it always attempts retrieval, records `cache_hit`/`wiki_ingested`/
-  `wiki_miss`/`unavailable`, and fails soft without bypassing MCP authority. A
+  seam; it always attempts retrieval (except when `RAG_ENABLED` turns it off,
+  which returns the `disabled` status without touching any backend), records
+  `cache_hit`/`wiki_ingested`/`wiki_miss`/`unavailable`/`disabled`, and fails
+  soft without bypassing MCP authority. A
   wiki-leg failure maps to `wiki_miss` with a warning and a `wiki_unreachable`
   flag when the wiki could not be reached; only an index or embedding failure
   maps to `unavailable`.
@@ -207,7 +209,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   against the live pipeline (memory store cleared before each scenario) and is
   shared by the CLI harness and the UI; `storage.py` persists the report in
   the save directory derived from `RAG_QDRANT_PATH` (`last_evaluation.json`
-  plus a timestamped `evaluations/` copy), so the checks outlive the session:
+  plus a timestamped `evaluations/` copy; a missing creation date is stamped
+  once before any write, so every copy of a sweep agrees), so the checks
+  outlive the session:
   the UI worker writes it when a sweep finishes and *Load last report* reads
   it back. The report also carries sweep metadata (RAG flag, producing model,
   repeat count, creation timestamp) so two saved sweeps can be compared; its
