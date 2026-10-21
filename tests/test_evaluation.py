@@ -496,16 +496,17 @@ def test_report_reports_what_the_wiki_retrieval_actually_did():
     # Asked for and healthy: every leg hit the cache or the wiki.
     assert EvaluationReport(results=[_result("cache_hit")], rag_on=True).wiki_retrieval == "on"
     assert EvaluationReport(results=[_result("wiki_ingested")], rag_on=True).wiki_retrieval == "on"
-    # One leg failed: the sweep must say so, even when the others were fine.
+    # One leg failed to run at all: the sweep must say so, even when the
+    # others were fine.
     assert (
         EvaluationReport(
             results=[_result("cache_hit"), _result("unavailable")], rag_on=True
         ).wiki_retrieval
         == "degraded"
     )
-    assert (
-        EvaluationReport(results=[_result("wiki_miss")], rag_on=True).wiki_retrieval == "degraded"
-    )
+    # A wiki_miss is an ordinary outcome (nothing relevant found), not a
+    # failure: a sweep full of them still ran.
+    assert EvaluationReport(results=[_result("wiki_miss")], rag_on=True).wiki_retrieval == "on"
     # An older report recorded no status and no flag.
     assert EvaluationReport(results=[_result("")]).wiki_retrieval == "unknown"
     assert EvaluationReport().wiki_retrieval == "unknown"

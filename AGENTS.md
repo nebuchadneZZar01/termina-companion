@@ -213,7 +213,8 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   repeat count, creation timestamp) so two saved sweeps can be compared; its
   `wiki_retrieval` computed field reports what the runs actually recorded
   (`off`/`on`/`degraded`/`unknown`) instead of echoing the requested flag, so a
-  sweep whose retrieval died partway is never labelled healthy.
+  sweep whose wiki leg died partway is never labelled healthy; `wiki_miss` is
+  not degraded, it is also the ordinary outcome of an irrelevant query.
   `RAG_ENABLED` (`rag_enabled()` in
   `app/rag/retriever.py`) switches the supplemental wiki retrieval off for
   A/B runs.

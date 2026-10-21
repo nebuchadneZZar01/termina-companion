@@ -115,6 +115,10 @@ class EvaluationReport(BaseModel):
         the truth, so this reports the degraded one instead of repeating the
         flag.
 
+        ``wiki_miss`` is deliberately not degraded: it is also the ordinary
+        outcome of a wiki that had nothing relevant for a query, and labelling
+        those sweeps as broken would hide the failures that matter.
+
         args:
             (none)
 
@@ -126,7 +130,7 @@ class EvaluationReport(BaseModel):
         statuses = {result.retrieval_status for result in self.results if result.retrieval_status}
         if not statuses:
             return "on" if self.rag_on else "unknown"
-        if statuses & {"unavailable", "wiki_miss"}:
+        if "unavailable" in statuses:
             return "degraded"
         return "on"
 

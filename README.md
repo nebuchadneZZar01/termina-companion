@@ -332,10 +332,11 @@ timestamp — so two saved sweeps can be compared instead of retyped from the
 terminal.
 
 The wiki-retrieval label is derived from what each run actually recorded, not
-from the flag the sweep was started with: a run whose retrieval died partway
+from the flag the sweep was started with: a run whose wiki leg died partway
 (store locked, wiki unreachable) is reported as `degraded`, because a sweep
 that printed `on` while silently falling back to structured context would
-otherwise be compared against a healthy one.
+otherwise be compared against a healthy one. `wiki_miss` is not degraded — it
+is also the ordinary outcome of a wiki with nothing relevant for a query.
 
 ### Evaluation tab
 
