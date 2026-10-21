@@ -20,6 +20,9 @@ import streamlit as st
 
 from app.data.mock_knowledge import MASKS, build_default_knowledge
 from app.domain import ClockTime, GameState, Goal, TimeWindow
+from app.evaluation.models import EvaluationReport, ScenarioResult
+from app.evaluation.runner import run_scenarios
+from app.evaluation.scenarios import EVALUATION_SCENARIOS, SCENARIOS_BY_ID
 from app.graph import MAX_PLANNING_ATTEMPTS, build_graph
 from app.i18n import DEFAULT_LANG, spinner_lines, t, tr, tr_msg
 from app.save import load_state, save_state
@@ -42,6 +45,7 @@ def _graph():
 _LANGS = {"en": "\U0001f1ec\U0001f1e7 English", "it": "\U0001f1ee\U0001f1f9 Italiano"}
 
 _PLANNING_TASK_KEY = "_planning_task"
+_EVALUATION_TASK_KEY = "_evaluation_task"
 _ACTIVE_STATUSES = frozenset({"running", "stopping"})
 _STOP_SENTINEL = object()
 _NO_MESSAGE = object()
@@ -147,6 +151,25 @@ class _PlanningTask:
 def _task_is_active(task: _PlanningTask | None) -> bool:
     """Return whether a planning task is still running or stopping."""
     return task is not None and task.status in _ACTIVE_STATUSES
+
+
+@dataclass
+class _EvaluationTask:
+    """Background evaluation sweep kept in Streamlit session state.
+
+    The sweep runs the whole pipeline once per scenario, so it takes minutes:
+    it lives in a worker thread and reports every finished scenario back
+    through a queue, exactly like the planning task.
+    """
+
+    events: queue.Queue[object] = field(default_factory=queue.Queue)
+    stop_event: threading.Event = field(default_factory=threading.Event)
+    thread: threading.Thread | None = None
+    status: str = "running"
+    results: list[ScenarioResult] = field(default_factory=list)
+    total: int = 0
+    current: str = ""
+    error: str = ""
 
 
 def _plan_controls_disabled(task: _PlanningTask | None) -> tuple[bool, bool]:
@@ -761,19 +784,21 @@ def _step_critic(status, result: dict) -> None:
         _render_issue(c, issue)
 
 
-def _render_issue(scope, issue) -> None:
+def _render_issue(scope, issue, fallback: str = "plan") -> None:
     """Render a single validation issue with severity, kind, step and message.
 
     args:
         scope (DeltaGenerator): the container to draw into.
         issue (ValidationIssue): the issue to display.
+        fallback (str, default "plan"): the label used when the issue does
+            not point at a single step.
 
     returns:
         None: draws the issue row.
     """
     is_error = issue.severity == "error"
     kind = t(f"kind_{issue.kind}")
-    where = t("step_n", n=issue.step_idx + 1) if issue.step_idx is not None else t("plan")
+    where = t("step_n", n=issue.step_idx + 1) if issue.step_idx is not None else t(fallback)
     col_sev, col_kind, col_step, col_msg = scope.columns([1, 1, 1, 4], vertical_alignment="center")
     sev = (t("sev_error") if is_error else t("sev_warning")).upper()
     col_sev.badge(sev, color="red" if is_error else "orange")
@@ -1135,6 +1160,164 @@ def _render_trace_issues(validation) -> None:
             st.write(t("sev_legend_warning"))
 
 
+def _run_evaluation(scenarios, rag_on: bool, task: _EvaluationTask) -> None:
+    """Run the evaluation sweep in the worker thread.
+
+    Every finished scenario is pushed to the task queue so the UI can show
+    the progress live; the sentinel closes the stream.
+
+    args:
+        scenarios (list[PlanScenario]): the scenarios to run.
+        rag_on (bool): whether the supplemental wiki retrieval runs.
+        task (_EvaluationTask): the task collecting the results.
+
+    returns:
+        None: runs in the background.
+    """
+    try:
+        run_scenarios(
+            scenarios,
+            rag_on=rag_on,
+            on_progress=lambda scenario, result: task.events.put((scenario, result)),
+            should_stop=task.stop_event.is_set,
+        )
+    except Exception as exc:  # noqa: BLE001 - the UI shows the failure
+        task.events.put(exc)
+    finally:
+        task.events.put(None)
+
+
+def _drain_evaluation_task(task: _EvaluationTask, wait: float = 0.0) -> bool:
+    """Apply queued sweep messages to an evaluation task.
+
+    args:
+        task (_EvaluationTask): the task to update in place.
+        wait (float, default 0.0): seconds to block waiting for the first
+            message before draining. Use it to idle without redrawing.
+
+    returns:
+        bool: True when at least one message changed the task, so the caller
+        knows whether a redraw is needed.
+    """
+    first: object = _NO_MESSAGE
+    if wait > 0:
+        try:
+            first = task.events.get(timeout=wait)
+        except queue.Empty:
+            pass
+    progressed = first is not _NO_MESSAGE
+    while True:
+        if first is not _NO_MESSAGE:
+            item, first = first, _NO_MESSAGE
+        else:
+            try:
+                item = task.events.get_nowait()
+            except queue.Empty:
+                break
+        progressed = True
+        if item is None:
+            if task.status == "stopping" or task.stop_event.is_set():
+                task.status = "stopped"
+            elif task.status == "running":
+                task.status = "done"
+        elif isinstance(item, Exception):
+            task.status = "error"
+            task.error = str(item)
+        elif isinstance(item, tuple) and len(item) == 2:
+            scenario, result = item
+            task.results.append(result)
+            task.current = getattr(scenario, "id", "")
+    return progressed
+
+
+def _start_evaluation_task(scenario_ids: list[str], rag_on: bool) -> _EvaluationTask:
+    """Create, register and start one background evaluation sweep."""
+    scenarios = [SCENARIOS_BY_ID[sid] for sid in scenario_ids if sid in SCENARIOS_BY_ID]
+    task = _EvaluationTask(total=len(scenarios))
+    task.thread = threading.Thread(
+        target=_run_evaluation,
+        args=(scenarios, rag_on, task),
+        daemon=True,
+        name="termina-evaluation",
+    )
+    st.session_state[_EVALUATION_TASK_KEY] = task
+    task.thread.start()
+    return task
+
+
+def _scenario_label(scenario_id: str) -> str:
+    """Return the label of a scenario in the scenario picker."""
+    scenario = SCENARIOS_BY_ID.get(scenario_id)
+    return f"{scenario.name} ({scenario_id})" if scenario else scenario_id
+
+
+def _evaluation_live(task: _EvaluationTask) -> None:
+    """Drive the evaluation progress bar until the sweep reaches a terminal state.
+
+    The loop blocks on the worker queue (no busy timer) and repaints only when
+    a scenario finishes. The empty placeholder is the invisible yield point
+    that lets Streamlit process a queued Stop click during a long run.
+    """
+    bar = st.progress(0.0, text=t("eval_running"))
+    caption = st.empty()
+    yield_point = st.empty()
+    while task.status in _ACTIVE_STATUSES:
+        progressed = _drain_evaluation_task(task, wait=_IDLE_WAIT)
+        total = max(task.total, 1)
+        bar.progress(min(len(task.results) / total, 1.0), text=t("eval_running"))
+        caption.caption(t("eval_running_scenario", name=task.current or "-"))
+        if not progressed:
+            time.sleep(0.05)
+        yield_point.empty()
+
+
+def _render_evaluation_results(task: _EvaluationTask) -> None:
+    """Render the outcome of an evaluation sweep: metrics, table and details."""
+    report = EvaluationReport(results=task.results)
+    _section(t("eval_result"))
+    if not report.results:
+        st.caption(t("eval_no_issues"))
+        return
+
+    c_rate, c_passed, c_failed, c_kinds = st.columns(4)
+    c_rate.metric(t("eval_pass_rate"), f"{report.pass_rate * 100:.0f}%")
+    c_passed.metric(t("eval_passed"), f"{report.passed}/{report.total}")
+    c_failed.metric(t("eval_failed"), str(report.failed))
+    kinds = report.failures_by_kind
+    c_kinds.metric(
+        t("eval_failures_by_kind"),
+        ", ".join(f"{_check_label(kind)}: {count}" for kind, count in kinds.items()) or "-",
+    )
+
+    st.table(
+        [
+            {
+                t("eval_scenario"): result.scenario_id,
+                t("eval_status"): t("eval_pass") if result.passed else t("eval_fail"),
+                t("eval_steps"): result.step_count,
+                t("eval_duration"): f"{result.duration_s:.1f}s",
+                t("eval_issues"): result.error_count,
+            }
+            for result in report.results
+        ]
+    )
+
+    for result in report.results:
+        status = t("eval_pass") if result.passed else t("eval_fail")
+        with st.expander(f"{result.scenario_id} — {status}"):
+            if result.error:
+                st.error(f"{t('eval_run_error')}: {result.error}")
+            if not result.issues:
+                st.success(t("eval_no_issues"))
+            for issue in result.issues:
+                _render_issue(st, issue, fallback="eval_scenario")
+
+
+def _check_label(kind: str) -> str:
+    """Return the translated label of an evaluation check kind."""
+    return t(f"kind_{kind}")
+
+
 def render() -> None:
     """Main Streamlit UI: state editor, planning action and result tabs.
 
@@ -1217,6 +1400,22 @@ def render() -> None:
     st.title(f"\U0001f319 {t('title')}")
     st.caption(t("subtitle"))
 
+    tab_play, tab_evaluation = st.tabs([t("tab_play"), t("tab_evaluation")])
+    with tab_play:
+        _render_play()
+    with tab_evaluation:
+        _render_evaluation()
+
+
+def _render_play() -> None:
+    """Render the play tab: state editor, planning action and result tabs.
+
+    args:
+        (none)
+
+    returns:
+        None: renders the planning half of the app page.
+    """
     kb = build_default_knowledge()
 
     left, right = st.columns(2)
@@ -1370,6 +1569,77 @@ def render() -> None:
         return
 
     st.info(t("info_edit_state"))
+
+
+def _render_evaluation() -> None:
+    """Render the evaluation tab: scenario picker, run control and results.
+
+    The sweep runs the whole pipeline once per scenario, so it happens in a
+    background thread and reports every finished scenario live.
+
+    args:
+        (none)
+
+    returns:
+        None: renders the evaluation half of the app page.
+    """
+    _section(t("eval_title"), t("eval_caption"))
+    if not os.getenv("LLM_PROVIDER", "").strip():
+        st.warning(t("eval_need_llm"))
+
+    task = st.session_state.get(_EVALUATION_TASK_KEY)
+    running = task is not None and task.status in _ACTIVE_STATUSES
+
+    scenario_ids = st.multiselect(
+        t("eval_scenarios"),
+        options=[scenario.id for scenario in EVALUATION_SCENARIOS],
+        default=[scenario.id for scenario in EVALUATION_SCENARIOS],
+        format_func=_scenario_label,
+        help=t("eval_scenarios_help"),
+        key="eval_scenarios",
+    )
+    rag_on = st.toggle(t("eval_rag"), value=True, help=t("eval_rag_help"), key="eval_rag")
+
+    run_col, stop_col = st.columns([4, 1])
+    with run_col:
+        run = st.button(
+            t("eval_run"),
+            type="primary",
+            use_container_width=True,
+            disabled=running or not scenario_ids,
+            key="eval_run_button",
+        )
+    with stop_col:
+        stop = st.button(
+            t("eval_stop"),
+            use_container_width=True,
+            disabled=not running,
+            key="eval_stop_button",
+        )
+
+    if stop and running:
+        task.stop_event.set()
+        task.status = "stopping"
+        st.rerun()
+
+    if run and not running and scenario_ids:
+        _start_evaluation_task(scenario_ids, rag_on)
+        st.rerun()
+
+    task = st.session_state.get(_EVALUATION_TASK_KEY)
+    if task is not None and task.status in _ACTIVE_STATUSES:
+        # Block here, redrawing only when a scenario finishes. The final
+        # rerun renders the report below.
+        _evaluation_live(task)
+        st.rerun()
+
+    if task is None:
+        return
+    if task.status == "stopped":
+        st.warning(t("eval_stopped"))
+    if task.error:
+        st.error(task.error)
+    _render_evaluation_results(task)
 
 
 if __name__ == "__main__":

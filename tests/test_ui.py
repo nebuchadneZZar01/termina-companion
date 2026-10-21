@@ -514,3 +514,113 @@ def test_inventory_pills_add_custom_item_and_keep_it_selected() -> None:
     assert "Deku Leaf" in pills.options
     assert pills.value == ["Deku Leaf"]
     assert at.get_by_key("save_inventory_new").value == ""
+
+
+def test_evaluation_tab_renders_the_sweep_controls() -> None:
+    """The evaluation tab exposes the scenario picker and the run control."""
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    from app.evaluation.scenarios import EVALUATION_SCENARIOS
+
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at.session_state["lang"] = "en"
+    at.run()
+
+    assert not at.exception
+    assert [tab.label for tab in at.tabs] == ["Play", "Evaluation"]
+    picker = at.get_by_key("eval_scenarios")
+    assert picker.value == [scenario.id for scenario in EVALUATION_SCENARIOS]
+    assert at.get_by_key("eval_rag").value is True
+    assert at.button(key="eval_run_button").disabled is False
+    assert at.button(key="eval_stop_button").disabled is True
+
+
+def test_evaluation_task_drains_results_and_completes() -> None:
+    """The evaluation task collects every finished scenario and then closes."""
+    from app.evaluation.models import ScenarioResult
+    from app.evaluation.scenarios import SCENARIOS_BY_ID
+
+    task = ui._EvaluationTask(total=1)
+    task.events.put(
+        (SCENARIOS_BY_ID["anju-kafei"], ScenarioResult(scenario_id="anju-kafei", passed=True))
+    )
+    task.events.put(None)
+
+    assert ui._drain_evaluation_task(task) is True
+    assert task.status == "done"
+    assert [result.scenario_id for result in task.results] == ["anju-kafei"]
+    assert task.current == "anju-kafei"
+
+
+def test_evaluation_task_stop_is_cooperative() -> None:
+    """A stop request ends the sweep as stopped, not as done."""
+    task = ui._EvaluationTask(total=2)
+    task.stop_event.set()
+    task.events.put(None)
+
+    ui._drain_evaluation_task(task)
+
+    assert task.status == "stopped"
+    assert task.results == []
+
+
+def test_evaluation_task_reports_worker_errors() -> None:
+    """A failing sweep is reported instead of swallowed."""
+    task = ui._EvaluationTask(total=1)
+    task.events.put(RuntimeError("boom"))
+    task.events.put(None)
+
+    ui._drain_evaluation_task(task)
+
+    assert task.error == "boom"
+    assert task.status == "error"
+
+
+def test_evaluation_tab_renders_the_report_of_a_finished_sweep() -> None:
+    """A finished sweep shows the metrics, the table and the failed checks."""
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    from app.evaluation.models import EvaluationIssue, ScenarioResult
+
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at.session_state["lang"] = "en"
+    at.run()
+    assert not at.exception
+
+    task = ui._EvaluationTask(total=2, status="done")
+    task.results = [
+        ScenarioResult(scenario_id="anju-kafei", passed=True, step_count=4, duration_s=12.4),
+        ScenarioResult(
+            scenario_id="deed-chain",
+            passed=False,
+            step_count=3,
+            duration_s=9.1,
+            issues=[
+                EvaluationIssue(
+                    severity="error",
+                    kind="temporal_ordering",
+                    message="Step 2 overlaps the previous step.",
+                    step_idx=1,
+                )
+            ],
+        ),
+    ]
+    at.session_state["_evaluation_task"] = task
+    at.run()
+
+    assert not at.exception
+    metrics = {metric.label: metric.value for metric in at.metric}
+    assert metrics["Pass rate"] == "50%"
+    assert metrics["Passed"] == "1/2"
+    assert metrics["Failed"] == "1"
+    assert len(at.table) == 1
+    assert [expander.label for expander in at.expander] == [
+        "anju-kafei — PASS",
+        "deed-chain — FAIL",
+    ]
