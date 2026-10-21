@@ -503,10 +503,15 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_duration": "Duration",
         "eval_issues": "Issues",
         "eval_no_issues": "No issues: the plan satisfies every expectation.",
+        "eval_no_results": "No scenario evaluated yet.",
         "eval_pass": "PASS",
         "eval_fail": "FAIL",
         "eval_run_error": "Run error",
         "eval_need_llm": "An LLM provider must be configured to run the evaluation.",
+        "llm_base_url_hint": (
+            "The local OpenAI-compatible server needs the /v1 path "
+            "(e.g. http://localhost:11434/v1)."
+        ),
         # evaluation check kinds (reuse the validation legend labels)
         "kind_plan_shape": "plan shape",
         "kind_objective_achievement": "goal achievement",
@@ -514,6 +519,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_prerequisites": "prerequisites",
         "kind_tool_usage": "tool usage",
         "kind_critic": "critic",
+        "kind_run_error": "run error",
         # trace sections
         "trace_understood": "What the system understood",
         "trace_understood_caption": (
@@ -771,10 +777,15 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_duration": "Durata",
         "eval_issues": "Problemi",
         "eval_no_issues": "Nessun problema: il piano soddisfa ogni aspettativa.",
+        "eval_no_results": "Nessuno scenario valutato finora.",
         "eval_pass": "SUPERATO",
         "eval_fail": "FALLITO",
         "eval_run_error": "Errore di esecuzione",
         "eval_need_llm": "Serve un provider LLM configurato per eseguire la valutazione.",
+        "llm_base_url_hint": (
+            "Il server locale compatibile con OpenAI richiede il percorso /v1 "
+            "(es. http://localhost:11434/v1)."
+        ),
         # evaluation check kinds (reuse the validation legend labels)
         "kind_plan_shape": "forma del piano",
         "kind_objective_achievement": "raggiungimento obiettivo",
@@ -782,6 +793,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_prerequisites": "prerequisiti",
         "kind_tool_usage": "uso degli strumenti",
         "kind_critic": "critic",
+        "kind_run_error": "errore di esecuzione",
         # run audit
         "audit_header": (
             "Run `{run_id}` \u00b7 {seconds}s \u00b7 {attempts}/{max} tentativi \u00b7 {outcome}"

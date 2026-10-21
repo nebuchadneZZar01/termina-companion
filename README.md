@@ -75,6 +75,12 @@ Supported providers: `openai`, `openrouter`, `ollama`, `lmstudio`, `anthropic`,
 annotated reference. Missing configuration, invocation errors and empty model
 output fail explicitly. The Planning Agent never substitutes a fallback plan.
 
+Ollama and LM Studio serve the OpenAI-compatible API under `/v1`, so use
+`LLM_BASE_URL=http://localhost:11434/v1` (or leave it empty to get the
+provider default). A base URL naming only the host is normalized to `/v1`
+automatically, and a failed call names the setting to check (`LLM_BASE_URL`,
+`LLM_API_KEY` or the server itself).
+
 ## Observability (tracing)
 
 Every planning run gets a `run_id` and emits OpenTelemetry spans: the pipeline
@@ -277,7 +283,9 @@ measures what the Knowledge Agent could have known, and it runs six checks:
 | `critic` | The Critic rejected the plan |
 
 A scenario passes when no check reports an error; warnings are reported but do
-not fail it.
+not fail it. A run that crashes (LLM error, no plan produced) is a failure
+carrying the error message — it is never reported as a scenario without
+issues.
 
 ### CLI
 

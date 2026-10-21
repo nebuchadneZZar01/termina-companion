@@ -78,7 +78,10 @@ class ScenarioResult(BaseModel):
     @computed_field
     @property
     def error_count(self) -> int:
-        """Number of error-severity issues.
+        """Number of error-severity findings.
+
+        A crashed run counts as one error, so a failure is never reported as
+        "no issues".
 
         args:
             (none)
@@ -86,7 +89,8 @@ class ScenarioResult(BaseModel):
         returns:
             int: the count of errors.
         """
-        return sum(1 for issue in self.issues if issue.severity == "error")
+        issues = sum(1 for issue in self.issues if issue.severity == "error")
+        return issues + (1 if self.error else 0)
 
 
 class EvaluationReport(BaseModel):
@@ -151,6 +155,9 @@ class EvaluationReport(BaseModel):
     def failures_by_kind(self) -> dict[str, int]:
         """Count of failed checks per check kind.
 
+        A scenario whose run crashed counts under the ``run_error`` kind, so a
+        sweep that never produced a plan is not reported as "no failures".
+
         args:
             (none)
 
@@ -159,6 +166,8 @@ class EvaluationReport(BaseModel):
         """
         counts: dict[str, int] = {}
         for result in self.results:
+            if result.error:
+                counts["run_error"] = counts.get("run_error", 0) + 1
             kinds = {issue.kind for issue in result.issues if issue.severity == "error"}
             for kind in kinds:
                 counts[kind] = counts.get(kind, 0) + 1

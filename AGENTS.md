@@ -120,9 +120,12 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   any of its objectives matches, "obtain item" steps are pruned when the
   player already owns what they provide (`provides_items`/`provides_masks` on
   `Objective`), missing chain steps are re-inserted in prerequisite order and
-  `depends_on` is recomputed; on replan attempts kept steps are re-slotted onto
-  a 1h window after their dependencies end, where the LLM's windows are only
-  advisory. The Knowledge Agent calls MCP tools in-process for authoritative
+  `depends_on` is recomputed; a kept step keeps the LLM's window only when it
+  fits the chain — after its dependencies, after the previous step, before the
+  successor's slot — and is re-slotted onto a 1h window otherwise, while a
+  re-plan re-slots every window, so the rebuilt plan is always chronological
+  and non-overlapping and the LLM's windows are only advisory. The Knowledge
+  Agent calls MCP tools in-process for authoritative
   structured data, then calls `app.rag.retriever.retrieve` for adaptive wiki
   evidence. Retrieval runs immediately before planning; RAG failure is logged
   and degrades to structured context, never changing the objective chain.
@@ -153,8 +156,11 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   with frozen wiki titles; `scripts/calibrate_rag.py` reruns the threshold grid
   (current provisional default `0.60`, calibrated 2026-10-10).
 * `app/llm.py` — LLM provider factory (`get_chat_model()`); raises
-  `LLMConfigurationError` when no usable provider is configured. The Planning
-  Agent has no rule-based fallback.
+  `LLMConfigurationError` when no usable provider is configured. Local
+  OpenAI-compatible servers (Ollama, LM Studio) get their `/v1` path added
+  when `LLM_BASE_URL` names only a host; `llm_error_hint()` turns a failed
+  call into an actionable message (base URL, API key, server down). The
+  Planning Agent has no rule-based fallback.
 * `app/log.py` — console logging setup: `configure_logging()`, called from both
   entry points, installs one timestamped handler
   (`%(asctime)s %(levelname)s [%(name)s] %(message)s`) and reads a single
@@ -182,7 +188,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   Knowledge Agent records (MCP tools as `"tool"` or `"tool:<arg>"`).
 * `app/evaluation/` — plan evaluation. `models.py` holds the
   Pydantic contracts (`PlanScenario`, `EvaluationIssue`, `ScenarioResult`,
-  `EvaluationReport`); `scenarios.py` holds the nine shipped scenarios (one
+  `EvaluationReport`); a crashed run counts as one error and a `run_error`
+  failure kind, never as a scenario without issues; `scenarios.py` holds the
+  nine shipped scenarios (one
   per quest, spanning every game area); `evaluator.py` is the deterministic
   evaluator with six checks — plan shape, objective achievement, temporal
   ordering, prerequisites, tool usage, critic — reading game knowledge only

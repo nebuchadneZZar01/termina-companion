@@ -1271,12 +1271,27 @@ def _evaluation_live(task: _EvaluationTask) -> None:
         yield_point.empty()
 
 
+def _short_error(error: str, limit: int = 160) -> str:
+    """Shorten a run error so the report table stays readable.
+
+    args:
+        error (str): the error message, empty when the run succeeded.
+        limit (int): the maximum length kept.
+
+    returns:
+        str: the error message, truncated, or "-" when there is none.
+    """
+    if not error:
+        return "-"
+    return error if len(error) <= limit else f"{error[: limit - 1]}…"
+
+
 def _render_evaluation_results(task: _EvaluationTask) -> None:
     """Render the outcome of an evaluation sweep: metrics, table and details."""
     report = EvaluationReport(results=task.results)
     _section(t("eval_result"))
     if not report.results:
-        st.caption(t("eval_no_issues"))
+        st.caption(t("eval_no_results"))
         return
 
     c_rate, c_passed, c_failed, c_kinds = st.columns(4)
@@ -1297,6 +1312,7 @@ def _render_evaluation_results(task: _EvaluationTask) -> None:
                 t("eval_steps"): result.step_count,
                 t("eval_duration"): f"{result.duration_s:.1f}s",
                 t("eval_issues"): result.error_count,
+                t("eval_run_error"): _short_error(result.error),
             }
             for result in report.results
         ]
@@ -1307,7 +1323,7 @@ def _render_evaluation_results(task: _EvaluationTask) -> None:
         with st.expander(f"{result.scenario_id} — {status}"):
             if result.error:
                 st.error(f"{t('eval_run_error')}: {result.error}")
-            if not result.issues:
+            elif not result.issues:
                 st.success(t("eval_no_issues"))
             for issue in result.issues:
                 _render_issue(st, issue, fallback="eval_scenario")
@@ -1390,8 +1406,14 @@ def render() -> None:
             st.markdown(f"- **LLM Provider**: `{provider}`")
             if model:
                 st.markdown(f"- **Modello**: `{model}`")
-            elif base_url:
+            if base_url:
                 st.markdown(f"- **LLM_BASE_URL**: `{base_url}`")
+            if (
+                provider in {"ollama", "lmstudio"}
+                and base_url
+                and urlsplit(base_url).path in {"", "/"}
+            ):
+                st.warning(t("llm_base_url_hint"))
         else:
             st.warning(
                 "LLM not configured. Set LLM_PROVIDER (and credentials) in .env (see .env.example)."

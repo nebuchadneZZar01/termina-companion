@@ -624,3 +624,35 @@ def test_evaluation_tab_renders_the_report_of_a_finished_sweep() -> None:
         "anju-kafei — PASS",
         "deed-chain — FAIL",
     ]
+
+
+def test_evaluation_run_error_never_shows_the_success_message() -> None:
+    """A crashed run shows the error only, never "no issues"."""
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    from app.evaluation.models import ScenarioResult
+
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at.session_state["lang"] = "en"
+    at.run()
+    assert not at.exception
+
+    task = ui._EvaluationTask(total=1, status="done")
+    task.results = [
+        ScenarioResult(
+            scenario_id="anju-kafei",
+            passed=False,
+            step_count=0,
+            duration_s=2.0,
+            error="PlanningAgentError: LLM invocation failed",
+        )
+    ]
+    at.session_state["_evaluation_task"] = task
+    at.run()
+
+    assert not at.exception
+    assert not at.success
+    assert any("LLM invocation failed" in error.value for error in at.error)

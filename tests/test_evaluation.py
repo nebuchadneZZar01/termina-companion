@@ -288,6 +288,25 @@ def test_report_aggregates_pass_rate_and_failure_kinds():
     assert report.failures_by_kind == {"plan_shape": 1}
 
 
+def test_run_errors_are_counted_as_failures():
+    """A crashed run is a failure, never a scenario without issues."""
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+    crashed = ScenarioResult(
+        scenario_id=scenario.id,
+        passed=False,
+        step_count=0,
+        duration_s=1.5,
+        error="PlanningAgentError: LLM invocation failed",
+    )
+
+    report = EvaluationReport(results=[crashed])
+
+    assert report.failed == 1
+    assert report.pass_rate == 0.0
+    assert report.failures_by_kind == {"run_error": 1}
+    assert crashed.error_count == 1
+
+
 # ---------------------------------------------------------------------------
 # End-to-end: the pipeline output satisfies its scenario
 # ---------------------------------------------------------------------------

@@ -274,8 +274,20 @@ tab of the Streamlit UI.
 Caveat: the Planning Agent rebuilds the objective chain deterministically
 (`_reconcile_plan`), so the pass rate mainly measures retrieval, the chain
 reconciliation and the critic — the LLM influences the step windows, not the
-step set. The threshold revisit stays open until a live sweep shows a
-degradation caused by RAG noise.
+step set. A kept step keeps the LLM's window only when it fits the chain
+(after its dependencies, after the previous step, before the successor's
+slot) and is re-slotted on a 1h slot otherwise, so the rebuilt plan is always
+chronological and non-overlapping. The threshold revisit stays open until a
+live sweep shows a degradation caused by RAG noise.
+
+Live sweep (llama3.2 on a local Ollama, 2026-10-21): 8 of 9 scenarios pass in
+a single attempt, `deed-chain` failed with an empty LLM plan (reported as a
+run error, not as a scenario without issues). The first live sweep exposed
+three defects, now fixed: the local OpenAI-compatible base URL needed its
+`/v1` path (otherwise every call answers "404 page not found"), a crashed run
+was reported as a scenario without issues, and the rebuilt plan kept the LLM's
+whole-slot windows, so the critic rejected the first attempt with a sequence
+conflict and the run needed a re-plan.
 
 # Phase 12 — Production Readiness
 
