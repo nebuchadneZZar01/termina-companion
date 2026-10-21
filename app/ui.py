@@ -1364,17 +1364,16 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
         return
 
     if report.rag_on is not None or report.models:
-        rag_label = {True: t("eval_rag_on"), False: t("eval_rag_off")}.get(
-            report.rag_on, t("eval_unknown")
-        )
         st.caption(
             t(
                 "eval_report_meta",
                 model=report.models or t("eval_unknown"),
-                rag=rag_label,
+                rag=t(f"eval_rag_{report.wiki_retrieval}"),
                 repeats=report.repeats,
             )
         )
+        if report.wiki_retrieval == "degraded":
+            st.caption(t("eval_rag_degraded_help"))
 
     c_rate, c_passed, c_failed, c_kinds = st.columns(4)
     c_rate.metric(t("eval_pass_rate"), f"{report.pass_rate * 100:.0f}%")

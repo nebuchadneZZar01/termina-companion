@@ -127,10 +127,15 @@ def print_summary(report: EvaluationReport) -> None:
         None: prints to stdout.
     """
     print()
-    rag = {True: "on", False: "off"}.get(report.rag_on, "unknown")
     print(
-        f"Sweep: model={report.models or 'unknown'} wiki_retrieval={rag} repeats={report.repeats}"
+        f"Sweep: model={report.models or 'unknown'} wiki_retrieval={report.wiki_retrieval} "
+        f"repeats={report.repeats}"
     )
+    if report.wiki_retrieval == "degraded":
+        print(
+            "        wiki retrieval degraded during the run — see the per-scenario "
+            "retrieval_status before comparing sweeps."
+        )
     print(f"Pass rate: {report.passed}/{report.total} = {report.pass_rate:.2f}")
     kinds = report.failures_by_kind
     if kinds:

@@ -514,6 +514,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_report_meta": "Model: {model} · wiki retrieval: {rag} · repeats: {repeats}",
         "eval_rag_on": "on",
         "eval_rag_off": "off",
+        "eval_rag_degraded": "degraded",
+        "eval_rag_degraded_help": (
+            "The wiki retrieval failed partway through the run (store locked or "
+            "wiki unreachable). Compare sweeps on the per-scenario "
+            "retrieval_status, not on this flag."
+        ),
         "eval_unknown": "unknown",
         "llm_base_url_hint": (
             "The local OpenAI-compatible server needs the /v1 path "
@@ -798,6 +804,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_report_meta": "Modello: {model} · retrieval wiki: {rag} · ripetizioni: {repeats}",
         "eval_rag_on": "attivo",
         "eval_rag_off": "disattivo",
+        "eval_rag_degraded": "degradato",
+        "eval_rag_degraded_help": (
+            "Il retrieval wiki si è interrotto a metà run (store bloccato o wiki "
+            "irraggiungibile). Confronta le sweep sul retrieval_status per "
+            "scenario, non su questa etichetta."
+        ),
         "eval_unknown": "sconosciuto",
         "llm_base_url_hint": (
             "Il server locale compatibile con OpenAI richiede il percorso /v1 "

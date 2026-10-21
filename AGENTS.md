@@ -210,7 +210,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   plus a timestamped `evaluations/` copy), so the checks outlive the session:
   the UI worker writes it when a sweep finishes and *Load last report* reads
   it back. The report also carries sweep metadata (RAG flag, producing model,
-  repeat count, creation timestamp) so two saved sweeps can be compared.
+  repeat count, creation timestamp) so two saved sweeps can be compared; its
+  `wiki_retrieval` computed field reports what the runs actually recorded
+  (`off`/`on`/`degraded`/`unknown`) instead of echoing the requested flag, so a
+  sweep whose retrieval died partway is never labelled healthy.
   `RAG_ENABLED` (`rag_enabled()` in
   `app/rag/retriever.py`) switches the supplemental wiki retrieval off for
   A/B runs.

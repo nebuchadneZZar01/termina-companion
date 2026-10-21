@@ -331,6 +331,12 @@ flag, the model that produced each plan, the repeat count and a creation
 timestamp — so two saved sweeps can be compared instead of retyped from the
 terminal.
 
+The wiki-retrieval label is derived from what each run actually recorded, not
+from the flag the sweep was started with: a run whose retrieval died partway
+(store locked, wiki unreachable) is reported as `degraded`, because a sweep
+that printed `on` while silently falling back to structured context would
+otherwise be compared against a healthy one.
+
 ### Evaluation tab
 
 The same sweep runs in the browser: open the app and switch to the

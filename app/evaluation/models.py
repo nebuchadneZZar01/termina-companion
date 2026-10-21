@@ -107,6 +107,31 @@ class EvaluationReport(BaseModel):
 
     @computed_field
     @property
+    def wiki_retrieval(self) -> str:
+        """What the supplemental wiki retrieval actually did during the sweep.
+
+        The ``rag_on`` flag only says what was requested: a run can still
+        degrade (a locked store, a dead wiki). The per-scenario statuses tell
+        the truth, so this reports the degraded one instead of repeating the
+        flag.
+
+        args:
+            (none)
+
+        returns:
+            str: ``"off"``, ``"on"``, ``"degraded"`` or ``"unknown"``.
+        """
+        if self.rag_on is False:
+            return "off"
+        statuses = {result.retrieval_status for result in self.results if result.retrieval_status}
+        if not statuses:
+            return "on" if self.rag_on else "unknown"
+        if statuses & {"unavailable", "wiki_miss"}:
+            return "degraded"
+        return "on"
+
+    @computed_field
+    @property
     def models(self) -> str:
         """Distinct models that produced the plans, comma-joined.
 

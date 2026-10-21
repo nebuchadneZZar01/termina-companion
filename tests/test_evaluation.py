@@ -484,6 +484,33 @@ def test_report_exposes_the_models_that_produced_the_plans():
     assert EvaluationReport(results=[ScenarioResult(scenario_id=scenario.id)]).models == ""
 
 
+def test_report_reports_what_the_wiki_retrieval_actually_did():
+    """A degraded sweep is not labelled as if the retrieval had run."""
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    def _result(status: str) -> ScenarioResult:
+        return ScenarioResult(scenario_id=scenario.id, passed=True, retrieval_status=status)
+
+    # RAG switched off: nothing was attempted.
+    assert EvaluationReport(results=[_result("")], rag_on=False).wiki_retrieval == "off"
+    # Asked for and healthy: every leg hit the cache or the wiki.
+    assert EvaluationReport(results=[_result("cache_hit")], rag_on=True).wiki_retrieval == "on"
+    assert EvaluationReport(results=[_result("wiki_ingested")], rag_on=True).wiki_retrieval == "on"
+    # One leg failed: the sweep must say so, even when the others were fine.
+    assert (
+        EvaluationReport(
+            results=[_result("cache_hit"), _result("unavailable")], rag_on=True
+        ).wiki_retrieval
+        == "degraded"
+    )
+    assert (
+        EvaluationReport(results=[_result("wiki_miss")], rag_on=True).wiki_retrieval == "degraded"
+    )
+    # An older report recorded no status and no flag.
+    assert EvaluationReport(results=[_result("")]).wiki_retrieval == "unknown"
+    assert EvaluationReport().wiki_retrieval == "unknown"
+
+
 def test_run_scenarios_records_the_sweep_metadata(monkeypatch):
     """The sweep report carries the RAG flag and the producing model."""
     from app.evaluation import runner
