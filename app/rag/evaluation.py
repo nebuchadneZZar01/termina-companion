@@ -1,7 +1,8 @@
 """Retrieval-only evaluation contracts for RAG calibration.
 
 This module measures whether a retriever returns expected Zelda Wiki pages. It
-does not evaluate plans or trajectories; that work belongs to Phase 11.
+does not evaluate plans or trajectories; that work belongs to the plan
+evaluation harness in ``app/evaluation/``.
 """
 
 from __future__ import annotations

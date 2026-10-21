@@ -1,4 +1,4 @@
-"""Contracts for the Phase 11 plan-evaluation harness.
+"""Contracts for the plan-evaluation harness.
 
 A scenario states a player state, a goal and the outcome the plan is expected
 to reach. The evaluator turns a produced plan into a :class:`ScenarioResult`

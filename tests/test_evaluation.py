@@ -1,4 +1,4 @@
-"""Phase 11 evaluation: scenarios, per-check failures and the end-to-end run.
+"""Plan evaluation: scenarios, per-check failures and the end-to-end run.
 
 The evaluator is deterministic, so every check is exercised with a hand-built
 plan: a reference chain that must pass, and mutated plans that must fail with

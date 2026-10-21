@@ -475,7 +475,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         # top-level tabs
         "tab_play": "Play",
         "tab_evaluation": "Evaluation",
-        # evaluation tab (Phase 11)
+        # evaluation tab
         "eval_title": "Plan evaluation",
         "eval_caption": (
             "Run the shipped scenarios against the live pipeline and check the "
@@ -520,7 +520,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "The canonicalized reading of your state \u2014 this is what the planner worked from."
         ),
         "trace_validation_caption": ("Issues the critic found when checking feasibility."),
-        # run audit (Phase 10)
+        # run audit
         "audit_header": (
             "Run `{run_id}` \u00b7 {seconds}s \u00b7 {attempts}/{max} attempt(s) \u00b7 {outcome}"
         ),
@@ -743,7 +743,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         # top-level tabs
         "tab_play": "Gioca",
         "tab_evaluation": "Valutazione",
-        # evaluation tab (Phase 11)
+        # evaluation tab
         "eval_title": "Valutazione dei piani",
         "eval_caption": (
             "Esegui gli scenari forniti sul pipeline reale e verifica i piani che "
@@ -782,7 +782,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_prerequisites": "prerequisiti",
         "kind_tool_usage": "uso degli strumenti",
         "kind_critic": "critic",
-        # run audit (Phase 10)
+        # run audit
         "audit_header": (
             "Run `{run_id}` \u00b7 {seconds}s \u00b7 {attempts}/{max} tentativi \u00b7 {outcome}"
         ),

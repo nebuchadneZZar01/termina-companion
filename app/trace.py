@@ -1,4 +1,4 @@
-"""OpenTelemetry tracing seam for the planning pipeline (Phase 10).
+"""OpenTelemetry tracing seam for the planning pipeline.
 
 Every run gets a short ``run_id``. Spans (``pipeline.run``, ``node.*``,
 ``mcp.*``, ``rag.retrieve``, ``validation``, ``gen_ai.chat``) are emitted to the

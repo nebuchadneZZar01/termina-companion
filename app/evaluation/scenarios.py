@@ -1,4 +1,4 @@
-"""Evaluation scenarios for the Phase 11 plan-evaluation harness.
+"""Evaluation scenarios for the plan-evaluation harness.
 
 One scenario per quest: a player state, a goal phrased the way a player would
 phrase it, and the objectives the plan is expected to contain. The set spans

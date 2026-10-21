@@ -374,7 +374,7 @@ architecture is not tied to one quest.
   `MemoryStore`; persist them (extend `GameState`, attach a graph
   checkpointer or a file/DB store behind the same protocol).
 - **Tracing and audit** — add request IDs and LangGraph/tool/retrieval events.
-- **Plan evaluation** — the Phase 11 scenario/plan evaluator is in place; the
-  next step is trajectory evaluation (the sequence of agent decisions, not only
-  the final plan) and evaluating the LLM proposal before the deterministic
-  chain rebuild, so the LLM's contribution becomes measurable.
+- **Plan evaluation** — the scenario/plan evaluator is in place; the next step
+  is trajectory evaluation (the sequence of agent decisions, not only the final
+  plan) and evaluating the LLM proposal before the deterministic chain rebuild,
+  so the LLM's contribution becomes measurable.

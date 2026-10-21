@@ -80,7 +80,7 @@ degrades to a `wiki_miss` with a warning and an explicit `wiki_unreachable`
 flag, so a single slow request never turns retrieval `unavailable`; only an index
 or embedding failure does. Either way the pipeline continues with structured
 context. Persistent memory remains future work; leave clear extension points
-for it. Plan evaluation is implemented in `app/evaluation/` (Phase 11).
+for it. Plan evaluation is implemented in `app/evaluation/`.
 
 ## Development Principles
 
@@ -180,7 +180,7 @@ for it. Plan evaluation is implemented in `app/evaluation/` (Phase 11).
   including retrieved evidence, indexed-source manifest, retrieval status,
   player preferences, relevant past episodes and the `tool_calls` list the
   Knowledge Agent records (MCP tools as `"tool"` or `"tool:<arg>"`).
-* `app/evaluation/` — plan evaluation (Phase 11). `models.py` holds the
+* `app/evaluation/` — plan evaluation. `models.py` holds the
   Pydantic contracts (`PlanScenario`, `EvaluationIssue`, `ScenarioResult`,
   `EvaluationReport`); `scenarios.py` holds the nine shipped scenarios (one
   per quest, spanning every game area); `evaluator.py` is the deterministic
@@ -235,7 +235,7 @@ for it. Plan evaluation is implemented in `app/evaluation/` (Phase 11).
   agents publish phase events (objectives, MCP data, wiki search/fetch/index,
   second retrieval, LLM call). The retriever takes an optional `on_progress`
   callback, so RAG stays decoupled from LangGraph.
-* `app/trace.py` — OpenTelemetry tracing seam (Phase 10). `setup_tracing()`
+* `app/trace.py` — OpenTelemetry tracing seam. `setup_tracing()`
   (called from `main.py` and `app/__main__.py`) installs a `TracerProvider`
   that exports over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (e.g.
   the local Phoenix container) and is a cheap no-op otherwise, so tests, the
@@ -295,11 +295,14 @@ for it. Plan evaluation is implemented in `app/evaluation/` (Phase 11).
 * The default branch is `main`.
 * Feature work happens on dedicated branches:
   `feat/<feature-name>` or `fix/<fix-name>`.
-* Never use `phase` in branch names (`feat/npcs-schedules-events`, not
-  `feat/phase3-game-knowledge`).
+* Never use `phase` in branch names: name the branch after the feature
+  (`feat/npcs-schedules-events`), never after a project phase.
+* Never reference project phases in `README.md`: the phases live in `TODO.md`
+  only.
 * Open pull requests with `gh` following `.github/pull_request_template.md`
   (Description/Type/Checks/Workflow) and wait for review; the maintainer
   reviews and merges them (never self-merge).
+* Never open a pull request unless the maintainer explicitly asks for it.
 * PR titles and descriptions must always be written in English.
 
 ## Maintaining AGENTS.md

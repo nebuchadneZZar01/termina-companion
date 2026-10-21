@@ -19,7 +19,7 @@ def _tokens(text: str) -> set[str]:
 class MemoryStore:
     """Protocol for player memory: preferences plus past episodes.
 
-    The in-memory class below is the only implementation for Phase 8.
+    The in-memory class below is the only implementation today.
     A future persistent store (JSON/SQLite) implements these same methods
     and is selected in :func:`get_memory_store`.
     """

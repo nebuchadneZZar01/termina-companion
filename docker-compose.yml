@@ -1,4 +1,4 @@
-# Local observability stack (Phase 10).
+# Local observability stack.
 #
 # The Streamlit app runs on the host (`uv run streamlit run main.py`); this
 # file only provides the tracing backend. Start it with:

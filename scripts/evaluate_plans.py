@@ -1,4 +1,4 @@
-"""Evaluate the plans produced by the pipeline against the Phase 11 scenarios.
+"""Evaluate the plans produced by the pipeline against the shipped scenarios.
 
 Usage:
     uv run python scripts/evaluate_plans.py

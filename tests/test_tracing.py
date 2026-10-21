@@ -1,4 +1,4 @@
-"""Phase 10 tracing: run collection, spans and the LLM callback.
+"""Tracing: run collection, spans and the LLM callback.
 
 These tests are hermetic: the default tracer is the no-op provider (no
 ``OTEL_EXPORTER_OTLP_ENDPOINT``), so nothing is exported and no backend is
