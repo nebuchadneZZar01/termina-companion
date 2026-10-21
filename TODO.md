@@ -261,6 +261,7 @@ monitoring is served by these spans plus the existing text logs.
 * [x] Produce explicit PASS/FAIL
 * [x] Calculate aggregate pass rate
 * [x] Add regression scenarios
+* [x] Persist the evaluation report (UI worker auto-save, CLI, *Load last report*)
 * [ ] Revisit `RAG_SIMILARITY_THRESHOLD` if plan pass rate degrades from RAG noise/misses
 * [x] Evaluate RAG separately if RAG is implemented (retrieval-only harness)
 

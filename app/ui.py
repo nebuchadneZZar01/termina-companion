@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import datetime
 import datetime as _datetime
+import logging
 import os
 import queue
 import re
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import streamlit as st
@@ -23,10 +25,13 @@ from app.domain import ClockTime, GameState, Goal, TimeWindow
 from app.evaluation.models import EvaluationReport, ScenarioResult
 from app.evaluation.runner import run_scenarios
 from app.evaluation.scenarios import EVALUATION_SCENARIOS, SCENARIOS_BY_ID
+from app.evaluation.storage import LAST_REPORT_NAME, get_eval_dir, load_report, save_report
 from app.graph import MAX_PLANNING_ATTEMPTS, build_graph
 from app.i18n import DEFAULT_LANG, spinner_lines, t, tr, tr_msg
 from app.save import load_state, save_state
 from app.trace import current_run, pipeline_span
+
+logger = logging.getLogger(__name__)
 
 
 @st.cache_resource
@@ -46,6 +51,7 @@ _LANGS = {"en": "\U0001f1ec\U0001f1e7 English", "it": "\U0001f1ee\U0001f1f9 Ital
 
 _PLANNING_TASK_KEY = "_planning_task"
 _EVALUATION_TASK_KEY = "_evaluation_task"
+_EVALUATION_REPORT_KEY = "_evaluation_report"
 _ACTIVE_STATUSES = frozenset({"running", "stopping"})
 _STOP_SENTINEL = object()
 _NO_MESSAGE = object()
@@ -1160,11 +1166,35 @@ def _render_trace_issues(validation) -> None:
             st.write(t("sev_legend_warning"))
 
 
+def _save_evaluation_report(results: list[ScenarioResult]) -> None:
+    """Persist the outcome of a sweep.
+
+    The report is written from the worker thread, so it survives a closed
+    browser tab. An empty sweep is not saved: it carries no check and would
+    overwrite a previous report with nothing.
+
+    args:
+        results (list[ScenarioResult]): the evaluated scenarios.
+
+    returns:
+        None: writes the report, logging a warning on failure.
+    """
+    if not results:
+        return
+    try:
+        path = save_report(EvaluationReport(results=results))
+    except Exception as exc:  # noqa: BLE001 - a failed save must not kill the sweep
+        logger.warning("Could not save the evaluation report: %s", exc)
+        return
+    logger.info("Evaluation report saved to %s", path)
+
+
 def _run_evaluation(scenarios, rag_on: bool, task: _EvaluationTask) -> None:
     """Run the evaluation sweep in the worker thread.
 
     Every finished scenario is pushed to the task queue so the UI can show
-    the progress live; the sentinel closes the stream.
+    the progress live; the sentinel closes the stream. The outcome is also
+    written to disk, so the checks outlive the browser session.
 
     args:
         scenarios (list[PlanScenario]): the scenarios to run.
@@ -1174,16 +1204,32 @@ def _run_evaluation(scenarios, rag_on: bool, task: _EvaluationTask) -> None:
     returns:
         None: runs in the background.
     """
+    collected: list[ScenarioResult] = []
+
+    def _on_progress(scenario, result: ScenarioResult) -> None:
+        """Queue a finished scenario and keep it for the saved report.
+
+        args:
+            scenario (PlanScenario): the evaluated scenario.
+            result (ScenarioResult): its outcome.
+
+        returns:
+            None: queues the result.
+        """
+        collected.append(result)
+        task.events.put((scenario, result))
+
     try:
         run_scenarios(
             scenarios,
             rag_on=rag_on,
-            on_progress=lambda scenario, result: task.events.put((scenario, result)),
+            on_progress=_on_progress,
             should_stop=task.stop_event.is_set,
         )
     except Exception as exc:  # noqa: BLE001 - the UI shows the failure
         task.events.put(exc)
     finally:
+        _save_evaluation_report(collected)
         task.events.put(None)
 
 
@@ -1286,9 +1332,31 @@ def _short_error(error: str, limit: int = 160) -> str:
     return error if len(error) <= limit else f"{error[: limit - 1]}…"
 
 
-def _render_evaluation_results(task: _EvaluationTask) -> None:
-    """Render the outcome of an evaluation sweep: metrics, table and details."""
-    report = EvaluationReport(results=task.results)
+def _saved_report_path() -> Path | None:
+    """Return the report path shown under the evaluation controls.
+
+    args:
+        (none)
+
+    returns:
+        Path | None: the path of the last report, or None when the store
+        cannot be opened (for instance a read-only checkout).
+    """
+    try:
+        return get_eval_dir() / LAST_REPORT_NAME
+    except OSError:
+        return None
+
+
+def _render_evaluation_results(report: EvaluationReport) -> None:
+    """Render the outcome of an evaluation sweep: metrics, table and details.
+
+    args:
+        report (EvaluationReport): the report to render.
+
+    returns:
+        None: renders into the app.
+    """
     _section(t("eval_result"))
     if not report.results:
         st.caption(t("eval_no_results"))
@@ -1648,6 +1716,20 @@ def _render_evaluation() -> None:
         _start_evaluation_task(scenario_ids, rag_on)
         st.rerun()
 
+    load_col, hint_col = st.columns([1, 3])
+    with load_col:
+        load = st.button(t("eval_load_last"), key="eval_load_button")
+    with hint_col:
+        report_path = _saved_report_path()
+        if report_path is not None:
+            st.caption(t("eval_saved_report", path=str(report_path)))
+    if load:
+        saved = load_report()
+        if saved is None:
+            st.info(t("eval_no_saved_report"))
+        else:
+            st.session_state[_EVALUATION_REPORT_KEY] = saved
+
     task = st.session_state.get(_EVALUATION_TASK_KEY)
     if task is not None and task.status in _ACTIVE_STATUSES:
         # Block here, redrawing only when a scenario finishes. The final
@@ -1655,13 +1737,18 @@ def _render_evaluation() -> None:
         _evaluation_live(task)
         st.rerun()
 
-    if task is None:
+    if task is not None:
+        if task.status == "stopped":
+            st.warning(t("eval_stopped"))
+        if task.error:
+            st.error(task.error)
+        _render_evaluation_results(EvaluationReport(results=task.results))
         return
-    if task.status == "stopped":
-        st.warning(t("eval_stopped"))
-    if task.error:
-        st.error(task.error)
-    _render_evaluation_results(task)
+
+    # No sweep in this session: show the report restored from disk.
+    saved = st.session_state.get(_EVALUATION_REPORT_KEY)
+    if saved is not None:
+        _render_evaluation_results(saved)
 
 
 if __name__ == "__main__":

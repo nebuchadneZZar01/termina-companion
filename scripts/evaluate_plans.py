@@ -20,6 +20,10 @@ and without it.
 The same sweep runs in the *Evaluation* tab of the Streamlit UI: both entry
 points share ``app.evaluation.runner``.
 
+Every run also writes the report to the shared store (``app.evaluation.storage``,
+next to the game-state save), so the checks outlive the process; ``--json``
+writes an extra copy at an explicit path.
+
 This is a maintainer tool: it needs an LLM and is not part of pytest.
 """
 
@@ -34,6 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.evaluation.models import EvaluationReport, PlanScenario, ScenarioResult  # noqa: E402
 from app.evaluation.runner import run_scenarios  # noqa: E402
 from app.evaluation.scenarios import EVALUATION_SCENARIOS, SCENARIOS_BY_ID  # noqa: E402
+from app.evaluation.storage import save_report  # noqa: E402
 from app.log import configure_logging  # noqa: E402
 from app.trace import setup_tracing  # noqa: E402
 
@@ -171,6 +176,13 @@ def main() -> int:
 
     report = EvaluationReport(results=results)
     print_summary(report)
+
+    try:
+        saved = save_report(report)
+    except Exception as exc:  # noqa: BLE001 - an unwritable store must not mask the exit code
+        print(f"Could not save the last report: {exc}")
+    else:
+        print(f"Last report saved to {saved}")
 
     if args.json:
         path = Path(args.json)

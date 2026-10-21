@@ -197,14 +197,19 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   through the MCP tools, never the knowledge base directly, so it measures
   what the Knowledge Agent could have known; `runner.py` runs the scenarios
   against the live pipeline (memory store cleared before each scenario) and is
-  shared by the CLI harness and the UI. `RAG_ENABLED` (`rag_enabled()` in
+  shared by the CLI harness and the UI; `storage.py` persists the report in
+  the save directory derived from `RAG_QDRANT_PATH` (`last_evaluation.json`
+  plus a timestamped `evaluations/` copy), so the checks outlive the session:
+  the UI worker writes it when a sweep finishes and *Load last report* reads
+  it back. `RAG_ENABLED` (`rag_enabled()` in
   `app/rag/retriever.py`) switches the supplemental wiki retrieval off for
   A/B runs.
 * `scripts/evaluate_plans.py` — CLI harness for the evaluation sweep:
   `--scenario`, `--repeat`, `--rag on|off`, `--json`, `--list`; prints one
   PASS/FAIL line per scenario plus the aggregate pass rate and exits 1 when
-  any scenario fails. It needs a configured LLM provider and is not part of
-  pytest.
+  any scenario fails. It always writes the shared last report (same store as
+  the UI) and `--json PATH` writes an extra copy. It needs a configured LLM
+  provider and is not part of pytest.
 * `app/memory/` — player memory: Pydantic `PlayerPreferences`/`Episode` models
   plus the `MemoryStore` protocol with the thread-safe `InMemoryMemoryStore`
   (keyword ranking; the protocol is the extension point for future persistence).
@@ -219,7 +224,8 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   LLM provider, with local providers supported for offline runs. The page has
   two top-level tabs: *Play* (`_render_play()`, the state editor and the
   planning flow) and *Evaluation* (`_render_evaluation()`, the evaluation
-  sweep: scenario picker, RAG toggle, Run/Stop and the per-scenario report).
+  sweep: scenario picker, RAG toggle, Run/Stop, the per-scenario report and
+  *Load last report* for the sweep persisted by the worker).
   Planning runs
   as a session-scoped background task: Generate is disabled while active and
   Stop requests cooperative cancellation between agent/LLM calls. The progress

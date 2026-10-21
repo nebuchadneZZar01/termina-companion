@@ -656,3 +656,130 @@ def test_evaluation_run_error_never_shows_the_success_message() -> None:
     assert not at.exception
     assert not at.success
     assert any("LLM invocation failed" in error.value for error in at.error)
+
+
+def test_evaluation_worker_saves_the_report(tmp_path, monkeypatch) -> None:
+    """The sweep outcome reaches disk even when nobody drains the queue."""
+    from app.evaluation.models import ScenarioResult
+    from app.evaluation.scenarios import SCENARIOS_BY_ID
+    from app.evaluation.storage import load_report
+
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    def _fake_run(scenarios, rag_on=True, on_progress=None, should_stop=None):
+        """Emit one result per scenario without touching a model."""
+        for item in scenarios:
+            if on_progress is not None:
+                on_progress(item, ScenarioResult(scenario_id=item.id, passed=True))
+        return ui.EvaluationReport(results=[])
+
+    monkeypatch.setattr(ui, "run_scenarios", _fake_run)
+    task = ui._EvaluationTask(total=1)
+    ui._run_evaluation([scenario], rag_on=False, task=task)
+
+    saved = load_report()
+    assert saved is not None
+    assert [result.scenario_id for result in saved.results] == ["anju-kafei"]
+    assert saved.passed == 1
+
+
+def test_evaluation_worker_skips_an_empty_sweep(tmp_path, monkeypatch) -> None:
+    """A sweep that produced nothing never overwrites a good report."""
+    from app.evaluation.models import ScenarioResult
+    from app.evaluation.scenarios import SCENARIOS_BY_ID
+    from app.evaluation.storage import load_report, save_report
+
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
+    save_report(
+        ui.EvaluationReport(results=[ScenarioResult(scenario_id="anju-kafei", passed=True)])
+    )
+
+    def _failing_run(scenarios, rag_on=True, on_progress=None, should_stop=None):
+        """Raise before producing any result, like an unconfigured LLM."""
+        raise RuntimeError("LLM not configured")
+
+    monkeypatch.setattr(ui, "run_scenarios", _failing_run)
+    task = ui._EvaluationTask(total=1)
+    ui._run_evaluation([SCENARIOS_BY_ID["anju-kafei"]], rag_on=False, task=task)
+
+    saved = load_report()
+    assert saved is not None
+    assert [result.scenario_id for result in saved.results] == ["anju-kafei"]
+
+
+def test_evaluation_tab_loads_the_saved_report(tmp_path, monkeypatch) -> None:
+    """The evaluation tab restores the checks persisted by the last sweep."""
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    from app.evaluation.models import EvaluationIssue, ScenarioResult
+    from app.evaluation.storage import save_report
+
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
+    save_report(
+        ui.EvaluationReport(
+            results=[
+                ScenarioResult(
+                    scenario_id="anju-kafei", passed=True, step_count=4, duration_s=12.4
+                ),
+                ScenarioResult(
+                    scenario_id="deed-chain",
+                    passed=False,
+                    step_count=3,
+                    duration_s=9.1,
+                    issues=[
+                        EvaluationIssue(
+                            severity="error",
+                            kind="temporal_ordering",
+                            message="Step 2 overlaps the previous step.",
+                            step_idx=1,
+                        )
+                    ],
+                ),
+            ]
+        ),
+        history=False,
+    )
+
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at.session_state["lang"] = "en"
+    at.run()
+    assert not at.exception
+
+    at.button(key="eval_load_button").click()
+    at.run()
+
+    assert not at.exception
+    metrics = {metric.label: metric.value for metric in at.metric}
+    assert metrics["Pass rate"] == "50%"
+    assert metrics["Passed"] == "1/2"
+    assert len(at.table) == 1
+    assert [expander.label for expander in at.expander] == [
+        "anju-kafei — PASS",
+        "deed-chain — FAIL",
+    ]
+
+
+def test_evaluation_tab_reports_a_missing_saved_report(tmp_path, monkeypatch) -> None:
+    """Loading with nothing on disk says so instead of failing."""
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
+
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at.session_state["lang"] = "en"
+    at.run()
+    assert not at.exception
+
+    at.button(key="eval_load_button").click()
+    at.run()
+
+    assert not at.exception
+    assert any("No saved evaluation report yet." in info.value for info in at.info)
+    assert not at.table

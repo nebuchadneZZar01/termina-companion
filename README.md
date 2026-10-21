@@ -314,6 +314,12 @@ The memory store is cleared before every scenario, so the scenarios never see
 each other's past episodes. `--rag off` disables the supplemental wiki
 retrieval (`RAG_ENABLED=0`) to compare plan quality with and without it.
 
+Every run also writes its report to the shared store
+(`app/evaluation/storage.py`): `last_evaluation.json` in the save directory
+derived from `RAG_QDRANT_PATH` (`.cache/saves/` by default, gitignored) plus a
+timestamped copy in `evaluations/` underneath it. `--json` writes an extra
+copy at an explicit path.
+
 ### Evaluation tab
 
 The same sweep runs in the browser: open the app and switch to the
@@ -322,6 +328,10 @@ runs in a background thread with a progress bar and a cooperative *Stop*
 control, then shows the pass rate, a per-scenario table and the failed checks
 of every scenario. Both entry points share `app/evaluation/runner.py`, so they
 measure exactly the same thing.
+
+The sweep is saved to the same store when it finishes — from the worker
+thread, so a closed tab loses nothing — and *Load last report* brings the
+checks back after a browser reload.
 
 ### What the pass rate measures
 
@@ -362,7 +372,7 @@ validation.
 | `app/state.py` | `PlanningState`, including RAG evidence, status, warning, ingested pages and indexed-source manifest. |
 | `app/graph.py` | LangGraph wiring and `MAX_PLANNING_ATTEMPTS = 3` loop. |
 | `app/ui.py` | Streamlit frontend and provenance display. |
-| `app/evaluation/` | Plan-evaluation scenarios, deterministic evaluator and shared sweep runner. |
+| `app/evaluation/` | Plan-evaluation scenarios, deterministic evaluator, shared sweep runner and report storage. |
 | `scripts/evaluate_plans.py` | CLI harness for the evaluation sweep. |
 | `app/trace.py` | OpenTelemetry tracing seam: run spans, LLM prompt capture and the no-op/OTLP setup. |
 | `docker-compose.yml` | Local Arize Phoenix observability container. |

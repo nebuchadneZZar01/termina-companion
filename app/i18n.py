@@ -508,6 +508,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_fail": "FAIL",
         "eval_run_error": "Run error",
         "eval_need_llm": "An LLM provider must be configured to run the evaluation.",
+        "eval_load_last": "Load last report",
+        "eval_no_saved_report": "No saved evaluation report yet.",
+        "eval_saved_report": "Every sweep is saved to {path}.",
         "llm_base_url_hint": (
             "The local OpenAI-compatible server needs the /v1 path "
             "(e.g. http://localhost:11434/v1)."
@@ -782,6 +785,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_fail": "FALLITO",
         "eval_run_error": "Errore di esecuzione",
         "eval_need_llm": "Serve un provider LLM configurato per eseguire la valutazione.",
+        "eval_load_last": "Carica ultimo report",
+        "eval_no_saved_report": "Nessun report di valutazione salvato.",
+        "eval_saved_report": "Ogni sweep viene salvato in {path}.",
         "llm_base_url_hint": (
             "Il server locale compatibile con OpenAI richiede il percorso /v1 "
             "(es. http://localhost:11434/v1)."
