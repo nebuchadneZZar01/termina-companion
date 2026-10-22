@@ -428,6 +428,17 @@ def test_a_proposal_missing_objectives_warns():
     assert result.passed
     warnings = [issue for issue in result.issues if issue.kind == "proposal_fidelity"]
     assert warnings and warnings[0].severity == "warning"
+    # The message names the objectives by title, not by internal ref.
+    titles = {obj.id: obj.title for obj in relevant_objectives(scenario)}
+    proposed = {step.objective_ref for step in thin.steps}
+    expected = [
+        titles.get(ref, ref) for ref in scenario.required_objective_refs if ref not in proposed
+    ]
+    assert warnings[0].message == (
+        "The LLM proposal omitted expected objectives: " + ", ".join(expected)
+    )
+    assert result.warning_count == 1
+    assert result.error_count == 0
 
 
 # ---------------------------------------------------------------------------

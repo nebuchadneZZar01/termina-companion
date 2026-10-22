@@ -501,7 +501,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_status": "Status",
         "eval_steps": "Steps",
         "eval_duration": "Duration",
-        "eval_issues": "Issues",
+        "eval_errors": "Errors",
+        "eval_warnings": "Warnings",
         "eval_no_issues": "No issues: the plan satisfies every expectation.",
         "eval_no_results": "No scenario evaluated yet.",
         "eval_pass": "PASS",
@@ -523,10 +524,14 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_unknown": "unknown",
         # sweep comparison (current sweep vs the newest stored one)
         "eval_compare_none": "No previous sweep to compare against yet.",
-        "eval_compare_summary": "Previous sweep {when}: pass rate {before} \u2192 {after}",
-        "eval_compare_model": "Baseline model {before} \u2192 {after}",
-        "eval_compare_rag": "Baseline wiki retrieval {before} \u2192 {after}",
-        "eval_compare_repeats": "Baseline repeats {before} \u2192 {after}",
+        "eval_compare_summary": "Previous sweep of {when}: {before} passed before, {after} now",
+        "eval_compare_clean": (
+            "No regressions against the previous sweep of {when}: "
+            "{before} passed before, {after} now."
+        ),
+        "eval_compare_model": "Previous sweep: model {before} \u2192 {after}",
+        "eval_compare_rag": "Previous sweep: wiki retrieval {before} \u2192 {after}",
+        "eval_compare_repeats": "Previous sweep: repeats {before} \u2192 {after}",
         "eval_compare_scenario": "Scenario",
         "eval_compare_change": "Change",
         "eval_compare_detail": "Detail",
@@ -534,12 +539,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_compare_improved": "improved",
         "eval_compare_new": "new",
         "eval_compare_missing": "missing",
-        "eval_compare_regressed_help": "passed in the baseline, fails now",
-        "eval_compare_improved_help": "failed in the baseline, passes now",
-        "eval_compare_new_help": "not in the baseline",
+        "eval_compare_regressed_help": "passed in the previous sweep, fails now",
+        "eval_compare_improved_help": "failed in the previous sweep, passes now",
+        "eval_compare_new_help": "not in the previous sweep",
         "eval_compare_missing_help": "not in this sweep",
         "eval_compare_new_failure": "new failure: {kinds}",
-        "eval_compare_same": "No changes against the baseline.",
         "llm_base_url_hint": (
             "The local OpenAI-compatible server needs the /v1 path "
             "(e.g. http://localhost:11434/v1)."
@@ -555,6 +559,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_trajectory_order": "agent order",
         "kind_replan_bound": "re-plan bound",
         "kind_proposal_fidelity": "LLM proposal fidelity",
+        "kind_proposal_fidelity_help": (
+            "The final plan is correct: the deterministic rebuild added the missing steps."
+        ),
         # trace sections
         "trace_understood": "What the system understood",
         "trace_understood_caption": (
@@ -810,7 +817,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_status": "Esito",
         "eval_steps": "Passi",
         "eval_duration": "Durata",
-        "eval_issues": "Problemi",
+        "eval_errors": "Errori",
+        "eval_warnings": "Avvisi",
         "eval_no_issues": "Nessun problema: il piano soddisfa ogni aspettativa.",
         "eval_no_results": "Nessuno scenario valutato finora.",
         "eval_pass": "SUPERATO",
@@ -833,11 +841,15 @@ _STRINGS: dict[str, dict[str, str]] = {
         # sweep comparison (current sweep vs the newest stored one)
         "eval_compare_none": "Nessuno sweep precedente con cui confrontare.",
         "eval_compare_summary": (
-            "Sweep precedente {when}: tasso di successo {before} \u2192 {after}"
+            "Sweep precedente del {when}: prima {before} superati, ora {after}"
         ),
-        "eval_compare_model": "Modello della baseline {before} \u2192 {after}",
-        "eval_compare_rag": "Retrieval wiki della baseline {before} \u2192 {after}",
-        "eval_compare_repeats": "Ripetizioni della baseline {before} \u2192 {after}",
+        "eval_compare_clean": (
+            "Nessuna regressione rispetto allo sweep precedente del {when}: "
+            "prima {before} superati, ora {after}."
+        ),
+        "eval_compare_model": "Sweep precedente: modello {before} \u2192 {after}",
+        "eval_compare_rag": "Sweep precedente: retrieval wiki {before} \u2192 {after}",
+        "eval_compare_repeats": "Sweep precedente: ripetizioni {before} \u2192 {after}",
         "eval_compare_scenario": "Scenario",
         "eval_compare_change": "Cambio",
         "eval_compare_detail": "Dettaglio",
@@ -845,12 +857,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_compare_improved": "migliorato",
         "eval_compare_new": "nuovo",
         "eval_compare_missing": "assente",
-        "eval_compare_regressed_help": "passava nella baseline, ora fallisce",
-        "eval_compare_improved_help": "falliva nella baseline, ora passa",
-        "eval_compare_new_help": "non presente nella baseline",
+        "eval_compare_regressed_help": "passava nello sweep precedente, ora fallisce",
+        "eval_compare_improved_help": "falliva nello sweep precedente, ora passa",
+        "eval_compare_new_help": "non presente nello sweep precedente",
         "eval_compare_missing_help": "non presente in questo sweep",
         "eval_compare_new_failure": "nuovo fallimento: {kinds}",
-        "eval_compare_same": "Nessun cambiamento rispetto alla baseline.",
         "llm_base_url_hint": (
             "Il server locale compatibile con OpenAI richiede il percorso /v1 "
             "(es. http://localhost:11434/v1)."
@@ -866,6 +877,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_trajectory_order": "ordine degli agenti",
         "kind_replan_bound": "limite re-plan",
         "kind_proposal_fidelity": "fedeltà proposta LLM",
+        "kind_proposal_fidelity_help": (
+            "Il piano finale è corretto: la ricostruzione deterministica ha "
+            "aggiunto i passi mancanti."
+        ),
         # run audit
         "audit_header": (
             "Run `{run_id}` \u00b7 {seconds}s \u00b7 {attempts}/{max} tentativi \u00b7 {outcome}"
@@ -929,6 +944,9 @@ _MSGS_IT: dict[str, str] = {
     "Missing prerequisite(s): ": "Prerequisiti mancanti: ",
     "Depends on a step that ends after this one starts.": (
         "Dipende da un passo che termina dopo l'inizio di questo."
+    ),
+    "The LLM proposal omitted expected objectives: ": (
+        "La proposta LLM ha omesso obiettivi previsti: "
     ),
 }
 

@@ -407,7 +407,9 @@ retrieved objectives and the LLM mainly influences the step windows. The pass
 rate is therefore mostly a regression signal over retrieval, chain
 reconciliation and the critic — not a measure of LLM creativity. The
 `proposal_fidelity` warnings are where the LLM's own contribution shows: how
-often its raw proposal already contained the expected objectives.
+often its raw proposal already contained the expected objectives. The warning
+names the omitted objectives by title and explains that the deterministic
+rebuild added them, so it never hides behind the internal refs.
 
 ## Architecture
 

@@ -825,19 +825,32 @@ def _render_issue(scope, issue, fallback: str = "plan") -> None:
         scope (DeltaGenerator): the container to draw into.
         issue (ValidationIssue): the issue to display.
         fallback (str, default "plan"): the label used when the issue does
-            not point at a single step.
+            not point at a single step. An empty fallback hides the position
+            column entirely (evaluation warnings are about the whole scenario,
+            and a bare "Scenario" cell there reads as a stray field).
 
     returns:
         None: draws the issue row.
     """
     is_error = issue.severity == "error"
     kind = t(f"kind_{issue.kind}")
-    where = t("step_n", n=issue.step_idx + 1) if issue.step_idx is not None else t(fallback)
-    col_sev, col_kind, col_step, col_msg = scope.columns([1, 1, 1, 4], vertical_alignment="center")
+    if issue.step_idx is not None:
+        where = t("step_n", n=issue.step_idx + 1)
+    elif fallback:
+        where = t(fallback)
+    else:
+        where = ""
+    if where:
+        cols = scope.columns([1, 1, 1, 4], vertical_alignment="center")
+        col_sev, col_kind, col_step, col_msg = cols
+    else:
+        col_sev, col_kind, col_msg = scope.columns([1, 1, 4], vertical_alignment="center")
+        col_step = None
     sev = (t("sev_error") if is_error else t("sev_warning")).upper()
     col_sev.badge(sev, color="red" if is_error else "orange")
     col_kind.badge(kind.upper(), color="blue")
-    col_step.markdown(f"**{where}**")
+    if col_step is not None:
+        col_step.markdown(f"**{where}**")
     col_msg.markdown(tr_msg(_markdown_windows(issue.message)))
 
 
@@ -1422,7 +1435,8 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
                 t("eval_status"): t("eval_pass") if result.passed else t("eval_fail"),
                 t("eval_steps"): result.step_count,
                 t("eval_duration"): f"{result.duration_s:.1f}s",
-                t("eval_issues"): result.error_count,
+                t("eval_errors"): result.error_count,
+                t("eval_warnings"): result.warning_count,
                 t("eval_run_error"): _short_error(result.error),
             }
             for result in report.results
@@ -1437,7 +1451,30 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
             elif not result.issues:
                 st.success(t("eval_no_issues"))
             for issue in result.issues:
-                _render_issue(st, issue, fallback="eval_scenario")
+                _render_issue(st, issue, fallback="")
+                help_key = f"kind_{issue.kind}_help"
+                help_text = t(help_key)
+                if help_text != help_key:
+                    st.caption(help_text)
+
+
+def _format_timestamp(value: str) -> str:
+    """Format a stored ISO timestamp for display.
+
+    A value that cannot be parsed is returned unchanged, so an old or foreign
+    report still shows something instead of an empty caption.
+
+    args:
+        value (str): the stored timestamp.
+
+    returns:
+        str: the display timestamp, e.g. ``22/10/2026 15:25 UTC``.
+    """
+    try:
+        stamp = datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    return stamp.strftime("%d/%m/%Y %H:%M UTC")
 
 
 def _render_comparison(report: EvaluationReport) -> None:
@@ -1462,16 +1499,31 @@ def _render_comparison(report: EvaluationReport) -> None:
         st.caption(t("eval_compare_none"))
         return
     comparison = compare_reports(report, baseline)
-    summary = t(
-        "eval_compare_summary",
-        when=baseline.created_at or t("eval_unknown"),
-        before=f"{comparison.baseline_passed}/{comparison.baseline_total}",
-        after=f"{comparison.current_passed}/{comparison.current_total}",
-    )
+    when = _format_timestamp(baseline.created_at) or t("eval_unknown")
+    before = f"{comparison.baseline_passed}/{comparison.baseline_total}"
+    after = f"{comparison.current_passed}/{comparison.current_total}"
+    rows = [
+        {
+            t("eval_compare_scenario"): change.scenario_id,
+            t("eval_compare_change"): t(f"eval_compare_{change.status}"),
+            t("eval_compare_detail"): (
+                t(
+                    "eval_compare_new_failure",
+                    kinds=", ".join(_check_label(kind) for kind in change.new_failure_kinds),
+                )
+                if change.new_failure_kinds
+                else t(f"eval_compare_{change.status}_help")
+            ),
+        }
+        for change in comparison.changes
+        if change.status != "same"
+    ]
     if comparison.has_regressions:
-        st.warning(summary)
+        st.warning(t("eval_compare_summary", when=when, before=before, after=after))
+    elif rows:
+        st.caption(t("eval_compare_summary", when=when, before=before, after=after))
     else:
-        st.caption(summary)
+        st.caption(t("eval_compare_clean", when=when, before=before, after=after))
 
     if comparison.model_changed:
         st.caption(
@@ -1498,26 +1550,8 @@ def _render_comparison(report: EvaluationReport) -> None:
             )
         )
 
-    rows = [
-        {
-            t("eval_compare_scenario"): change.scenario_id,
-            t("eval_compare_change"): t(f"eval_compare_{change.status}"),
-            t("eval_compare_detail"): (
-                t(
-                    "eval_compare_new_failure",
-                    kinds=", ".join(_check_label(kind) for kind in change.new_failure_kinds),
-                )
-                if change.new_failure_kinds
-                else t(f"eval_compare_{change.status}_help")
-            ),
-        }
-        for change in comparison.changes
-        if change.status != "same"
-    ]
     if rows:
         st.table(rows)
-    else:
-        st.caption(t("eval_compare_same"))
 
 
 def _check_label(kind: str) -> str:

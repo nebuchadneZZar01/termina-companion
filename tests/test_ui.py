@@ -579,6 +579,13 @@ def test_evaluation_task_reports_worker_errors() -> None:
     assert task.status == "error"
 
 
+def test_sweep_timestamp_is_shown_without_the_iso_noise():
+    """A stored sweep time renders as a readable date, not raw ISO."""
+    assert ui._format_timestamp("2026-10-22T15:25:21+00:00") == "22/10/2026 15:25 UTC"
+    # An unparsable value is shown unchanged instead of disappearing.
+    assert ui._format_timestamp("yesterday") == "yesterday"
+
+
 def test_evaluation_tab_renders_the_report_of_a_finished_sweep(tmp_path, monkeypatch) -> None:
     """A finished sweep shows the metrics, the table and the failed checks."""
     from pathlib import Path
@@ -681,7 +688,7 @@ def test_evaluation_tab_flags_a_regression_against_the_stored_history(
     assert not at.exception
     warnings = [warning.value for warning in at.warning]
     assert any(
-        "Previous sweep 2026-10-20T09:00:00+00:00" in warning
+        "Previous sweep of 20/10/2026 09:00 UTC" in warning
         and "2/2" in warning
         and "1/2" in warning
         for warning in warnings

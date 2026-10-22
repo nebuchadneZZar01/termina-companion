@@ -101,6 +101,22 @@ class ScenarioResult(BaseModel):
         issues = sum(1 for issue in self.issues if issue.severity == "error")
         return issues + (1 if self.error else 0)
 
+    @computed_field
+    @property
+    def warning_count(self) -> int:
+        """Number of warning-severity findings.
+
+        Warnings never fail a scenario, but they still have to be visible: a
+        report that said "0 issues" next to a warning would read as a bug.
+
+        args:
+            (none)
+
+        returns:
+            int: the count of warnings.
+        """
+        return sum(1 for issue in self.issues if issue.severity == "warning")
+
 
 class EvaluationReport(BaseModel):
     """Aggregate metrics over a set of evaluated scenarios."""

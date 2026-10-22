@@ -24,7 +24,8 @@ Checks, each producing issues of its own kind:
 * ``replan_bound`` — the run stayed within the attempt bound, and a warning is
   raised when the plan was accepted only after re-planning.
 * ``proposal_fidelity`` — a warning when the LLM's raw proposal omitted
-  expected objectives that the deterministic rebuild had to add.
+  expected objectives that the deterministic rebuild had to add (the message
+  names them by title, resolved through the same MCP lookup).
 
 Warnings never fail a scenario: they measure the quality of the trajectory,
 not the validity of the final plan.
@@ -95,7 +96,7 @@ def evaluate_plan(
         # A run's trajectory: hand-built plans pass neither and stay exempt.
         _check_trajectory(objectives, tool_calls, validation, issues)
     _check_replan(attempt_log, issues)
-    _check_proposal(scenario, plan_proposal, issues)
+    _check_proposal(scenario, plan_proposal, by_id, issues)
 
     passed = not any(issue.severity == "error" for issue in issues)
     return ScenarioResult(
@@ -595,17 +596,22 @@ def _check_replan(attempt_log: Sequence[AttemptRecord], issues: list[EvaluationI
 def _check_proposal(
     scenario: PlanScenario,
     plan_proposal: Plan | None,
+    by_id: dict[str, Objective],
     issues: list[EvaluationIssue],
 ) -> None:
     """Compare the LLM's raw proposal with what the scenario expected.
 
     The deterministic rebuild (grounding, dedup, chain reconciliation) may
     repair a proposal, but a proposal that misses expected objectives means
-    the LLM contributed less than it should have.
+    the LLM contributed less than it should have. The message names the
+    objectives by title, so the report stays readable without knowing the
+    internal refs.
 
     args:
         scenario (PlanScenario): the expectations to compare against.
         plan_proposal (Plan | None): the LLM's proposal before repair.
+        by_id (dict[str, Objective]): the objectives the goal retrieved, keyed
+            by ref, used to resolve titles.
         issues (list[EvaluationIssue]): the issue list to append to.
 
     returns:
@@ -616,11 +622,12 @@ def _check_proposal(
     refs = {step.objective_ref for step in plan_proposal.steps}
     missing = [ref for ref in scenario.required_objective_refs if ref not in refs]
     if missing:
+        titles = [by_id[ref].title if ref in by_id else ref for ref in missing]
         issues.append(
             EvaluationIssue(
                 severity="warning",
                 kind="proposal_fidelity",
-                message="The LLM proposal omitted expected objectives: " + ", ".join(missing),
+                message="The LLM proposal omitted expected objectives: " + ", ".join(titles),
             )
         )
 
