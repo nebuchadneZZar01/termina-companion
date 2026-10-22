@@ -102,6 +102,23 @@ length by `LLM_LOG_PAYLOAD_LIMIT` so one runaway prompt cannot flood the
 console. In the app, the Trace tab shows the
 `run_id`, the node timeline and any errors — errors only, no prompt bodies.
 
+### Evaluation scores in Phoenix
+
+When an evaluation sweep runs (CLI or the *Evaluation* tab) with the endpoint
+configured, every evaluated run's trace also receives span annotations, visible
+in the **Annotations** panel of the run's root span:
+
+* `evaluation/overall` — score 1/0 with a `PASS`/`FAIL` label and an
+  explanation naming what failed (the failed checks, or the run error);
+* one `evaluation/<kind>` annotation per **failed** check (score 0);
+* warnings (like `proposal_fidelity`) get the same annotation with a `warning`
+  label and **no score**, so they never read as a failure.
+
+Publishing is best-effort telemetry: without a configured endpoint it is a
+no-op, and an unreachable Phoenix logs a warning without failing the sweep.
+Regular runs (the *Play* tab, `python -m app`) emit traces only — annotations
+come from the evaluation harness alone.
+
 ## Adaptive Zelda Wiki RAG
 
 RAG is supplemental and always enabled. There is no `RAG_ENABLED` switch and no
@@ -294,6 +311,17 @@ A scenario passes when no check reports an error; warnings are reported but do
 not fail it. A run that crashes (LLM error, no plan produced) is a failure
 carrying the error message — it is never reported as a scenario without
 issues.
+
+The pipeline's own Critic and the harness answer different questions. The
+Critic runs inside every planning run and checks **feasibility** — items,
+masks, prerequisite objectives, temporal overlap — and triggers re-planning
+when the plan cannot be executed. The harness checks **goal achievement**
+against the scenario's expectations: a plan can be perfectly feasible and
+still fail because it never reached the quest's objective (think of a
+feasible detour that ignores the Romani Remedy entirely). The `critic` and
+`trajectory_*` checks above verify that the Critic ran and what it decided;
+they do not replace it. A verdict mismatch between the two — feasible, but
+wrong goal — is a useful signal about the planner, not a bug in either check.
 
 ### CLI
 
