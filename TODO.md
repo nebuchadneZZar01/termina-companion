@@ -277,7 +277,7 @@ monitoring is served by these spans plus the existing text logs.
 * [x] Check the agent order of a run (MCP lookups and the Critic verdict)
 * [x] Check the re-plan bound and flag a late acceptance
 * [x] Flag an LLM proposal that missed expected objectives (warning)
-* [x] Compare a sweep against the stored history and flag regressions
+* [ ] Compare a sweep against the stored history and flag regressions
 * [x] Revisit `RAG_SIMILARITY_THRESHOLD` if plan pass rate degrades from RAG noise/misses
 * [x] Evaluate RAG separately if RAG is implemented (retrieval-only harness)
 
