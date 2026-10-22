@@ -8,84 +8,43 @@ Each evaluated scenario is annotated on its own ``pipeline.run`` trace:
 * warnings (e.g. ``proposal_fidelity``) get the same annotation with a
   ``warning`` label and **no score**, so they never read as a failure.
 
-Everything here is optional telemetry: without a Phoenix endpoint, or when
-the run produced no span id, publishing is a no-op, and any transport error
-is a log line — an unreachable Phoenix must never fail a sweep. The endpoint
-is shared with tracing (``PHOENIX_BASE_URL`` if set, otherwise
-``OTEL_EXPORTER_OTLP_ENDPOINT``), so scores always land where the traces do.
+Everything here is optional telemetry (see :mod:`app.phoenix` for the
+shared client): without a Phoenix endpoint, or when the run produced no
+span id, publishing is a no-op, and any transport error is a log line — an
+unreachable Phoenix must never fail a sweep.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 
 import httpx
 
 from app.evaluation.models import EvaluationIssue, ScenarioResult
+from app.phoenix import ANNOTATOR_KIND, annotation_base_url, clip, identifier, post_annotations
 from app.trace import flush_spans
 
 logger = logging.getLogger(__name__)
-
-#: Deterministic evaluator, not a model or a human, for Phoenix's column.
-ANNOTATOR_KIND = "CODE"
-#: Bound for a single explanation, so one huge issue message cannot bloat
-#: the annotation payload (the report keeps the full text).
-EXPLANATION_LIMIT = 500
-_REQUEST_TIMEOUT_S = 5.0
-
-
-def annotation_base_url() -> str | None:
-    """Where span annotations should be posted, or None to stay silent.
-
-    args:
-        (none)
-
-    returns:
-        str | None: the Phoenix base URL (no trailing slash), or None when
-        neither ``PHOENIX_BASE_URL`` nor ``OTEL_EXPORTER_OTLP_ENDPOINT`` is
-        configured.
-    """
-    for name in ("PHOENIX_BASE_URL", "OTEL_EXPORTER_OTLP_ENDPOINT"):
-        raw = os.getenv(name, "").strip().removesuffix("/")
-        if raw:
-            return raw
-    return None
-
-
-def _clip(text: str) -> str:
-    """Bound one explanation to :data:`EXPLANATION_LIMIT` characters."""
-    text = " ".join(str(text).split())
-    if len(text) <= EXPLANATION_LIMIT:
-        return text
-    return text[: EXPLANATION_LIMIT - 1] + "…"
-
-
-def _identifier(result: ScenarioResult, suffix: str) -> str:
-    """Stable upsert key, so re-publishing the same run updates in place."""
-    if not result.run_id:
-        return ""
-    return f"termina:{result.run_id}:{suffix}"
 
 
 def _overall(result: ScenarioResult) -> dict:
     """The PASS/FAIL annotation every run gets."""
     if result.error:
-        explanation = _clip(f"Run failed before a plan was produced: {result.error}")
+        explanation = clip(f"Run failed before a plan was produced: {result.error}")
     else:
         failed = [issue for issue in result.issues if issue.severity == "error"]
         warnings = [issue for issue in result.issues if issue.severity == "warning"]
         if failed:
-            explanation = _clip("; ".join(f"{i.kind}: {i.message}" for i in failed))
+            explanation = clip("; ".join(f"{i.kind}: {i.message}" for i in failed))
         else:
             explanation = "All checks passed."
         if warnings:
-            explanation = _clip(f"{explanation} ({len(warnings)} warning(s))")
+            explanation = clip(f"{explanation} ({len(warnings)} warning(s))")
     return {
         "name": "evaluation/overall",
         "annotator_kind": ANNOTATOR_KIND,
         "span_id": result.span_id,
-        "identifier": _identifier(result, "overall"),
+        "identifier": identifier(result.run_id, "overall"),
         "result": {
             "score": 1.0 if result.passed else 0.0,
             "label": "PASS" if result.passed else "FAIL",
@@ -107,15 +66,15 @@ def _issue_annotation(result: ScenarioResult, issue: EvaluationIssue) -> dict:
         "name": f"evaluation/{issue.kind}",
         "annotator_kind": ANNOTATOR_KIND,
         "span_id": result.span_id,
-        "identifier": _identifier(result, f"{issue.kind}:{issue.severity}:{issue.step_idx}"),
-        "result": {"label": "warning", "explanation": _clip(issue.message)},
+        "identifier": identifier(result.run_id, f"{issue.kind}:{issue.severity}:{issue.step_idx}"),
+        "result": {"label": "warning", "explanation": clip(issue.message)},
         "metadata": {"severity": issue.severity, "step_idx": issue.step_idx},
     }
     if issue.severity == "error":
         body["result"] = {
             "score": 0.0,
             "label": "FAIL",
-            "explanation": _clip(issue.message),
+            "explanation": clip(issue.message),
         }
     return body
 
@@ -146,24 +105,11 @@ def publish_result_scores(result: ScenarioResult, *, client: httpx.Client | None
     returns:
         bool: True when Phoenix accepted the annotations.
     """
-    base = annotation_base_url()
-    annotations = annotations_for(result)
-    if base is None or not annotations:
-        return False
-    owns_client = client is None
-    if owns_client:
-        client = httpx.Client(timeout=_REQUEST_TIMEOUT_S)
-    try:
-        response = client.post(f"{base}/v1/span_annotations", json={"data": annotations})
-        response.raise_for_status()
-    except Exception as exc:  # noqa: BLE001 - telemetry must not fail a sweep
-        logger.warning("Phoenix: could not publish scores for %s: %s", result.scenario_id, exc)
-        return False
-    finally:
-        if owns_client:
-            client.close()
-    logger.info("Phoenix: published %d annotation(s) for %s", len(annotations), result.scenario_id)
-    return True
+    return post_annotations(
+        annotations_for(result),
+        description=f"scores for {result.scenario_id}",
+        client=client,
+    )
 
 
 def publish_scores(results: list[ScenarioResult], *, client: httpx.Client | None = None) -> int:

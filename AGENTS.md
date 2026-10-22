@@ -166,6 +166,16 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   when `LLM_BASE_URL` names only a host; `llm_error_hint()` turns a failed
   call into an actionable message (base URL, API key, server down). The
   Planning Agent has no rule-based fallback.
+* `app/phoenix.py` — the shared Phoenix span-annotation client: endpoint
+  resolution (`PHOENIX_BASE_URL` else the OTLP endpoint, so annotations land
+  where the traces do), explanation clipping, deterministic
+  `termina:{run_id}:{suffix}` upsert identifiers and a fail-soft
+  `post_annotations()` that can never break a run or a sweep.
+  `publish_plan_validation()` annotates every run's trace with the Critic's
+  verdict (`plan/validation`, score 1/0 with PASS/FAIL and the issues in the
+  explanation) and is called by `run_pipeline` once the root span is closed;
+  the evaluation harness builds its `evaluation/*` payloads on top of the
+  same client (`app/evaluation/phoenix.py`).
 * `app/log.py` — console logging setup: `configure_logging()`, called from both
   entry points, installs one timestamped handler
   (`%(asctime)s %(levelname)s [%(name)s] %(message)s`) and reads a single
@@ -207,7 +217,8 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   through the MCP tools, never the knowledge base directly, so it measures
   what the Knowledge Agent could have known; `runner.py` runs the scenarios
   against the live pipeline (memory store cleared before each scenario) and is
-  shared by the CLI harness and the UI; `phoenix.py` posts each sweep's scores
+  shared by the CLI harness and the UI; `phoenix.py` builds each sweep's
+  score payloads on the shared client (`app/phoenix.py`) and posts them
   to Phoenix as span annotations on the run's own trace — `evaluation/overall`
   (score 1/0 with PASS/FAIL), one annotation per failed check, warnings
   labelled but unscored — only when a Phoenix endpoint is configured
@@ -240,7 +251,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
 * `app/agents/memory_agent.py` — `retrieve_run` (before `state`) and `store_run`
   (after `critic`, one episode per finished run, planner context only).
 * `app/graph.py` — graph wiring and the bounded re-planning
-  loop (max `MAX_PLANNING_ATTEMPTS = 3`) driven by the Critic Agent. Each node is
+  loop (max `MAX_PLANNING_ATTEMPTS = 3`) driven by the Critic Agent.
+  `run_pipeline` also posts the run's Critic verdict to Phoenix as a
+  `plan/validation` span annotation (best-effort, via `app/phoenix.py`).
+  Each node is
   wrapped to announce its start on the custom progress stream, open one
   `node.*` trace span and record its outcome (duration, status, detail) for
   the run audit; a failing node is also added to the run's error list.

@@ -102,11 +102,17 @@ length by `LLM_LOG_PAYLOAD_LIMIT` so one runaway prompt cannot flood the
 console. In the app, the Trace tab shows the
 `run_id`, the node timeline and any errors — errors only, no prompt bodies.
 
-### Evaluation scores in Phoenix
+### Scores in Phoenix
 
-When an evaluation sweep runs (CLI or the *Evaluation* tab) with the endpoint
-configured, every evaluated run's trace also receives span annotations, visible
-in the **Annotations** panel of the run's root span:
+Every run's trace carries the Critic's verdict as a span annotation,
+`plan/validation`: score 1/0 with a `PASS`/`FAIL` label, the feasibility
+issues in the explanation, and the run metadata (goal, attempts, model). A
+run that crashed before the Critic kept its ERROR span and gets no
+annotation.
+
+An evaluation sweep (CLI or the *Evaluation* tab) adds the harness scores
+to the same traces, visible in the **Annotations** panel of the run's root
+span:
 
 * `evaluation/overall` — score 1/0 with a `PASS`/`FAIL` label and an
   explanation naming what failed (the failed checks, or the run error);
@@ -114,10 +120,14 @@ in the **Annotations** panel of the run's root span:
 * warnings (like `proposal_fidelity`) get the same annotation with a `warning`
   label and **no score**, so they never read as a failure.
 
+A feasible plan that the harness still rejects (`plan/validation` PASS,
+`evaluation/overall` FAIL) means the run built something executable that
+missed the quest's goal — a useful signal about the planner, not a bug in
+either check.
+
 Publishing is best-effort telemetry: without a configured endpoint it is a
-no-op, and an unreachable Phoenix logs a warning without failing the sweep.
-Regular runs (the *Play* tab, `python -m app`) emit traces only — annotations
-come from the evaluation harness alone.
+no-op, and an unreachable Phoenix logs a warning without failing the run or
+the sweep.
 
 ## Adaptive Zelda Wiki RAG
 

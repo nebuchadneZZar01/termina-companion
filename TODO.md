@@ -247,6 +247,8 @@ implemented in Phase 11.
 * [x] Trace replanning
 * [x] Trace final response
 * [x] Expose useful trace information in the UI
+* [x] Publish the Critic's verdict of every run as a `plan/validation` span
+  annotation (the sweep scores as `evaluation/*`, Phase 11)
 
 Tracing uses OpenTelemetry. Spans (pipeline, agents, LLM, RAG, MCP,
 validation) are exported to a local Arize Phoenix container over OTLP/HTTP
@@ -255,7 +257,11 @@ so tests, the demo and CI never need a backend. Full LLM prompts go to spans
 (visible in Phoenix) and to console logs at `INFO`, bounded in length by
 `LLM_LOG_PAYLOAD_LIMIT`. The
 Trace tab shows the run id, a node timeline and errors only. Structured
-monitoring is served by these spans plus the existing text logs.
+monitoring is served by these spans plus the existing text logs. Every run's
+trace also carries its Critic verdict as a `plan/validation` span annotation
+(score 1/0, PASS/FAIL with the feasibility issues), and an evaluation sweep
+adds the `evaluation/*` score annotations on the same traces; both are
+best-effort through the shared client in `app/phoenix.py`.
 
 # Phase 11 — Evaluation
 
