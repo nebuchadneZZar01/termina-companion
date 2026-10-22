@@ -21,8 +21,10 @@ from collections.abc import Callable, Sequence
 from app.domain import Goal
 from app.evaluation.evaluator import evaluate_plan
 from app.evaluation.models import EvaluationReport, PlanScenario, ScenarioResult
+from app.evaluation.phoenix import publish_scores
 from app.graph import run_pipeline
 from app.memory.store import get_memory_store
+from app.trace import current_run_id, current_span_ids
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +63,15 @@ def run_scenario(scenario: PlanScenario) -> ScenarioResult:
         state = run_pipeline(scenario.game_state, Goal(description=scenario.goal))
     except Exception as exc:  # noqa: BLE001 - a failed run is a result, not a crash
         logger.warning("Evaluation: scenario %s failed: %s", scenario.id, exc)
+        span_id, trace_id = current_span_ids()
         return ScenarioResult(
             scenario_id=scenario.id,
             passed=False,
             duration_s=round(time.perf_counter() - started, 1),
             error=f"{type(exc).__name__}: {exc}",
+            run_id=current_run_id(),
+            span_id=span_id,
+            trace_id=trace_id,
         )
     outcome = evaluate_plan(
         state.plan,
@@ -78,6 +84,10 @@ def run_scenario(scenario: PlanScenario) -> ScenarioResult:
     outcome.duration_s = round(time.perf_counter() - started, 1)
     outcome.retrieval_status = state.retrieval_status
     outcome.model = state.plan_model or state.plan_engine
+    # The trace ids of this run's root span, kept in the report so the score
+    # can be posted onto the Phoenix trace and the report links back to it.
+    outcome.run_id = current_run_id()
+    outcome.span_id, outcome.trace_id = current_span_ids()
     return outcome
 
 
@@ -118,4 +128,5 @@ def run_scenarios(
             os.environ.pop(RAG_ENV_VAR, None)
         else:
             os.environ[RAG_ENV_VAR] = previous
+    publish_scores(results)
     return EvaluationReport(results=results, rag_on=rag_on)

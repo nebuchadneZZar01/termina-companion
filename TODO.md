@@ -49,7 +49,9 @@ Status map:
   prerequisites, tool usage, critic, agent order, re-plan bound, LLM proposal
   fidelity — an explicit PASS/FAIL per scenario, an aggregate pass rate, sweep
   metadata, a CLI harness (`scripts/evaluate_plans.py`), an Evaluation tab in
-  the Streamlit UI and a persisted report). The sweep-to-sweep comparison
+  the Streamlit UI and a persisted report; each run's scores are also posted
+  to Phoenix as span annotations when tracing is configured). The
+  sweep-to-sweep comparison
   stays open; the `RAG_SIMILARITY_THRESHOLD` revisit is resolved (0.60
   confirmed by an A/B sweep on 2026-10-21).
 * Phase 12 — Production Readiness: not started yet.
@@ -277,6 +279,9 @@ monitoring is served by these spans plus the existing text logs.
 * [x] Check the agent order of a run (MCP lookups and the Critic verdict)
 * [x] Check the re-plan bound and flag a late acceptance
 * [x] Flag an LLM proposal that missed expected objectives (warning)
+* [x] Publish the scores to Phoenix as span annotations on each run's trace
+  (overall PASS/FAIL score, one annotation per failed check, warnings labelled
+  but unscored; best-effort, never failing a sweep)
 * [ ] Compare a sweep against the stored history and flag regressions
 * [x] Revisit `RAG_SIMILARITY_THRESHOLD` if plan pass rate degrades from RAG noise/misses
 * [x] Evaluate RAG separately if RAG is implemented (retrieval-only harness)

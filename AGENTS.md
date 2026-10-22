@@ -207,7 +207,13 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   through the MCP tools, never the knowledge base directly, so it measures
   what the Knowledge Agent could have known; `runner.py` runs the scenarios
   against the live pipeline (memory store cleared before each scenario) and is
-  shared by the CLI harness and the UI; `storage.py` persists the report in
+  shared by the CLI harness and the UI; `phoenix.py` posts each sweep's scores
+  to Phoenix as span annotations on the run's own trace — `evaluation/overall`
+  (score 1/0 with PASS/FAIL), one annotation per failed check, warnings
+  labelled but unscored — only when a Phoenix endpoint is configured
+  (`PHOENIX_BASE_URL` or the OTLP endpoint), flushing pending spans first and
+  failing soft, so an unreachable Phoenix never fails a sweep;
+  `storage.py` persists the report in
   the save directory derived from `RAG_QDRANT_PATH` (`last_evaluation.json`
   plus a timestamped `evaluations/` copy; a missing creation date is stamped
   once before any write, so every copy of a sweep agrees), so the checks
@@ -276,8 +282,11 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   (`CHAIN`/`TOOL`/`RETRIEVER`/`LLM`), `input.value`/`output.value`, and an
   explicit `OK`/`ERROR` status set before the span closes. `pipeline_span()`
   opens one root span per
-  run and feeds a per-run in-memory `RunTrace` (run id, node timeline, errors)
-  that the UI reads. `span()` traces one MCP call, the RAG retrieval or a
+  run and feeds a per-run in-memory `RunTrace` (run id, the root span's
+  `span_id`/`trace_id` for report↔trace links, node timeline, errors)
+  that the UI reads; `current_span_ids()` exposes those ids per context (so a
+  background sweep and a UI run cannot mix them up) and `flush_spans()` pushes
+  queued spans before annotations are posted. `span()` traces one MCP call, the RAG retrieval or a
   validation and records failures; use `set_output()` inside the block for the
   output payload. `TraceCallback` is a LangChain callback
   attached at the single LLM call site: it puts the complete system/user/

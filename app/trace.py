@@ -54,6 +54,8 @@ OUTPUT_MIME_TYPE_ATTR = "output.mime_type"
 JSON_MIME_TYPE = "application/json"
 
 _run_id: ContextVar[str] = ContextVar("termina_run_id", default="")
+_span_id: ContextVar[str] = ContextVar("termina_span_id", default="")
+_trace_id: ContextVar[str] = ContextVar("termina_trace_id", default="")
 _setup_done = False
 _exporter_active = False
 
@@ -64,6 +66,10 @@ class RunTrace:
 
     run_id: str
     goal: str = ""
+    # OTel ids of the pipeline.run root span (hex, no 0x), so an evaluation
+    # report can be linked back to this run's trace in Phoenix.
+    span_id: str = ""
+    trace_id: str = ""
     started_at: float = field(default_factory=time.time)
     nodes: list[dict] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
@@ -146,6 +152,29 @@ def exporter_active() -> bool:
     return _exporter_active
 
 
+def flush_spans(timeout_millis: int = 5000) -> None:
+    """Force pending spans to the exporter, so a backend already has the run.
+
+    Used before posting span annotations: the BatchSpanProcessor queues spans
+    asynchronously, and an annotation for a trace Phoenix has not ingested yet
+    would be orphaned. No-op outside a configured provider.
+
+    args:
+        timeout_millis (int, default 5000): how long to wait for the flush.
+
+    returns:
+        None: best-effort side effect; failures are logged at debug only.
+    """
+    provider = trace.get_tracer_provider()
+    force_flush = getattr(provider, "force_flush", None)
+    if not callable(force_flush):
+        return
+    try:
+        force_flush(timeout_millis=timeout_millis)
+    except Exception:  # noqa: BLE001 - a slow backend must not break the run
+        logger.debug("Span flush did not complete", exc_info=True)
+
+
 def get_tracer(name: str = SERVICE_NAME):
     """Return an OTel tracer bound to the configured provider."""
     return trace.get_tracer(name)
@@ -154,6 +183,23 @@ def get_tracer(name: str = SERVICE_NAME):
 def current_run_id() -> str:
     """The active run's id, or an empty string outside a run."""
     return _run_id.get()
+
+
+def current_span_ids() -> tuple[str, str]:
+    """The active run's root-span ids as ``(span_id, trace_id)``.
+
+    Both are lowercase hex without a ``0x`` prefix (the format Phoenix and
+    OpenTelemetry use), or empty strings outside a run. Kept in ContextVars
+    rather than read off the shared :class:`RunTrace`, so a background
+    evaluation sweep and a UI run in different threads cannot mix them up.
+
+    args:
+        (none)
+
+    returns:
+        tuple[str, str]: the span and trace ids of the current run.
+    """
+    return _span_id.get(), _trace_id.get()
 
 
 def current_run() -> RunTrace | None:
@@ -167,6 +213,10 @@ def begin_run(goal: str = "") -> RunTrace:
     run = RunTrace(run_id=uuid.uuid4().hex[:8], goal=goal)
     _current = run
     _run_id.set(run.run_id)
+    # Cleared here so a run that dies before its span exists can never report
+    # the previous run's span ids; pipeline_span fills them after start_span.
+    _span_id.set("")
+    _trace_id.set("")
     logger.info("Run %s started — goal: %s", run.run_id, goal or "(none)")
     return run
 
@@ -197,6 +247,12 @@ def pipeline_span(goal: str = "") -> Iterator[RunTrace]:
             }
         ),
     )
+    context = span.get_span_context()
+    if context.is_valid:
+        run.span_id = f"{context.span_id:016x}"
+        run.trace_id = f"{context.trace_id:032x}"
+    _span_id.set(run.span_id)
+    _trace_id.set(run.trace_id)
     with trace.use_span(span, end_on_exit=True):
         try:
             yield run

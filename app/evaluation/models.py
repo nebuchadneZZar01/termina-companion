@@ -76,6 +76,12 @@ class ScenarioResult(BaseModel):
     model: str = ""
     # Set when the run itself failed (LLM error, no plan produced).
     error: str = ""
+    # Ids of the run's root span, so the report links back to the Phoenix
+    # trace (and evaluation scores can be posted onto it). Empty when the
+    # run happened without a traced pipeline (hand-built results, no tracer).
+    run_id: str = ""
+    span_id: str = ""
+    trace_id: str = ""
 
     @computed_field
     @property
