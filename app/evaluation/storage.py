@@ -150,3 +150,24 @@ def list_reports() -> list[Path]:
     if not history.exists():
         return []
     return sorted(history.glob("*.json"), key=lambda path: path.name, reverse=True)
+
+
+def load_history() -> list[EvaluationReport]:
+    """Load the saved history reports, newest first.
+
+    A corrupt or unreadable file is skipped instead of failing the load: one
+    broken artifact must not take the whole comparison down.
+
+    args:
+        (none)
+
+    returns:
+        list[EvaluationReport]: the parsed reports, most recent first.
+    """
+    reports: list[EvaluationReport] = []
+    for path in list_reports():
+        try:
+            reports.append(EvaluationReport.model_validate_json(path.read_text(encoding="utf-8")))
+        except Exception:  # noqa: BLE001, S112 - skip unusable history entries
+            continue
+    return reports

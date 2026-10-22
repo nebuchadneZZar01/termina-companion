@@ -4,6 +4,7 @@ Usage:
     uv run python scripts/evaluate_plans.py
     uv run python scripts/evaluate_plans.py --scenario anju-kafei --repeat 3
     uv run python scripts/evaluate_plans.py --rag off
+    uv run python scripts/evaluate_plans.py --baseline reports/old.json
     uv run python scripts/evaluate_plans.py --json reports/evaluation.json
     uv run python scripts/evaluate_plans.py --list
 
@@ -16,6 +17,11 @@ The memory store is cleared before every scenario, so the scenarios never see
 each other's past episodes and stay independent. ``--rag off`` disables the
 supplemental wiki retrieval (``RAG_ENABLED=0``) to compare plan quality with
 and without it.
+
+Every sweep is also compared with the newest compatible stored sweep (or the
+report named by ``--baseline``) and the scenarios that regressed are flagged:
+a plan that passed yesterday and fails today is a regression even when the
+aggregate pass rate still looks acceptable.
 
 The same sweep runs in the *Evaluation* tab of the Streamlit UI: both entry
 points share ``app.evaluation.runner``.
@@ -35,10 +41,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.evaluation.models import EvaluationReport, PlanScenario, ScenarioResult  # noqa: E402
+from app.evaluation.comparison import compare_reports, select_baseline  # noqa: E402
+from app.evaluation.models import (  # noqa: E402
+    EvaluationReport,
+    PlanScenario,
+    ScenarioResult,
+    SweepComparison,
+)
 from app.evaluation.runner import run_scenarios  # noqa: E402
 from app.evaluation.scenarios import EVALUATION_SCENARIOS, SCENARIOS_BY_ID  # noqa: E402
-from app.evaluation.storage import save_report, stamp_report  # noqa: E402
+from app.evaluation.storage import load_history, save_report, stamp_report  # noqa: E402
 from app.log import configure_logging  # noqa: E402
 from app.trace import setup_tracing  # noqa: E402
 
@@ -71,6 +83,12 @@ def parse_args() -> argparse.Namespace:
         choices=["on", "off"],
         default="on",
         help="Enable or disable the supplemental wiki retrieval.",
+    )
+    parser.add_argument(
+        "--baseline",
+        metavar="PATH",
+        default="",
+        help="Compare against this report instead of the newest stored sweep.",
     )
     parser.add_argument("--json", metavar="PATH", default="", help="Write the report as JSON.")
     parser.add_argument("--list", action="store_true", help="List the scenarios and exit.")
@@ -144,6 +162,74 @@ def print_summary(report: EvaluationReport) -> None:
         print("Failures by check: none")
 
 
+def load_baseline(path: str) -> EvaluationReport | None:
+    """Load an explicitly requested baseline report.
+
+    args:
+        path (str): the report file to read.
+
+    returns:
+        EvaluationReport | None: the report, or None when it cannot be read
+        (the sweep still runs and is saved; only the comparison is skipped).
+    """
+    try:
+        return EvaluationReport.model_validate_json(Path(path).read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 - a bad path must not abort the sweep
+        print(f"Could not read the baseline report {path}: {exc}")
+        return None
+
+
+def print_comparison(comparison: SweepComparison) -> None:
+    """Print how the sweep changed against its baseline.
+
+    args:
+        comparison (SweepComparison): the computed comparison.
+
+    returns:
+        None: prints to stdout.
+    """
+    when = comparison.baseline_created_at or "unknown time"
+    print()
+    print(
+        f"Baseline {when} (model={comparison.baseline_model or 'unknown'}, "
+        f"wiki={comparison.baseline_rag}): "
+        f"{comparison.baseline_passed}/{comparison.baseline_total} -> "
+        f"{comparison.current_passed}/{comparison.current_total} "
+        f"({comparison.pass_rate_delta:+.2f})"
+    )
+    if comparison.model_changed:
+        print(
+            f"        note: model {comparison.baseline_model or 'unknown'} -> "
+            f"{comparison.current_model or 'unknown'}"
+        )
+    if comparison.rag_changed:
+        print(f"        note: wiki retrieval {comparison.baseline_rag} -> {comparison.current_rag}")
+    if comparison.repeats_changed:
+        print(
+            f"        note: repeats {comparison.baseline_repeats} -> {comparison.current_repeats}"
+        )
+    labels = {
+        "regressed": "! regressed",
+        "improved": "+ improved",
+        "new": "+ new",
+        "missing": "~ missing",
+    }
+    for change in comparison.changes:
+        if change.status == "same":
+            continue
+        if change.status == "missing":
+            detail = "  (not in this sweep)"
+        elif change.status == "new":
+            detail = "  (not in the baseline)"
+        elif change.new_failure_kinds:
+            detail = f"  (new failure: {', '.join(change.new_failure_kinds)})"
+        else:
+            detail = ""
+        print(f"        {labels[change.status]:<12} {change.scenario_id}{detail}")
+    if not comparison.has_regressions:
+        print("        no regressions")
+
+
 def main() -> int:
     """Run the evaluation sweep and report the outcome.
 
@@ -186,6 +272,19 @@ def main() -> int:
     report = EvaluationReport(results=results, rag_on=args.rag == "on", repeats=repeats)
     report = stamp_report(report)
     print_summary(report)
+
+    # The baseline comes from the stored history, which does not contain this
+    # sweep yet (it is saved below). An unreadable history or --baseline path
+    # only skips the comparison, never the sweep.
+    baseline = (
+        load_baseline(args.baseline) if args.baseline else select_baseline(report, load_history())
+    )
+    if baseline is None:
+        print()
+        print("No previous sweep to compare against.")
+    else:
+        comparison = compare_reports(report, baseline)
+        print_comparison(comparison)
 
     try:
         saved = save_report(report)

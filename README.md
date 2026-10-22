@@ -369,6 +369,14 @@ flag, the model that produced each plan, the repeat count and a creation
 timestamp — so two saved sweeps can be compared instead of retyped from the
 terminal.
 
+Each sweep is also compared with the newest compatible stored one (the same
+wiki flag is preferred; `--baseline PATH` picks another report explicitly).
+A scenario that passed before and fails now is printed as a regression with the
+check that broke it, a scenario that improved is noted, and a scenario present
+on only one side is reported as `new`/`missing`: a partial sweep never looks
+like a quality drop. The comparison does not change the exit code — a
+regression is already a failing scenario.
+
 The wiki-retrieval label is derived from what each run actually recorded, not
 from the flag the sweep was started with: a run whose wiki leg died partway
 (store locked, wiki unreachable) is reported as `degraded`, because a sweep
@@ -387,7 +395,9 @@ measure exactly the same thing.
 
 The sweep is saved to the same store when it finishes — from the worker
 thread, so a closed tab loses nothing — and *Load last report* brings the
-checks back after a browser reload.
+checks back after a browser reload. Under the metrics, a comparison card
+checks the report against the newest stored sweep and warns when a scenario
+regressed, so a reloaded report still tells you what changed.
 
 ### What the pass rate measures
 

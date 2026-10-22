@@ -1,0 +1,139 @@
+"""Compare an evaluation sweep with a stored baseline to flag regressions.
+
+A sweep is only meaningful as a trend: a plan that passed yesterday and fails
+today is a regression even when the aggregate pass rate looks acceptable. The
+comparison is deliberately pure — it takes two :class:`EvaluationReport`
+objects and returns a :class:`SweepComparison` — so the CLI harness and the
+Streamlit tab report the same verdict.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from app.evaluation.models import (
+    EvaluationReport,
+    ScenarioChange,
+    SweepComparison,
+)
+
+
+def _scenario_outcomes(
+    report: EvaluationReport,
+) -> tuple[dict[str, bool], dict[str, set[str]]]:
+    """Collapse a report's results into one outcome per scenario id.
+
+    ``--repeat`` runs the same scenario several times, so a scenario counts as
+    passed only when every one of its runs passed: a flaky failure is still a
+    failure. The error-severity check kinds are kept for the regression detail.
+
+    args:
+        report (EvaluationReport): the report to summarize.
+
+    returns:
+        tuple[dict[str, bool], dict[str, set[str]]]: scenario id to outcome,
+        and scenario id to the check kinds that failed there.
+    """
+    outcomes: dict[str, bool] = {}
+    kinds: dict[str, set[str]] = {}
+    for result in report.results:
+        scenario = result.scenario_id
+        outcomes[scenario] = outcomes.get(scenario, True) and result.passed
+        kinds.setdefault(scenario, set()).update(
+            issue.kind for issue in result.issues if issue.severity == "error"
+        )
+    return outcomes, kinds
+
+
+def compare_reports(current: EvaluationReport, baseline: EvaluationReport) -> SweepComparison:
+    """Compare a sweep with a baseline and classify every scenario.
+
+    A scenario present in only one of the sweeps is reported as ``new`` or
+    ``missing``, never as a regression: a partial sweep must not be mistaken
+    for a quality drop, and hiding the gap would misrepresent the delta.
+
+    args:
+        current (EvaluationReport): the sweep that just finished.
+        baseline (EvaluationReport): the sweep to compare it against.
+
+    returns:
+        SweepComparison: the per-scenario changes plus the metadata of both
+        sides, so a renderer needs nothing else.
+    """
+    current_outcomes, current_kinds = _scenario_outcomes(current)
+    baseline_outcomes, baseline_kinds = _scenario_outcomes(baseline)
+    changes: list[ScenarioChange] = []
+    for scenario_id in sorted(set(current_outcomes) | set(baseline_outcomes)):
+        previous = baseline_outcomes.get(scenario_id)
+        outcome = current_outcomes.get(scenario_id)
+        if previous is None:
+            status = "new"
+        elif outcome is None:
+            status = "missing"
+        elif previous and not outcome:
+            status = "regressed"
+        elif outcome and not previous:
+            status = "improved"
+        else:
+            status = "same"
+        new_kinds = sorted(
+            current_kinds.get(scenario_id, set()) - baseline_kinds.get(scenario_id, set())
+        )
+        changes.append(
+            ScenarioChange(
+                scenario_id=scenario_id,
+                previous=previous,
+                current=outcome,
+                status=status,
+                new_failure_kinds=new_kinds if status == "regressed" else [],
+            )
+        )
+    return SweepComparison(
+        baseline_created_at=baseline.created_at,
+        baseline_model=baseline.models,
+        baseline_rag=baseline.wiki_retrieval,
+        baseline_passed=baseline.passed,
+        baseline_total=baseline.total,
+        baseline_repeats=baseline.repeats,
+        current_model=current.models,
+        current_rag=current.wiki_retrieval,
+        current_passed=current.passed,
+        current_total=current.total,
+        current_repeats=current.repeats,
+        changes=changes,
+    )
+
+
+def select_baseline(
+    current: EvaluationReport, candidates: Sequence[EvaluationReport]
+) -> EvaluationReport | None:
+    """Pick the stored sweep to compare against.
+
+    The candidates are expected newest first, as :func:`load_history` returns
+    them. A sweep is never compared with itself: a report with the same
+    ``created_at`` is skipped, so computing the comparison after saving the
+    new report is safe.
+
+    Preference order: the newest sweep run with the same wiki flag (comparing
+    a sweep with and without retrieval measures a different thing), then the
+    newest sweep at all. Reports without results are ignored: there is nothing
+    to compare.
+
+    args:
+        current (EvaluationReport): the sweep being compared.
+        candidates (Sequence[EvaluationReport]): the stored sweeps, newest
+            first.
+
+    returns:
+        EvaluationReport | None: the baseline, or None when no stored sweep
+        can be used.
+    """
+    usable = [
+        report
+        for report in candidates
+        if report.results and report.created_at != current.created_at
+    ]
+    if not usable:
+        return None
+    same_rag = [report for report in usable if report.rag_on == current.rag_on]
+    return same_rag[0] if same_rag else usable[0]

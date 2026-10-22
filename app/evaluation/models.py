@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 from app.domain import GameState
 
 Severity = Literal["error", "warning"]
+ChangeStatus = Literal["regressed", "improved", "same", "new", "missing"]
 
 
 class PlanScenario(BaseModel):
@@ -228,3 +229,155 @@ class EvaluationReport(BaseModel):
             for kind in kinds:
                 counts[kind] = counts.get(kind, 0) + 1
         return counts
+
+
+class ScenarioChange(BaseModel):
+    """How one scenario's outcome changed between two sweeps."""
+
+    scenario_id: str
+    # Outcome in the baseline/current sweep; None marks the scenario as
+    # absent there (a partial sweep never counts as a regression).
+    previous: bool | None = None
+    current: bool | None = None
+    status: ChangeStatus
+    # Error-severity check kinds that the baseline did not have (regressed only).
+    new_failure_kinds: list[str] = Field(default_factory=list)
+
+
+class SweepComparison(BaseModel):
+    """Difference between a sweep and the stored sweep it was compared with.
+
+    Both sides are summarized here (pass counts, model, wiki flag, repeats),
+    so a renderer never needs the two reports again and the comparison can be
+    serialized on its own.
+    """
+
+    baseline_created_at: str = ""
+    baseline_model: str = ""
+    baseline_rag: str = ""
+    baseline_passed: int = 0
+    baseline_total: int = 0
+    baseline_repeats: int = 1
+    current_model: str = ""
+    current_rag: str = ""
+    current_passed: int = 0
+    current_total: int = 0
+    current_repeats: int = 1
+    changes: list[ScenarioChange] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def regressions(self) -> list[ScenarioChange]:
+        """The scenarios that went from pass to fail.
+
+        args:
+            (none)
+
+        returns:
+            list[ScenarioChange]: the regressed scenarios.
+        """
+        return [change for change in self.changes if change.status == "regressed"]
+
+    @computed_field
+    @property
+    def improvements(self) -> list[ScenarioChange]:
+        """The scenarios that went from fail to pass.
+
+        args:
+            (none)
+
+        returns:
+            list[ScenarioChange]: the improved scenarios.
+        """
+        return [change for change in self.changes if change.status == "improved"]
+
+    @computed_field
+    @property
+    def has_regressions(self) -> bool:
+        """Whether any scenario regressed against the baseline.
+
+        args:
+            (none)
+
+        returns:
+            bool: True when at least one scenario went from pass to fail.
+        """
+        return bool(self.regressions)
+
+    @computed_field
+    @property
+    def baseline_pass_rate(self) -> float:
+        """Pass rate of the baseline sweep.
+
+        args:
+            (none)
+
+        returns:
+            float: the baseline pass rate, 0.0 when it evaluated nothing.
+        """
+        return self.baseline_passed / self.baseline_total if self.baseline_total else 0.0
+
+    @computed_field
+    @property
+    def current_pass_rate(self) -> float:
+        """Pass rate of this sweep.
+
+        args:
+            (none)
+
+        returns:
+            float: the current pass rate, 0.0 when it evaluated nothing.
+        """
+        return self.current_passed / self.current_total if self.current_total else 0.0
+
+    @computed_field
+    @property
+    def pass_rate_delta(self) -> float:
+        """Signed change of pass rate against the baseline.
+
+        args:
+            (none)
+
+        returns:
+            float: current minus baseline pass rate, rounded to 3 decimals.
+        """
+        return round(self.current_pass_rate - self.baseline_pass_rate, 3)
+
+    @computed_field
+    @property
+    def model_changed(self) -> bool:
+        """Whether the two sweeps were produced by different models.
+
+        args:
+            (none)
+
+        returns:
+            bool: True when the recorded models differ.
+        """
+        return self.current_model != self.baseline_model
+
+    @computed_field
+    @property
+    def rag_changed(self) -> bool:
+        """Whether the two sweeps ran with different wiki retrieval.
+
+        args:
+            (none)
+
+        returns:
+            bool: True when the recorded retrieval states differ.
+        """
+        return self.current_rag != self.baseline_rag
+
+    @computed_field
+    @property
+    def repeats_changed(self) -> bool:
+        """Whether the two sweeps used a different repeat count.
+
+        args:
+            (none)
+
+        returns:
+            bool: True when the repeat counts differ.
+        """
+        return self.current_repeats != self.baseline_repeats

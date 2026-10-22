@@ -288,9 +288,18 @@ best-effort through the shared client in `app/phoenix.py`.
 * [x] Publish the scores to Phoenix as span annotations on each run's trace
   (overall PASS/FAIL score, one annotation per failed check, warnings labelled
   but unscored; best-effort, never failing a sweep)
-* [ ] Compare a sweep against the stored history and flag regressions
+* [x] Compare a sweep against the stored history and flag regressions
 * [x] Revisit `RAG_SIMILARITY_THRESHOLD` if plan pass rate degrades from RAG noise/misses
 * [x] Evaluate RAG separately if RAG is implemented (retrieval-only harness)
+
+In a sweep, `app/evaluation/comparison.py` compares the report with the newest
+compatible stored one (the same wiki flag wins; `--baseline PATH` overrides the
+choice): `pass → fail` is flagged as a regression with the check that broke it,
+`fail → pass` as an improvement, and a scenario present on only one side as
+`new`/`missing`, so a partial sweep never reads as a quality drop. The CLI
+prints the comparison and the Evaluation tab renders it under the metrics; the
+exit code still follows the current sweep, since a regression is already a
+failing scenario.
 
 The evaluator reads game knowledge only through the MCP tools, never the
 knowledge base directly, so it measures what the Knowledge Agent could have

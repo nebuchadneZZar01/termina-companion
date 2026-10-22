@@ -579,7 +579,7 @@ def test_evaluation_task_reports_worker_errors() -> None:
     assert task.status == "error"
 
 
-def test_evaluation_tab_renders_the_report_of_a_finished_sweep() -> None:
+def test_evaluation_tab_renders_the_report_of_a_finished_sweep(tmp_path, monkeypatch) -> None:
     """A finished sweep shows the metrics, the table and the failed checks."""
     from pathlib import Path
 
@@ -587,6 +587,9 @@ def test_evaluation_tab_renders_the_report_of_a_finished_sweep() -> None:
 
     from app.evaluation.models import EvaluationIssue, ScenarioResult
 
+    # The tab compares the report with the stored history: keep it empty so
+    # the developer's own sweeps never leak into this test.
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
     app_path = Path(__file__).resolve().parents[1] / "main.py"
     at = AppTest.from_file(str(app_path), default_timeout=60)
     at.session_state["lang"] = "en"
@@ -626,7 +629,68 @@ def test_evaluation_tab_renders_the_report_of_a_finished_sweep() -> None:
     ]
 
 
-def test_evaluation_run_error_never_shows_the_success_message() -> None:
+def test_evaluation_tab_flags_a_regression_against_the_stored_history(
+    tmp_path, monkeypatch
+) -> None:
+    """A stored sweep that passed every scenario makes the new failure a regression."""
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    from app.evaluation.models import EvaluationIssue, EvaluationReport, ScenarioResult
+    from app.evaluation.storage import save_report
+
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
+    # The stored sweep becomes both the last report and the history entry the
+    # tab compares against.
+    save_report(
+        EvaluationReport(
+            results=[
+                ScenarioResult(scenario_id="anju-kafei", passed=True),
+                ScenarioResult(scenario_id="deed-chain", passed=True),
+            ],
+            rag_on=True,
+            created_at="2026-10-20T09:00:00+00:00",
+        )
+    )
+
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at.session_state["lang"] = "en"
+    at.run()
+    assert not at.exception
+
+    task = ui._EvaluationTask(total=2, status="done")
+    task.results = [
+        ScenarioResult(scenario_id="anju-kafei", passed=True),
+        ScenarioResult(
+            scenario_id="deed-chain",
+            passed=False,
+            issues=[
+                EvaluationIssue(
+                    severity="error",
+                    kind="temporal_ordering",
+                    message="Step 2 overlaps the previous step.",
+                )
+            ],
+        ),
+    ]
+    at.session_state["_evaluation_task"] = task
+    at.run()
+
+    assert not at.exception
+    warnings = [warning.value for warning in at.warning]
+    assert any(
+        "Previous sweep 2026-10-20T09:00:00+00:00" in warning
+        and "2/2" in warning
+        and "1/2" in warning
+        for warning in warnings
+    )
+    # The scenario table plus the comparison table.
+    assert len(at.table) == 2
+
+
+def test_evaluation_run_error_never_shows_the_success_message(tmp_path, monkeypatch) -> None:
     """A crashed run shows the error only, never "no issues"."""
     from pathlib import Path
 
@@ -634,6 +698,8 @@ def test_evaluation_run_error_never_shows_the_success_message() -> None:
 
     from app.evaluation.models import ScenarioResult
 
+    # The tab compares the report with the stored history: keep it empty.
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
     app_path = Path(__file__).resolve().parents[1] / "main.py"
     at = AppTest.from_file(str(app_path), default_timeout=60)
     at.session_state["lang"] = "en"

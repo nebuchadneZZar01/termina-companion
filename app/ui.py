@@ -22,10 +22,17 @@ import streamlit as st
 
 from app.data.mock_knowledge import MASKS, build_default_knowledge
 from app.domain import ClockTime, GameState, Goal, TimeWindow
+from app.evaluation.comparison import compare_reports, select_baseline
 from app.evaluation.models import EvaluationReport, ScenarioResult
 from app.evaluation.runner import run_scenarios
 from app.evaluation.scenarios import EVALUATION_SCENARIOS, SCENARIOS_BY_ID
-from app.evaluation.storage import LAST_REPORT_NAME, get_eval_dir, load_report, save_report
+from app.evaluation.storage import (
+    LAST_REPORT_NAME,
+    get_eval_dir,
+    load_history,
+    load_report,
+    save_report,
+)
 from app.graph import MAX_PLANNING_ATTEMPTS, build_graph
 from app.i18n import DEFAULT_LANG, spinner_lines, t, tr, tr_msg
 from app.phoenix import publish_plan_validation
@@ -1406,6 +1413,8 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
         ", ".join(f"{_check_label(kind)}: {count}" for kind, count in kinds.items()) or "-",
     )
 
+    _render_comparison(report)
+
     st.table(
         [
             {
@@ -1431,9 +1440,96 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
                 _render_issue(st, issue, fallback="eval_scenario")
 
 
+def _render_comparison(report: EvaluationReport) -> None:
+    """Render how the sweep changed against the newest compatible stored sweep.
+
+    The baseline comes from the saved history, so a sweep loaded with *Load
+    last report* is compared too: it is already in the history and
+    ``select_baseline`` skips the report itself. An unreadable store only hides
+    the card, it never breaks the tab.
+
+    args:
+        report (EvaluationReport): the sweep being rendered.
+
+    returns:
+        None: renders into the app.
+    """
+    try:
+        baseline = select_baseline(report, load_history())
+    except Exception:  # noqa: BLE001 - an unreadable store must not break the tab
+        return
+    if baseline is None:
+        st.caption(t("eval_compare_none"))
+        return
+    comparison = compare_reports(report, baseline)
+    summary = t(
+        "eval_compare_summary",
+        when=baseline.created_at or t("eval_unknown"),
+        before=f"{comparison.baseline_passed}/{comparison.baseline_total}",
+        after=f"{comparison.current_passed}/{comparison.current_total}",
+    )
+    if comparison.has_regressions:
+        st.warning(summary)
+    else:
+        st.caption(summary)
+
+    if comparison.model_changed:
+        st.caption(
+            t(
+                "eval_compare_model",
+                before=comparison.baseline_model or t("eval_unknown"),
+                after=comparison.current_model or t("eval_unknown"),
+            )
+        )
+    if comparison.rag_changed:
+        st.caption(
+            t(
+                "eval_compare_rag",
+                before=_rag_label(comparison.baseline_rag),
+                after=_rag_label(comparison.current_rag),
+            )
+        )
+    if comparison.repeats_changed:
+        st.caption(
+            t(
+                "eval_compare_repeats",
+                before=comparison.baseline_repeats,
+                after=comparison.current_repeats,
+            )
+        )
+
+    rows = [
+        {
+            t("eval_compare_scenario"): change.scenario_id,
+            t("eval_compare_change"): t(f"eval_compare_{change.status}"),
+            t("eval_compare_detail"): (
+                t(
+                    "eval_compare_new_failure",
+                    kinds=", ".join(_check_label(kind) for kind in change.new_failure_kinds),
+                )
+                if change.new_failure_kinds
+                else t(f"eval_compare_{change.status}_help")
+            ),
+        }
+        for change in comparison.changes
+        if change.status != "same"
+    ]
+    if rows:
+        st.table(rows)
+    else:
+        st.caption(t("eval_compare_same"))
+
+
 def _check_label(kind: str) -> str:
     """Return the translated label of an evaluation check kind."""
     return t(f"kind_{kind}")
+
+
+def _rag_label(state: str) -> str:
+    """Return the translated label of a sweep's wiki retrieval state."""
+    if not state or state == "unknown":
+        return t("eval_unknown")
+    return t(f"eval_rag_{state}")
 
 
 def render() -> None:

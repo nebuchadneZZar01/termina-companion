@@ -521,6 +521,25 @@ _STRINGS: dict[str, dict[str, str]] = {
             "retrieval_status, not on this flag."
         ),
         "eval_unknown": "unknown",
+        # sweep comparison (current sweep vs the newest stored one)
+        "eval_compare_none": "No previous sweep to compare against yet.",
+        "eval_compare_summary": "Previous sweep {when}: pass rate {before} \u2192 {after}",
+        "eval_compare_model": "Baseline model {before} \u2192 {after}",
+        "eval_compare_rag": "Baseline wiki retrieval {before} \u2192 {after}",
+        "eval_compare_repeats": "Baseline repeats {before} \u2192 {after}",
+        "eval_compare_scenario": "Scenario",
+        "eval_compare_change": "Change",
+        "eval_compare_detail": "Detail",
+        "eval_compare_regressed": "regressed",
+        "eval_compare_improved": "improved",
+        "eval_compare_new": "new",
+        "eval_compare_missing": "missing",
+        "eval_compare_regressed_help": "passed in the baseline, fails now",
+        "eval_compare_improved_help": "failed in the baseline, passes now",
+        "eval_compare_new_help": "not in the baseline",
+        "eval_compare_missing_help": "not in this sweep",
+        "eval_compare_new_failure": "new failure: {kinds}",
+        "eval_compare_same": "No changes against the baseline.",
         "llm_base_url_hint": (
             "The local OpenAI-compatible server needs the /v1 path "
             "(e.g. http://localhost:11434/v1)."
@@ -811,6 +830,27 @@ _STRINGS: dict[str, dict[str, str]] = {
             "scenario, non su questa etichetta."
         ),
         "eval_unknown": "sconosciuto",
+        # sweep comparison (current sweep vs the newest stored one)
+        "eval_compare_none": "Nessuno sweep precedente con cui confrontare.",
+        "eval_compare_summary": (
+            "Sweep precedente {when}: tasso di successo {before} \u2192 {after}"
+        ),
+        "eval_compare_model": "Modello della baseline {before} \u2192 {after}",
+        "eval_compare_rag": "Retrieval wiki della baseline {before} \u2192 {after}",
+        "eval_compare_repeats": "Ripetizioni della baseline {before} \u2192 {after}",
+        "eval_compare_scenario": "Scenario",
+        "eval_compare_change": "Cambio",
+        "eval_compare_detail": "Dettaglio",
+        "eval_compare_regressed": "regressione",
+        "eval_compare_improved": "migliorato",
+        "eval_compare_new": "nuovo",
+        "eval_compare_missing": "assente",
+        "eval_compare_regressed_help": "passava nella baseline, ora fallisce",
+        "eval_compare_improved_help": "falliva nella baseline, ora passa",
+        "eval_compare_new_help": "non presente nella baseline",
+        "eval_compare_missing_help": "non presente in questo sweep",
+        "eval_compare_new_failure": "nuovo fallimento: {kinds}",
+        "eval_compare_same": "Nessun cambiamento rispetto alla baseline.",
         "llm_base_url_hint": (
             "Il server locale compatibile con OpenAI richiede il percorso /v1 "
             "(es. http://localhost:11434/v1)."

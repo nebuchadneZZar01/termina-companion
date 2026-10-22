@@ -238,10 +238,19 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   not degraded, it is also the ordinary outcome of an irrelevant query.
   `RAG_ENABLED` (`rag_enabled()` in
   `app/rag/retriever.py`) switches the supplemental wiki retrieval off for
-  A/B runs.
+  A/B runs. `comparison.py` compares a sweep with the newest compatible stored
+  one: `select_baseline` skips the report itself and prefers the same wiki
+  flag, `compare_reports` classifies every scenario as
+  `regressed`/`improved`/`new`/`missing` (a pass→fail is a regression with its
+  new failing checks; a scenario present on one side only is a gap, never a
+  regression, so a partial sweep cannot look like a quality drop) and carries
+  both sides' pass counts and metadata. `storage.load_history()` reads the
+  timestamped copies newest first and skips corrupt files.
 * `scripts/evaluate_plans.py` — CLI harness for the evaluation sweep:
-  `--scenario`, `--repeat`, `--rag on|off`, `--json`, `--list`; prints one
-  PASS/FAIL line per scenario plus the aggregate pass rate and exits 1 when
+  `--scenario`, `--repeat`, `--rag on|off`, `--baseline PATH`, `--json`,
+  `--list`; prints one
+  PASS/FAIL line per scenario plus the aggregate pass rate, then the comparison
+  against the newest stored sweep (or `--baseline`), and exits 1 when
   any scenario fails. It always writes the shared last report (same store as
   the UI) and `--json PATH` writes an extra copy. It needs a configured LLM
   provider and is not part of pytest.
@@ -262,7 +271,8 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   LLM provider, with local providers supported for offline runs. The page has
   two top-level tabs: *Play* (`_render_play()`, the state editor and the
   planning flow) and *Evaluation* (`_render_evaluation()`, the evaluation
-  sweep: scenario picker, RAG toggle, Run/Stop, the per-scenario report and
+  sweep: scenario picker, RAG toggle, Run/Stop, the per-scenario report, the
+  comparison card against the newest stored sweep, and
   *Load last report* for the sweep persisted by the worker).
   Planning runs
   as a session-scoped background task: Generate is disabled while active and
