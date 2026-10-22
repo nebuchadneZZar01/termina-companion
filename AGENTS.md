@@ -280,7 +280,12 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   the finished stepper is re-rendered statically after the final rerun. The
   worker run is wrapped in `pipeline_span`, and the Trace tab's audit section
   shows the run id, a Phoenix link, the node timeline and errors only (in
-  `st.code`); full LLM prompts are deliberately not shown in the UI.
+  `st.code`); full LLM prompts are deliberately not shown in the UI. The
+  worker streams the graph directly (not via `run_pipeline`), so it also
+  rebuilds the final state from the stream chunks and posts the Critic's
+  verdict to Phoenix as `plan/validation` itself, after its root span
+  closed (same best-effort publication as `run_pipeline`, via
+  `app/phoenix.py`).
 * `app/progress.py` — the streaming progress seam: `report()` publishes custom
   LangGraph events and is a silent no-op outside a stream (headless, tests). The
   graph wraps each node to announce its start, and the Knowledge and Planning

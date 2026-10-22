@@ -28,7 +28,9 @@ from app.evaluation.scenarios import EVALUATION_SCENARIOS, SCENARIOS_BY_ID
 from app.evaluation.storage import LAST_REPORT_NAME, get_eval_dir, load_report, save_report
 from app.graph import MAX_PLANNING_ATTEMPTS, build_graph
 from app.i18n import DEFAULT_LANG, spinner_lines, t, tr, tr_msg
+from app.phoenix import publish_plan_validation
 from app.save import load_state, save_state
+from app.state import PlanningState
 from app.trace import current_run, pipeline_span
 
 logger = logging.getLogger(__name__)
@@ -206,6 +208,10 @@ def _run_stream(
         return
     goal = initial.get("goal")
     goal_text = getattr(goal, "description", "") if goal is not None else ""
+    # Node updates are merged here as the stream yields them (the same merge
+    # the task drain applies), so the final state can be rebuilt for the
+    # Phoenix annotation without a second graph query.
+    merged: dict = dict(initial)
     try:
         with pipeline_span(goal_text):
             for item in graph.stream(initial, stream_mode=["updates", "custom"]):
@@ -213,7 +219,16 @@ def _run_stream(
                     events.put(_STOP_SENTINEL)
                     return
                 mode, chunk = item
+                if mode == "updates" and isinstance(chunk, dict):
+                    merged.update(chunk)
                 events.put(_Progress(chunk) if mode == "custom" else chunk)
+        # After the with: the root span is closed and this worker thread's
+        # context still holds its ids, so the Critic's verdict can be posted
+        # onto the trace in Phoenix (best-effort; same as run_pipeline).
+        try:
+            publish_plan_validation(PlanningState.model_validate(merged))
+        except Exception as exc:  # noqa: BLE001 - telemetry must not fail the run
+            logger.warning("Phoenix: plan validation not published: %s", exc)
         events.put(_STOP_SENTINEL if stop_event.is_set() else None)
     except Exception as exc:
         if stop_event.is_set():

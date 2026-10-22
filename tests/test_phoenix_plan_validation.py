@@ -195,3 +195,72 @@ def test_run_pipeline_annotates_the_critic_verdict(monkeypatch):
 
     assert published == [result]
     assert result.validation is not None and result.validation.valid
+
+
+def test_ui_worker_publishes_the_critic_verdict(monkeypatch):
+    """The Play tab streams the graph directly, but still annotates its run."""
+    import queue
+    import threading
+
+    from app import ui as ui_module
+
+    captured: list[PlanningState] = []
+
+    class _FakeGraph:
+        def stream(self, initial, stream_mode=None):
+            yield "updates", {"state_summary": "ready"}
+            yield "custom", "progress"
+            yield (
+                "updates",
+                {
+                    "validation": ValidationResult(valid=True),
+                    "plan_model": "llama3.2",
+                },
+            )
+
+    monkeypatch.setattr(ui_module, "publish_plan_validation", captured.append)
+
+    events: queue.Queue[object] = queue.Queue()
+    ui_module._run_stream(
+        events,
+        _FakeGraph(),
+        {"game_state": _game_state(), "goal": Goal(description="Meet Anju")},
+        threading.Event(),
+    )
+
+    assert len(captured) == 1
+    state = captured[0]
+    assert state.validation is not None and state.validation.valid
+    assert state.goal.description == "Meet Anju"
+    assert state.plan_model == "llama3.2"
+
+
+def test_ui_worker_survives_a_broken_publisher(monkeypatch):
+    """A raising publisher is caught inside the worker: the run still ends."""
+    import queue
+    import threading
+
+    from app import ui as ui_module
+
+    def _boom(state, **kwargs):
+        raise RuntimeError("phoenix exploded")
+
+    monkeypatch.setattr(ui_module, "publish_plan_validation", _boom)
+
+    class _FakeGraph:
+        def stream(self, initial, stream_mode=None):
+            yield "updates", {"validation": ValidationResult(valid=True)}
+
+    events: queue.Queue[object] = queue.Queue()
+    ui_module._run_stream(
+        events,
+        _FakeGraph(),
+        {"game_state": _game_state(), "goal": Goal(description="x")},
+        threading.Event(),
+    )
+
+    items: list[object] = []
+    while not events.empty():
+        items.append(events.get_nowait())
+    # The completion sentinel reached the UI; no exception was raised out.
+    assert None in items
