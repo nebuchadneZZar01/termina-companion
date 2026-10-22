@@ -11,7 +11,10 @@ LLM output is post-processed deterministically: raw draft windows are
 sanitized into strict :class:`~app.domain.TimeWindow` objects; step refs,
 titles and locations are grounded to the knowledge objectives; duplicate steps
 are removed; each step's window is clamped inside its objective's window; and
-the authoritative prerequisite chain is rebuilt before validation.
+the authoritative prerequisite chain is rebuilt before validation. The rebuild
+keeps the LLM's window only when it fits the chain — after the dependencies,
+after the previous step, before the successor's slot — and re-slots it on a
+one-hour slot otherwise, so the plan stays chronological and non-overlapping.
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ from pydantic import BaseModel, Field
 
 from app.data.mock_knowledge import Objective
 from app.domain import ClockTime, Plan, PlanStep, TimeWindow
-from app.llm import get_chat_model
+from app.llm import get_chat_model, llm_error_hint
 from app.progress import report
 from app.state import PlanningState
 from app.trace import TraceCallback
@@ -74,8 +77,9 @@ def run(state: PlanningState) -> dict:
         and retrieved objectives.
 
     returns:
-        dict: the generated ``plan``, incremented ``replan_attempts``,
-        ``plan_engine`` (``"llm"``) and ``plan_model``.
+        dict: the generated ``plan``, the untouched LLM ``plan_proposal``
+        (before grounding and reconciliation), the incremented
+        ``replan_attempts``, ``plan_engine`` (``"llm"``) and ``plan_model``.
 
     raises:
         PlanningAgentError: if no model is available or the LLM returns no
@@ -103,6 +107,10 @@ def run(state: PlanningState) -> dict:
         }
     )
     result = _llm_run(state, model)
+    # Keep the untouched proposal: the evaluator compares it with the
+    # reconciled plan to measure what the deterministic rebuild had to fix.
+    # The post-processing mutates in place, so this must be a deep copy.
+    proposal = result.model_copy(deep=True)
     result = _ground_llm_steps(result, state.relevant_objectives)
     result = _dedupe_steps(result)
     result = _clamp_windows(result, state.relevant_objectives)
@@ -110,6 +118,7 @@ def run(state: PlanningState) -> dict:
     _log_plan(result)
     return {
         "plan": result,
+        "plan_proposal": proposal,
         "replan_attempts": state.replan_attempts + 1,
         "plan_engine": "llm",
         "plan_model": plan_model,
@@ -188,7 +197,7 @@ def _llm_run(state: PlanningState, model) -> Plan:
         plan = None if raw is None else _materialize_plan(raw, state)
     except Exception as exc:
         logger.error("Planning Agent: LLM invocation failed: %s", exc)
-        raise PlanningAgentError(f"LLM invocation failed: {exc}") from exc
+        raise PlanningAgentError(f"LLM invocation failed: {exc}{llm_error_hint(exc)}") from exc
 
     elapsed = time.perf_counter() - started
     if plan is None or not plan.steps:
@@ -451,12 +460,21 @@ def _dedupe_steps(plan: Plan) -> Plan:
 # steps as whole objective slots that overlap their prerequisites. The
 # relevant-objective chain (prerequisites first) is authoritative, so the final
 # plan is rebuilt around it: fully-owned provide steps are pruned, missing chain
-# steps are re-inserted with deterministic slots, and on replan attempts kept
-# steps are re-slotted onto a 1h window after their dependencies end. Ceiling:
-# no per-objective "done" tracking in GameState; upgrade path: model completed
-# objectives so chains can start mid-quest.
+# steps are re-inserted with deterministic slots, and a kept step keeps the
+# LLM's window only when it fits the chain — after its dependencies, after the
+# previous step, before the successor's slot — and is re-slotted onto a 1h
+# window otherwise. Ceiling: no per-objective "done" tracking in GameState;
+# upgrade path: model completed objectives so chains can start mid-quest.
 def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
     """Rebuild the plan around the authoritative objective chain.
+
+    Every chain objective becomes a step, in prerequisite order. On the first
+    attempt the LLM's window is kept when it fits the chain — it starts after
+    the dependencies and after the previous step, and ends before the
+    successor's slot opens — and is re-slotted onto a one-hour slot otherwise.
+    On a re-plan every window is re-slotted deterministically. The rebuilt
+    plan therefore never overlaps itself and never starts a step before its
+    prerequisites are done.
 
     args:
         plan (Plan): the grounded LLM plan.
@@ -471,29 +489,108 @@ def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
     owned_items = set(state.game_state.inventory)
     owned_masks = set(state.game_state.masks)
     by_ref = {s.objective_ref: s for s in plan.steps}
+    chain = [
+        obj
+        for obj in _order_by_prerequisites(state.relevant_objectives)
+        if not _already_owned(obj, owned_items, owned_masks)
+    ]
     steps: list[PlanStep] = []
     prev_end: ClockTime | None = None
-    for obj in _order_by_prerequisites(state.relevant_objectives):
-        if _already_owned(obj, owned_items, owned_masks):
-            continue
+    for idx, obj in enumerate(chain):
+        dependencies = _depends_on_indices(obj, steps)
+        earliest = _max_clock(
+            state.game_state.time,
+            *(steps[d].window.end for d in dependencies),
+        )
         existing = by_ref.get(obj.id)
+        floor = _max_clock(earliest, prev_end or state.game_state.time)
         if existing is not None:
-            existing.depends_on = _depends_on_indices(obj, steps)
+            existing.depends_on = dependencies
             if state.replan_attempts > 0:
-                earliest = max(
-                    (steps[d].window.end for d in existing.depends_on),
-                    key=_clock,
-                    default=state.game_state.time,
+                existing.window = _window_inside(obj, floor)
+            else:
+                existing.window = _fit_window(
+                    existing.window,
+                    obj,
+                    chain,
+                    idx,
+                    earliest,
+                    prev_end,
+                    state.game_state.time,
                 )
-                existing.window = _window_inside(obj, earliest)
             steps.append(existing)
             prev_end = existing.window.end
             continue
-        window = _window_inside(obj, prev_end or state.game_state.time)
+        window = _window_inside(obj, floor)
         steps.append(_to_step(obj, window, steps))
         prev_end = window.end
     plan.steps = steps
     return plan
+
+
+def _fit_window(
+    desired: TimeWindow,
+    obj: Objective,
+    chain: list[Objective],
+    idx: int,
+    earliest: ClockTime,
+    prev_end: ClockTime | None,
+    now: ClockTime,
+) -> TimeWindow:
+    """Keep the LLM's window when it fits the chain, else re-slot it.
+
+    A window fits when it starts no earlier than the dependencies and the
+    previous step end, and ends no later than the successor's slot opens, so
+    the rebuilt plan stays chronological and non-overlapping.
+
+    args:
+        desired (TimeWindow): the LLM's window for this objective.
+        obj (Objective): the objective being scheduled.
+        chain (list[Objective]): the chain of objectives, in order.
+        idx (int): the position of ``obj`` in the chain.
+        earliest (ClockTime): the earliest this step may start.
+        prev_end (ClockTime | None): the end of the previous chain step.
+        now (ClockTime): the player's current time.
+
+    returns:
+        TimeWindow: the window to use for this step.
+    """
+    floor = earliest
+    if prev_end is not None:
+        floor = _max_clock(floor, prev_end)
+    cap = _successor_cap(obj, chain, idx, now)
+    fits = _clock(desired.start) >= _clock(floor)
+    if cap is not None:
+        fits = fits and _clock(desired.end) <= _clock(cap)
+    if fits:
+        return desired
+    return _window_inside(obj, floor)
+
+
+def _successor_cap(
+    obj: Objective,
+    chain: list[Objective],
+    idx: int,
+    now: ClockTime,
+) -> ClockTime | None:
+    """The latest this step may end so its successors still fit.
+
+    args:
+        obj (Objective): the objective being scheduled.
+        chain (list[Objective]): the chain of objectives, in order.
+        idx (int): the position of ``obj`` in the chain.
+        now (ClockTime): the player's current time.
+
+    returns:
+        ClockTime | None: the latest allowed end, None when the objective has
+        no successor in the chain.
+    """
+    caps = [
+        _max_clock(later.window.start, now)
+        for later in chain[idx + 1 :]
+        if obj.id in later.prerequisites
+    ]
+    return min(caps, key=_clock) if caps else None
 
 
 def _already_owned(obj: Objective, owned_items: set[str], owned_masks: set[str]) -> bool:

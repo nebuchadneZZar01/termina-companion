@@ -10,8 +10,8 @@ calls a configured LLM. The Knowledge Agent adds supplemental evidence from an
 adaptive Zelda Wiki RAG cache, while MCP tools remain authoritative for game
 rules. Provider configuration is required; local providers such as Ollama can
 run without an external API key. In-memory player memory (preferences plus
-past episodes) is active; persistent memory, tracing and full plan
-evaluation remain future work.
+past episodes), OpenTelemetry tracing and a plan-evaluation harness are
+active; persistent memory remains future work.
 
 ## Install
 
@@ -35,6 +35,9 @@ outcome. While the agents run, **Generate plan** is disabled and **Stop** can
 request cooperative cancellation after the current agent or LLM call. The
 progress stepper is not on a timer: it repaints only when an agent finishes, so
 the page stays still while the agents reason.
+
+The page has two tabs: **Play** (the state editor and the planning flow) and
+**Evaluation** (the evaluation sweep, see below).
 
 ## Save/Load
 
@@ -72,6 +75,12 @@ Supported providers: `openai`, `openrouter`, `ollama`, `lmstudio`, `anthropic`,
 annotated reference. Missing configuration, invocation errors and empty model
 output fail explicitly. The Planning Agent never substitutes a fallback plan.
 
+Ollama and LM Studio serve the OpenAI-compatible API under `/v1`, so use
+`LLM_BASE_URL=http://localhost:11434/v1` (or leave it empty to get the
+provider default). A base URL naming only the host is normalized to `/v1`
+automatically, and a failed call names the setting to check (`LLM_BASE_URL`,
+`LLM_API_KEY` or the server itself).
+
 ## Observability (tracing)
 
 Every planning run gets a `run_id` and emits OpenTelemetry spans: the pipeline
@@ -92,6 +101,33 @@ usage and latency). Full prompts also go to console logs at `INFO`, bounded in
 length by `LLM_LOG_PAYLOAD_LIMIT` so one runaway prompt cannot flood the
 console. In the app, the Trace tab shows the
 `run_id`, the node timeline and any errors — errors only, no prompt bodies.
+
+### Scores in Phoenix
+
+Every run's trace carries the Critic's verdict as a span annotation,
+`plan/validation`: score 1/0 with a `PASS`/`FAIL` label, the feasibility
+issues in the explanation, and the run metadata (goal, attempts, model). A
+run that crashed before the Critic kept its ERROR span and gets no
+annotation.
+
+An evaluation sweep (CLI or the *Evaluation* tab) adds the harness scores
+to the same traces, visible in the **Annotations** panel of the run's root
+span:
+
+* `evaluation/overall` — score 1/0 with a `PASS`/`FAIL` label and an
+  explanation naming what failed (the failed checks, or the run error);
+* one `evaluation/<kind>` annotation per **failed** check (score 0);
+* warnings (like `proposal_fidelity`) get the same annotation with a `warning`
+  label and **no score**, so they never read as a failure.
+
+A feasible plan that the harness still rejects (`plan/validation` PASS,
+`evaluation/overall` FAIL) means the run built something executable that
+missed the quest's goal — a useful signal about the planner, not a bug in
+either check.
+
+Publishing is best-effort telemetry: without a configured endpoint it is a
+no-op, and an unreachable Phoenix logs a warning without failing the run or
+the sweep.
 
 ## Adaptive Zelda Wiki RAG
 
@@ -239,7 +275,141 @@ count as `unavailable`. Last calibration is recorded as
 changes.
 
 Retrieval quality evaluation is separate from full plan/trajectory evaluation,
-which remains Phase 11.
+which is implemented in the next section.
+
+## Evaluation
+
+The evaluation harness measures whether a plan produced by the pipeline
+actually reaches the player's goal. It ships nine scenarios — one per quest,
+spanning every game area — each with a player state, a goal phrased the way a
+player would phrase it, and the objectives the plan is expected to contain:
+
+| Scenario | What it covers |
+|---|---|
+| `anju-kafei` | Four-step chain over three days, with a letter and a dinner event |
+| `bombers-notebook` | A notebook earned from the leader unlocks the hidden hideout |
+| `darmani-ghost` | Longest mask chain, night meeting at 22:00, lullaby the next day |
+| `mikau-eggs` | The Zora Mask gates every later step, eggs need a daytime window |
+| `mikau-with-zora-mask` | The Zora Mask is already owned, so the shore step must be skipped |
+| `pamela-father` | Night-only slot (00:00-04:00) behind the Gibdo Mask |
+| `deku-princess` | Two-day chain through the Southern Swamp, gated by the Deku Mask |
+| `romani-ranch` | Early-morning purchase, 2 AM alien defence, moonlit milk delivery |
+| `deed-chain` | Five-step trade cycle across three areas and all three days |
+
+The evaluator is deterministic and never calls an LLM. It reads game knowledge
+only through the MCP tools (`search_quests`, `check_prerequisites`), so it
+measures what the Knowledge Agent could have known, and it runs nine checks:
+
+| Check | Fails when |
+|---|---|
+| `plan_shape` | No plan, a step count outside the expected range, or a step referencing an unknown objective |
+| `objective_achievement` | A required objective is missing, the goal objective is not reached, or a forbidden objective is present |
+| `temporal_ordering` | Steps are out of order, overlap, start in the past, or fall outside their objective's slot |
+| `prerequisites` | A step's items, masks or prerequisite objectives are not satisfied when it happens |
+| `tool_usage` | The Knowledge Agent skipped a tool the goal needed (quest search, NPC schedule, event) |
+| `critic` | The Critic rejected the plan |
+| `trajectory_order` | The run produced its plan without consulting the MCP tools, or without a Critic verdict |
+| `replan_bound` | The run overshot `MAX_PLANNING_ATTEMPTS` (a late acceptance is a warning) |
+| `proposal_fidelity` | The LLM's raw proposal omitted expected objectives the deterministic rebuild had to add (warning) |
+
+The last three evaluate the **trajectory** — how the run reached its plan, not
+only what came out. They only fire on a recorded run (the planner exposes its
+untouched proposal before reconciliation, and the Critic appends one
+`AttemptRecord` per attempt); a plan evaluated on its own is exempt.
+
+A scenario passes when no check reports an error; warnings are reported but do
+not fail it. A run that crashes (LLM error, no plan produced) is a failure
+carrying the error message — it is never reported as a scenario without
+issues.
+
+The pipeline's own Critic and the harness answer different questions. The
+Critic runs inside every planning run and checks **feasibility** — items,
+masks, prerequisite objectives, temporal overlap — and triggers re-planning
+when the plan cannot be executed. The harness checks **goal achievement**
+against the scenario's expectations: a plan can be perfectly feasible and
+still fail because it never reached the quest's objective (think of a
+feasible detour that ignores the Romani Remedy entirely). The `critic` and
+`trajectory_*` checks above verify that the Critic ran and what it decided;
+they do not replace it. A verdict mismatch between the two — feasible, but
+wrong goal — is a useful signal about the planner, not a bug in either check.
+
+### CLI
+
+```sh
+uv run python scripts/evaluate_plans.py --list
+uv run python scripts/evaluate_plans.py
+uv run python scripts/evaluate_plans.py --scenario anju-kafei --repeat 3
+uv run python scripts/evaluate_plans.py --rag off
+uv run python scripts/evaluate_plans.py --json reports/evaluation.json
+```
+
+The harness runs the full pipeline once per scenario, so it needs a configured
+LLM provider (like the rest of the app). It prints one `PASS`/`FAIL` line per
+scenario with the failed checks, then the aggregate pass rate, and exits `1`
+when any scenario fails — so it can gate a run:
+
+```
+[1/9] anju-kafei             PASS  (12.4s)
+[2/9] bombers-notebook       PASS  (9.8s)
+...
+Pass rate: 9/9 = 1.00
+Failures by check: none
+```
+
+The memory store is cleared before every scenario, so the scenarios never see
+each other's past episodes. `--rag off` disables the supplemental wiki
+retrieval (`RAG_ENABLED=0`) to compare plan quality with and without it.
+
+Every run also writes its report to the shared store
+(`app/evaluation/storage.py`): `last_evaluation.json` in the save directory
+derived from `RAG_QDRANT_PATH` (`.cache/saves/` by default, gitignored) plus a
+timestamped copy in `evaluations/` underneath it. `--json` writes an extra
+copy at an explicit path. The report records its sweep metadata — the RAG
+flag, the model that produced each plan, the repeat count and a creation
+timestamp — so two saved sweeps can be compared instead of retyped from the
+terminal.
+
+Each sweep is also compared with the newest compatible stored one (the same
+wiki flag is preferred; `--baseline PATH` picks another report explicitly).
+A scenario that passed before and fails now is printed as a regression with the
+check that broke it, a scenario that improved is noted, and a scenario present
+on only one side is reported as `new`/`missing`: a partial sweep never looks
+like a quality drop. The comparison does not change the exit code — a
+regression is already a failing scenario.
+
+The wiki-retrieval label is derived from what each run actually recorded, not
+from the flag the sweep was started with: a run whose wiki leg died partway
+(store locked, wiki unreachable) is reported as `degraded`, because a sweep
+that printed `on` while silently falling back to structured context would
+otherwise be compared against a healthy one. `wiki_miss` is not degraded — it
+is also the ordinary outcome of a wiki with nothing relevant for a query.
+
+### Evaluation tab
+
+The same sweep runs in the browser: open the app and switch to the
+**Evaluation** tab, pick the scenarios, and press *Run evaluation*. The sweep
+runs in a background thread with a progress bar and a cooperative *Stop*
+control, then shows the pass rate, a per-scenario table and the failed checks
+of every scenario. Both entry points share `app/evaluation/runner.py`, so they
+measure exactly the same thing.
+
+The sweep is saved to the same store when it finishes — from the worker
+thread, so a closed tab loses nothing — and *Load last report* brings the
+checks back after a browser reload. Under the metrics, a comparison card
+checks the report against the newest stored sweep and warns when a scenario
+regressed, so a reloaded report still tells you what changed.
+
+### What the pass rate measures
+
+The Planning Agent rebuilds the objective chain deterministically after the
+LLM answers (`_reconcile_plan`), so the step set of a plan follows from the
+retrieved objectives and the LLM mainly influences the step windows. The pass
+rate is therefore mostly a regression signal over retrieval, chain
+reconciliation and the critic — not a measure of LLM creativity. The
+`proposal_fidelity` warnings are where the LLM's own contribution shows: how
+often its raw proposal already contained the expected objectives. The warning
+names the omitted objectives by title and explains that the deterministic
+rebuild added them, so it never hides behind the internal refs.
 
 ## Architecture
 
@@ -272,10 +442,12 @@ validation.
 | `app/state.py` | `PlanningState`, including RAG evidence, status, warning, ingested pages and indexed-source manifest. |
 | `app/graph.py` | LangGraph wiring and `MAX_PLANNING_ATTEMPTS = 3` loop. |
 | `app/ui.py` | Streamlit frontend and provenance display. |
+| `app/evaluation/` | Plan-evaluation scenarios, deterministic evaluator, shared sweep runner and report storage. |
+| `scripts/evaluate_plans.py` | CLI harness for the evaluation sweep. |
 | `app/trace.py` | OpenTelemetry tracing seam: run spans, LLM prompt capture and the no-op/OTLP setup. |
 | `docker-compose.yml` | Local Arize Phoenix observability container. |
 | `app/__main__.py` | Headless pipeline demo. |
-| `tests/` | Domain, validation, graph, RAG persistence, tracing and integration tests. |
+| `tests/` | Domain, validation, graph, RAG persistence, tracing, evaluation and integration tests. |
 
 Mock data spans Clock Town, Southern Swamp, Mountain Village, Great Bay, Ikana
 Canyon and Romani Ranch, but is deliberately not lore-complete. The
@@ -290,5 +462,7 @@ architecture is not tied to one quest.
   `MemoryStore`; persist them (extend `GameState`, attach a graph
   checkpointer or a file/DB store behind the same protocol).
 - **Tracing and audit** — add request IDs and LangGraph/tool/retrieval events.
-- **Plan evaluation** — implement the Phase 11 scenario/trajectory evaluator;
-  keep it separate from RAG retrieval evaluation.
+- **Plan evaluation** — the scenario/plan evaluator and the trajectory checks
+  are in place; the next step is comparing a sweep against the stored history
+  to flag regressions (per-scenario deltas over pass rate, check kinds and
+  `proposal_fidelity` warnings).

@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Current phase:** Phase 10 — Tracing & Audit
+**Current phase:** Phase 11 — Evaluation
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
@@ -29,7 +29,10 @@ Status map:
   persistent embedded Qdrant, FastEmbed multilingual vectors, revision-aware
   provenance, offline warm-cache behavior and Knowledge Agent integration
   implemented; retrieval quality calibrated 2026-10-10 on 14 live scenarios:
-  0.60 hits 7/14 vs 0.72 3/14 vs 0.80 1/14 at top_k=4, default now 0.60).
+  0.60 hits 7/14 vs 0.72 3/14 vs 0.80 1/14 at top_k=4, default now 0.60; a
+  2026-10-21 re-calibration was discarded because wiki throttling made it
+  untrustworthy, and the threshold was confirmed at plan level by an A/B
+  sweep: 8/8 passes with RAG vs 7/8 without).
 * Phase 8 — Memory: complete (in-memory preferences + episodic store,
   `memory` retrieve node before `state`, `memory_store` after `critic`,
   planner context only, one episode per finished run).
@@ -40,7 +43,17 @@ Status map:
   spans exported to a local Phoenix container via OTLP when configured, a
   cheap no-op otherwise; full LLM prompts go to spans, the Trace tab shows a
   run header, node timeline and errors only).
-* Phase 11 — Evaluation: not started yet.
+* Phase 11 — Evaluation: complete for plan and trajectory evaluation (9
+  evaluation scenarios spanning every game area, a deterministic evaluator
+  with nine checks — plan shape, objective achievement, temporal ordering,
+  prerequisites, tool usage, critic, agent order, re-plan bound, LLM proposal
+  fidelity — an explicit PASS/FAIL per scenario, an aggregate pass rate, sweep
+  metadata, a CLI harness (`scripts/evaluate_plans.py`), an Evaluation tab in
+  the Streamlit UI and a persisted report; each run's scores are also posted
+  to Phoenix as span annotations when tracing is configured). The
+  sweep-to-sweep comparison
+  stays open; the `RAG_SIMILARITY_THRESHOLD` revisit is resolved (0.60
+  confirmed by an A/B sweep on 2026-10-21).
 * Phase 12 — Production Readiness: not started yet.
 * Phase 13 — Deployment: not started yet.
 
@@ -194,8 +207,8 @@ structured context rather than disabling retrieval.
 Structured game constraints such as schedules and prerequisites remain in MCP
 data/tools. RAG is supplemental narrative evidence and must not create or
 override objectives. Runtime failure records `unavailable`, logs a warning and
-continues with structured MCP context. Full plan/trajectory evaluation remains
-Phase 11.
+continues with structured MCP context. Full plan and trajectory evaluation is
+implemented in Phase 11.
 
 # Phase 8 — Memory
 
@@ -234,6 +247,8 @@ Phase 11.
 * [x] Trace replanning
 * [x] Trace final response
 * [x] Expose useful trace information in the UI
+* [x] Publish the Critic's verdict of every run as a `plan/validation` span
+  annotation (the sweep scores as `evaluation/*`, Phase 11)
 
 Tracing uses OpenTelemetry. Spans (pipeline, agents, LLM, RAG, MCP,
 validation) are exported to a local Arize Phoenix container over OTLP/HTTP
@@ -242,23 +257,93 @@ so tests, the demo and CI never need a backend. Full LLM prompts go to spans
 (visible in Phoenix) and to console logs at `INFO`, bounded in length by
 `LLM_LOG_PAYLOAD_LIMIT`. The
 Trace tab shows the run id, a node timeline and errors only. Structured
-monitoring is served by these spans plus the existing text logs.
+monitoring is served by these spans plus the existing text logs. Every run's
+trace also carries its Critic verdict as a `plan/validation` span annotation
+(score 1/0, PASS/FAIL with the feasibility issues), and an evaluation sweep
+adds the `evaluation/*` score annotations on the same traces; both are
+best-effort through the shared client in `app/phoenix.py`.
 
 # Phase 11 — Evaluation
 
-* [ ] Define evaluation scenarios
-* [ ] Start with a small scenario set
-* [ ] Define expected constraints for each scenario
-* [ ] Implement plan/trajectory evaluator
-* [ ] Check tool usage
-* [ ] Check temporal ordering
-* [ ] Check prerequisites
-* [ ] Check objective achievement
-* [ ] Produce explicit PASS/FAIL
-* [ ] Calculate aggregate pass rate
-* [ ] Add regression scenarios
-* [ ] Revisit `RAG_SIMILARITY_THRESHOLD` if plan pass rate degrades from RAG noise/misses
+* [x] Define evaluation scenarios
+* [x] Start with a small scenario set (9 scenarios, one per quest, all areas)
+* [x] Define expected constraints for each scenario
+* [x] Implement the plan evaluator
+* [x] Check plan shape
+* [x] Check tool usage
+* [x] Check temporal ordering
+* [x] Check prerequisites
+* [x] Check objective achievement
+* [x] Check critic acceptance
+* [x] Produce explicit PASS/FAIL
+* [x] Calculate aggregate pass rate
+* [x] Add regression scenarios
+* [x] Persist the evaluation report (UI worker auto-save, CLI, *Load last report*)
+* [x] Record sweep metadata (RAG on/off, model, scenario ids, repeats)
+* [x] Evaluate the trajectory (agent decisions, the replan loop and the LLM
+  proposal before the deterministic chain rebuild)
+* [x] Check the agent order of a run (MCP lookups and the Critic verdict)
+* [x] Check the re-plan bound and flag a late acceptance
+* [x] Flag an LLM proposal that missed expected objectives (warning)
+* [x] Publish the scores to Phoenix as span annotations on each run's trace
+  (overall PASS/FAIL score, one annotation per failed check, warnings labelled
+  but unscored; best-effort, never failing a sweep)
+* [x] Compare a sweep against the stored history and flag regressions
+* [x] Revisit `RAG_SIMILARITY_THRESHOLD` if plan pass rate degrades from RAG noise/misses
 * [x] Evaluate RAG separately if RAG is implemented (retrieval-only harness)
+
+In a sweep, `app/evaluation/comparison.py` compares the report with the newest
+compatible stored one (the same wiki flag wins; `--baseline PATH` overrides the
+choice): `pass → fail` is flagged as a regression with the check that broke it,
+`fail → pass` as an improvement, and a scenario present on only one side as
+`new`/`missing`, so a partial sweep never reads as a quality drop. The CLI
+prints the comparison and the Evaluation tab renders it under the metrics; the
+exit code still follows the current sweep, since a regression is already a
+failing scenario.
+
+The evaluator reads game knowledge only through the MCP tools, never the
+knowledge base directly, so it measures what the Knowledge Agent could have
+known. Each scenario declares goal-level expectations only; the tool
+expectations are derived from the objectives the goal retrieves. The same
+sweep runs from the CLI (`scripts/evaluate_plans.py`) and from the Evaluation
+tab of the Streamlit UI.
+
+Caveat: the Planning Agent rebuilds the objective chain deterministically
+(`_reconcile_plan`), so the pass rate mainly measures retrieval, the chain
+reconciliation and the critic — the LLM influences the step windows, not the
+step set. A kept step keeps the LLM's window only when it fits the chain
+(after its dependencies, after the previous step, before the successor's
+slot) and is re-slotted on a 1h slot otherwise, so the rebuilt plan is always
+chronological and non-overlapping. The threshold revisit is resolved below.
+
+Live sweep (llama3.2 on a local Ollama, 2026-10-21): 8 of 9 scenarios pass in
+a single attempt, `deed-chain` failed with an empty LLM plan (reported as a
+run error, not as a scenario without issues). The first live sweep exposed
+three defects, now fixed: the local OpenAI-compatible base URL needed its
+`/v1` path (otherwise every call answers "404 page not found"), a crashed run
+was reported as a scenario without issues, and the rebuilt plan kept the LLM's
+whole-slot windows, so the critic rejected the first attempt with a sequence
+conflict and the run needed a re-plan.
+
+Threshold verdict (A/B sweep, llama3.2, 2026-10-21, four scenarios twice):
+`rag on` passes 8/8 with healthy retrieval (`wiki_ingested` on a cold page,
+`cache_hit` elsewhere), `rag off` passes 7/8, the single failure being an empty
+LLM plan — the same LLM flake seen on both conditions, so it is not
+RAG-caused. The pass rate does not degrade with RAG, so
+`RAG_SIMILARITY_THRESHOLD` stays at the calibrated 0.60. A live threshold
+re-calibration attempted the same day was deliberately discarded: the Zelda
+Wiki throttles sustained request bursts (~15s per response, the circuit
+breaker opening mid-grid), so later combinations measure the rate limit, not
+the threshold — the monotone order 0.60 > 0.72 > 0.80 held in every run and
+`CALIBRATED_*` keeps the clean 2026-10-10 measurement; calibration runs need
+`RAG_WIKI_BUDGET_SECONDS` in the hundreds and still may not complete. Two
+reporting defects surfaced while collecting the comparison and were fixed: a
+disabled retrieval raised a pydantic validation error (every `--rag off` run
+recorded `unavailable` and leaked the error text into the planner prompt), and
+`--json` copies of the report missed the `created_at` stamp. Running the CLI
+sweeps while the Streamlit UI is open needs an isolated store (copy the warm
+`.cache/termina-companion/qdrant` and point `RAG_QDRANT_PATH` at it), because
+the embedded Qdrant client holds an exclusive lock on its path.
 
 # Phase 12 — Production Readiness
 

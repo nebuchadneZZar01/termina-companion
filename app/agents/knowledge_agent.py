@@ -32,6 +32,7 @@ _SEARCH_TOKEN_RE = re.compile(r"[A-ZÀ-ÖØ-Ý][\wÀ-ÖØ-öø-ÿ'’-]+")
 
 def run(state: PlanningState) -> dict:
     """Gather objectives, schedules, events and supplemental wiki evidence."""
+    tool_calls: list[str] = []
     try:
         with traced_span(
             "mcp.search_quests",
@@ -40,6 +41,7 @@ def run(state: PlanningState) -> dict:
         ) as tool_span:
             quests = search_quests(state.goal.description, state.game_state.quest_progress)
             set_output(tool_span, quests)
+        tool_calls.append("search_quests")
     except Exception as exc:
         logger.warning("Knowledge Agent: search_quests failed: %s", exc)
         quests = []
@@ -68,6 +70,7 @@ def run(state: PlanningState) -> dict:
             ) as tool_span:
                 npc_schedules[obj.npc_id] = get_npc_schedule(obj.npc_id)
                 set_output(tool_span, npc_schedules[obj.npc_id])
+            tool_calls.append(f"get_npc_schedule:{obj.npc_id}")
         except Exception as exc:
             logger.warning("Knowledge Agent: get_npc_schedule(%s) failed: %s", obj.npc_id, exc)
             continue
@@ -80,6 +83,7 @@ def run(state: PlanningState) -> dict:
             with traced_span("mcp.get_event", kind="TOOL", input_value=obj.event_ref) as tool_span:
                 events[obj.event_ref] = get_event(obj.event_ref)
                 set_output(tool_span, events[obj.event_ref])
+            tool_calls.append(f"get_event:{obj.event_ref}")
         except Exception as exc:
             logger.warning("Knowledge Agent: get_event(%s) failed: %s", obj.event_ref, exc)
             continue
@@ -96,6 +100,7 @@ def run(state: PlanningState) -> dict:
     retrieval = _retrieve_evidence(state, objectives, npc_schedules)
     return {
         "relevant_objectives": objectives,
+        "tool_calls": tool_calls,
         "retrieved_context": _append_rag_context(structured_context, retrieval),
         "retrieved_evidence": retrieval.evidence,
         "retrieval_engine": retrieval.engine,
@@ -260,6 +265,8 @@ def _append_unique(target: list[str], values: list[str]) -> None:
 def _append_rag_context(structured_context: str, retrieval: RetrievalResult) -> str:
     """Append clearly labelled, bounded wiki evidence to planner context."""
     if not retrieval.evidence:
+        if retrieval.status == "disabled":
+            return f"{structured_context}\n\n[RAG disabled: structured data only.]"
         if retrieval.wiki_unreachable:
             detail = f": {retrieval.warning}" if retrieval.warning else ""
             return f"{structured_context}\n\n[RAG: wiki unreachable, structured data only{detail}]"

@@ -1,4 +1,4 @@
-"""Phase 8 memory: store ranking, nodes and graph integration."""
+"""Memory: store ranking, nodes and graph integration."""
 
 from __future__ import annotations
 

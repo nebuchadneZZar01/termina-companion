@@ -10,6 +10,22 @@ from app.memory.models import Episode, PlayerPreferences
 from app.rag.models import Evidence, IndexedSource
 
 
+class AttemptRecord(BaseModel):
+    """One planning attempt, recorded as the run makes it.
+
+    The Critic writes one record per attempt, so the trajectory of a run
+    (how many attempts, what each one looked like, why it was rejected) is
+    available to the evaluator instead of being flattened into the last
+    validation.
+    """
+
+    attempt: int = 1
+    step_count: int = 0
+    objective_refs: list[str] = Field(default_factory=list)
+    valid: bool = False
+    issue_kinds: list[str] = Field(default_factory=list)
+
+
 class PlanningState(BaseModel):
     """Mutable state of the planning workflow, threaded through the graph."""
 
@@ -18,6 +34,8 @@ class PlanningState(BaseModel):
     llm_config: dict = Field(default_factory=dict)
     state_summary: str = ""
     relevant_objectives: list[Objective] = Field(default_factory=list)
+    # MCP tools invoked by the Knowledge Agent, as "tool" or "tool:<arg>".
+    tool_calls: list[str] = Field(default_factory=list)
     retrieved_context: str = ""
     retrieved_evidence: list[Evidence] = Field(default_factory=list)
     retrieval_engine: str = ""
@@ -27,6 +45,10 @@ class PlanningState(BaseModel):
     retrieval_ingested_pages: list[str] = Field(default_factory=list)
     retrieval_indexed_sources: list[IndexedSource] = Field(default_factory=list)
     plan: Plan | None = None
+    # The LLM's proposal before grounding/dedup/reconcile (last attempt).
+    plan_proposal: Plan | None = None
+    # One record per planning attempt, oldest first (trajectory evaluation).
+    attempt_log: list[AttemptRecord] = Field(default_factory=list)
     validation: ValidationResult | None = None
     replan_attempts: int = 0
     preferences: PlayerPreferences = Field(default_factory=PlayerPreferences)

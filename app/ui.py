@@ -8,22 +8,39 @@ from __future__ import annotations
 
 import datetime
 import datetime as _datetime
+import logging
 import os
 import queue
 import re
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import streamlit as st
 
 from app.data.mock_knowledge import MASKS, build_default_knowledge
 from app.domain import ClockTime, GameState, Goal, TimeWindow
+from app.evaluation.comparison import compare_reports, select_baseline
+from app.evaluation.models import EvaluationReport, ScenarioResult
+from app.evaluation.runner import run_scenarios
+from app.evaluation.scenarios import EVALUATION_SCENARIOS, SCENARIOS_BY_ID
+from app.evaluation.storage import (
+    LAST_REPORT_NAME,
+    get_eval_dir,
+    load_history,
+    load_report,
+    save_report,
+)
 from app.graph import MAX_PLANNING_ATTEMPTS, build_graph
 from app.i18n import DEFAULT_LANG, spinner_lines, t, tr, tr_msg
+from app.phoenix import publish_plan_validation
 from app.save import load_state, save_state
+from app.state import PlanningState
 from app.trace import current_run, pipeline_span
+
+logger = logging.getLogger(__name__)
 
 
 @st.cache_resource
@@ -42,6 +59,8 @@ def _graph():
 _LANGS = {"en": "\U0001f1ec\U0001f1e7 English", "it": "\U0001f1ee\U0001f1f9 Italiano"}
 
 _PLANNING_TASK_KEY = "_planning_task"
+_EVALUATION_TASK_KEY = "_evaluation_task"
+_EVALUATION_REPORT_KEY = "_evaluation_report"
 _ACTIVE_STATUSES = frozenset({"running", "stopping"})
 _STOP_SENTINEL = object()
 _NO_MESSAGE = object()
@@ -149,6 +168,25 @@ def _task_is_active(task: _PlanningTask | None) -> bool:
     return task is not None and task.status in _ACTIVE_STATUSES
 
 
+@dataclass
+class _EvaluationTask:
+    """Background evaluation sweep kept in Streamlit session state.
+
+    The sweep runs the whole pipeline once per scenario, so it takes minutes:
+    it lives in a worker thread and reports every finished scenario back
+    through a queue, exactly like the planning task.
+    """
+
+    events: queue.Queue[object] = field(default_factory=queue.Queue)
+    stop_event: threading.Event = field(default_factory=threading.Event)
+    thread: threading.Thread | None = None
+    status: str = "running"
+    results: list[ScenarioResult] = field(default_factory=list)
+    total: int = 0
+    current: str = ""
+    error: str = ""
+
+
 def _plan_controls_disabled(task: _PlanningTask | None) -> tuple[bool, bool]:
     """Return the ``(generate, stop)`` disabled flags for the planning controls.
 
@@ -177,6 +215,10 @@ def _run_stream(
         return
     goal = initial.get("goal")
     goal_text = getattr(goal, "description", "") if goal is not None else ""
+    # Node updates are merged here as the stream yields them (the same merge
+    # the task drain applies), so the final state can be rebuilt for the
+    # Phoenix annotation without a second graph query.
+    merged: dict = dict(initial)
     try:
         with pipeline_span(goal_text):
             for item in graph.stream(initial, stream_mode=["updates", "custom"]):
@@ -184,7 +226,22 @@ def _run_stream(
                     events.put(_STOP_SENTINEL)
                     return
                 mode, chunk = item
+                if mode == "updates" and isinstance(chunk, dict):
+                    # Stream updates arrive as {"node": {...fields...}}; unwrap
+                    # them exactly like the task drain does, or a node whose
+                    # name collides with a state field (e.g. "plan") would
+                    # overwrite it with its whole update dict.
+                    for _node, data in chunk.items():
+                        if isinstance(data, dict):
+                            merged.update(data)
                 events.put(_Progress(chunk) if mode == "custom" else chunk)
+        # After the with: the root span is closed and this worker thread's
+        # context still holds its ids, so the Critic's verdict can be posted
+        # onto the trace in Phoenix (best-effort; same as run_pipeline).
+        try:
+            publish_plan_validation(PlanningState.model_validate(merged))
+        except Exception as exc:  # noqa: BLE001 - telemetry must not fail the run
+            logger.warning("Phoenix: plan validation not published: %s", exc)
         events.put(_STOP_SENTINEL if stop_event.is_set() else None)
     except Exception as exc:
         if stop_event.is_set():
@@ -761,24 +818,39 @@ def _step_critic(status, result: dict) -> None:
         _render_issue(c, issue)
 
 
-def _render_issue(scope, issue) -> None:
+def _render_issue(scope, issue, fallback: str = "plan") -> None:
     """Render a single validation issue with severity, kind, step and message.
 
     args:
         scope (DeltaGenerator): the container to draw into.
         issue (ValidationIssue): the issue to display.
+        fallback (str, default "plan"): the label used when the issue does
+            not point at a single step. An empty fallback hides the position
+            column entirely (evaluation warnings are about the whole scenario,
+            and a bare "Scenario" cell there reads as a stray field).
 
     returns:
         None: draws the issue row.
     """
     is_error = issue.severity == "error"
     kind = t(f"kind_{issue.kind}")
-    where = t("step_n", n=issue.step_idx + 1) if issue.step_idx is not None else t("plan")
-    col_sev, col_kind, col_step, col_msg = scope.columns([1, 1, 1, 4], vertical_alignment="center")
+    if issue.step_idx is not None:
+        where = t("step_n", n=issue.step_idx + 1)
+    elif fallback:
+        where = t(fallback)
+    else:
+        where = ""
+    if where:
+        cols = scope.columns([1, 1, 1, 4], vertical_alignment="center")
+        col_sev, col_kind, col_step, col_msg = cols
+    else:
+        col_sev, col_kind, col_msg = scope.columns([1, 1, 4], vertical_alignment="center")
+        col_step = None
     sev = (t("sev_error") if is_error else t("sev_warning")).upper()
     col_sev.badge(sev, color="red" if is_error else "orange")
     col_kind.badge(kind.upper(), color="blue")
-    col_step.markdown(f"**{where}**")
+    if col_step is not None:
+        col_step.markdown(f"**{where}**")
     col_msg.markdown(tr_msg(_markdown_windows(issue.message)))
 
 
@@ -1135,6 +1207,365 @@ def _render_trace_issues(validation) -> None:
             st.write(t("sev_legend_warning"))
 
 
+def _save_evaluation_report(results: list[ScenarioResult], rag_on: bool) -> None:
+    """Persist the outcome of a sweep.
+
+    The report is written from the worker thread, so it survives a closed
+    browser tab. An empty sweep is not saved: it carries no check and would
+    overwrite a previous report with nothing.
+
+    args:
+        results (list[ScenarioResult]): the evaluated scenarios.
+        rag_on (bool): whether the supplemental wiki retrieval ran.
+
+    returns:
+        None: writes the report, logging a warning on failure.
+    """
+    if not results:
+        return
+    try:
+        path = save_report(EvaluationReport(results=results, rag_on=rag_on))
+    except Exception as exc:  # noqa: BLE001 - a failed save must not kill the sweep
+        logger.warning("Could not save the evaluation report: %s", exc)
+        return
+    logger.info("Evaluation report saved to %s", path)
+
+
+def _run_evaluation(scenarios, rag_on: bool, task: _EvaluationTask) -> None:
+    """Run the evaluation sweep in the worker thread.
+
+    Every finished scenario is pushed to the task queue so the UI can show
+    the progress live; the sentinel closes the stream. The outcome is also
+    written to disk, so the checks outlive the browser session.
+
+    args:
+        scenarios (list[PlanScenario]): the scenarios to run.
+        rag_on (bool): whether the supplemental wiki retrieval runs.
+        task (_EvaluationTask): the task collecting the results.
+
+    returns:
+        None: runs in the background.
+    """
+    collected: list[ScenarioResult] = []
+
+    def _on_progress(scenario, result: ScenarioResult) -> None:
+        """Queue a finished scenario and keep it for the saved report.
+
+        args:
+            scenario (PlanScenario): the evaluated scenario.
+            result (ScenarioResult): its outcome.
+
+        returns:
+            None: queues the result.
+        """
+        collected.append(result)
+        task.events.put((scenario, result))
+
+    try:
+        run_scenarios(
+            scenarios,
+            rag_on=rag_on,
+            on_progress=_on_progress,
+            should_stop=task.stop_event.is_set,
+        )
+    except Exception as exc:  # noqa: BLE001 - the UI shows the failure
+        task.events.put(exc)
+    finally:
+        _save_evaluation_report(collected, rag_on=rag_on)
+        task.events.put(None)
+
+
+def _drain_evaluation_task(task: _EvaluationTask, wait: float = 0.0) -> bool:
+    """Apply queued sweep messages to an evaluation task.
+
+    args:
+        task (_EvaluationTask): the task to update in place.
+        wait (float, default 0.0): seconds to block waiting for the first
+            message before draining. Use it to idle without redrawing.
+
+    returns:
+        bool: True when at least one message changed the task, so the caller
+        knows whether a redraw is needed.
+    """
+    first: object = _NO_MESSAGE
+    if wait > 0:
+        try:
+            first = task.events.get(timeout=wait)
+        except queue.Empty:
+            pass
+    progressed = first is not _NO_MESSAGE
+    while True:
+        if first is not _NO_MESSAGE:
+            item, first = first, _NO_MESSAGE
+        else:
+            try:
+                item = task.events.get_nowait()
+            except queue.Empty:
+                break
+        progressed = True
+        if item is None:
+            if task.status == "stopping" or task.stop_event.is_set():
+                task.status = "stopped"
+            elif task.status == "running":
+                task.status = "done"
+        elif isinstance(item, Exception):
+            task.status = "error"
+            task.error = str(item)
+        elif isinstance(item, tuple) and len(item) == 2:
+            scenario, result = item
+            task.results.append(result)
+            task.current = getattr(scenario, "id", "")
+    return progressed
+
+
+def _start_evaluation_task(scenario_ids: list[str], rag_on: bool) -> _EvaluationTask:
+    """Create, register and start one background evaluation sweep."""
+    scenarios = [SCENARIOS_BY_ID[sid] for sid in scenario_ids if sid in SCENARIOS_BY_ID]
+    task = _EvaluationTask(total=len(scenarios))
+    task.thread = threading.Thread(
+        target=_run_evaluation,
+        args=(scenarios, rag_on, task),
+        daemon=True,
+        name="termina-evaluation",
+    )
+    st.session_state[_EVALUATION_TASK_KEY] = task
+    task.thread.start()
+    return task
+
+
+def _scenario_label(scenario_id: str) -> str:
+    """Return the label of a scenario in the scenario picker."""
+    scenario = SCENARIOS_BY_ID.get(scenario_id)
+    return f"{scenario.name} ({scenario_id})" if scenario else scenario_id
+
+
+def _evaluation_live(task: _EvaluationTask) -> None:
+    """Drive the evaluation progress bar until the sweep reaches a terminal state.
+
+    The loop blocks on the worker queue (no busy timer) and repaints only when
+    a scenario finishes. The empty placeholder is the invisible yield point
+    that lets Streamlit process a queued Stop click during a long run.
+    """
+    bar = st.progress(0.0, text=t("eval_running"))
+    caption = st.empty()
+    yield_point = st.empty()
+    while task.status in _ACTIVE_STATUSES:
+        progressed = _drain_evaluation_task(task, wait=_IDLE_WAIT)
+        total = max(task.total, 1)
+        bar.progress(min(len(task.results) / total, 1.0), text=t("eval_running"))
+        caption.caption(t("eval_running_scenario", name=task.current or "-"))
+        if not progressed:
+            time.sleep(0.05)
+        yield_point.empty()
+
+
+def _short_error(error: str, limit: int = 160) -> str:
+    """Shorten a run error so the report table stays readable.
+
+    args:
+        error (str): the error message, empty when the run succeeded.
+        limit (int): the maximum length kept.
+
+    returns:
+        str: the error message, truncated, or "-" when there is none.
+    """
+    if not error:
+        return "-"
+    return error if len(error) <= limit else f"{error[: limit - 1]}…"
+
+
+def _saved_report_path() -> Path | None:
+    """Return the report path shown under the evaluation controls.
+
+    args:
+        (none)
+
+    returns:
+        Path | None: the path of the last report, or None when the store
+        cannot be opened (for instance a read-only checkout).
+    """
+    try:
+        return get_eval_dir() / LAST_REPORT_NAME
+    except OSError:
+        return None
+
+
+def _render_evaluation_results(report: EvaluationReport) -> None:
+    """Render the outcome of an evaluation sweep: metrics, table and details.
+
+    args:
+        report (EvaluationReport): the report to render.
+
+    returns:
+        None: renders into the app.
+    """
+    _section(t("eval_result"))
+    if not report.results:
+        st.caption(t("eval_no_results"))
+        return
+
+    if report.rag_on is not None or report.models:
+        st.caption(
+            t(
+                "eval_report_meta",
+                model=report.models or t("eval_unknown"),
+                rag=t(f"eval_rag_{report.wiki_retrieval}"),
+                repeats=report.repeats,
+            )
+        )
+        if report.wiki_retrieval == "degraded":
+            st.caption(t("eval_rag_degraded_help"))
+
+    c_rate, c_passed, c_failed, c_kinds = st.columns(4)
+    c_rate.metric(t("eval_pass_rate"), f"{report.pass_rate * 100:.0f}%")
+    c_passed.metric(t("eval_passed"), f"{report.passed}/{report.total}")
+    c_failed.metric(t("eval_failed"), str(report.failed))
+    kinds = report.failures_by_kind
+    c_kinds.metric(
+        t("eval_failures_by_kind"),
+        ", ".join(f"{_check_label(kind)}: {count}" for kind, count in kinds.items()) or "-",
+    )
+
+    _render_comparison(report)
+
+    st.table(
+        [
+            {
+                t("eval_scenario"): result.scenario_id,
+                t("eval_status"): t("eval_pass") if result.passed else t("eval_fail"),
+                t("eval_steps"): result.step_count,
+                t("eval_duration"): f"{result.duration_s:.1f}s",
+                t("eval_errors"): result.error_count,
+                t("eval_warnings"): result.warning_count,
+                t("eval_run_error"): _short_error(result.error),
+            }
+            for result in report.results
+        ]
+    )
+
+    for result in report.results:
+        status = t("eval_pass") if result.passed else t("eval_fail")
+        with st.expander(f"{result.scenario_id} — {status}"):
+            if result.error:
+                st.error(f"{t('eval_run_error')}: {result.error}")
+            elif not result.issues:
+                st.success(t("eval_no_issues"))
+            for issue in result.issues:
+                _render_issue(st, issue, fallback="")
+                help_key = f"kind_{issue.kind}_help"
+                help_text = t(help_key)
+                if help_text != help_key:
+                    st.caption(help_text)
+
+
+def _format_timestamp(value: str) -> str:
+    """Format a stored ISO timestamp for display.
+
+    A value that cannot be parsed is returned unchanged, so an old or foreign
+    report still shows something instead of an empty caption.
+
+    args:
+        value (str): the stored timestamp.
+
+    returns:
+        str: the display timestamp, e.g. ``22/10/2026 15:25 UTC``.
+    """
+    try:
+        stamp = datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    return stamp.strftime("%d/%m/%Y %H:%M UTC")
+
+
+def _render_comparison(report: EvaluationReport) -> None:
+    """Render how the sweep changed against the newest compatible stored sweep.
+
+    The baseline comes from the saved history, so a sweep loaded with *Load
+    last report* is compared too: it is already in the history and
+    ``select_baseline`` skips the report itself. An unreadable store only hides
+    the card, it never breaks the tab.
+
+    args:
+        report (EvaluationReport): the sweep being rendered.
+
+    returns:
+        None: renders into the app.
+    """
+    try:
+        baseline = select_baseline(report, load_history())
+    except Exception:  # noqa: BLE001 - an unreadable store must not break the tab
+        return
+    if baseline is None:
+        st.caption(t("eval_compare_none"))
+        return
+    comparison = compare_reports(report, baseline)
+    when = _format_timestamp(baseline.created_at) or t("eval_unknown")
+    before = f"{comparison.baseline_passed}/{comparison.baseline_total}"
+    after = f"{comparison.current_passed}/{comparison.current_total}"
+    rows = [
+        {
+            t("eval_compare_scenario"): change.scenario_id,
+            t("eval_compare_change"): t(f"eval_compare_{change.status}"),
+            t("eval_compare_detail"): (
+                t(
+                    "eval_compare_new_failure",
+                    kinds=", ".join(_check_label(kind) for kind in change.new_failure_kinds),
+                )
+                if change.new_failure_kinds
+                else t(f"eval_compare_{change.status}_help")
+            ),
+        }
+        for change in comparison.changes
+        if change.status != "same"
+    ]
+    if comparison.has_regressions:
+        st.warning(t("eval_compare_summary", when=when, before=before, after=after))
+    elif rows:
+        st.caption(t("eval_compare_summary", when=when, before=before, after=after))
+    else:
+        st.caption(t("eval_compare_clean", when=when, before=before, after=after))
+
+    if comparison.model_changed:
+        st.caption(
+            t(
+                "eval_compare_model",
+                before=comparison.baseline_model or t("eval_unknown"),
+                after=comparison.current_model or t("eval_unknown"),
+            )
+        )
+    if comparison.rag_changed:
+        st.caption(
+            t(
+                "eval_compare_rag",
+                before=_rag_label(comparison.baseline_rag),
+                after=_rag_label(comparison.current_rag),
+            )
+        )
+    if comparison.repeats_changed:
+        st.caption(
+            t(
+                "eval_compare_repeats",
+                before=comparison.baseline_repeats,
+                after=comparison.current_repeats,
+            )
+        )
+
+    if rows:
+        st.table(rows)
+
+
+def _check_label(kind: str) -> str:
+    """Return the translated label of an evaluation check kind."""
+    return t(f"kind_{kind}")
+
+
+def _rag_label(state: str) -> str:
+    """Return the translated label of a sweep's wiki retrieval state."""
+    if not state or state == "unknown":
+        return t("eval_unknown")
+    return t(f"eval_rag_{state}")
+
+
 def render() -> None:
     """Main Streamlit UI: state editor, planning action and result tabs.
 
@@ -1207,8 +1638,14 @@ def render() -> None:
             st.markdown(f"- **LLM Provider**: `{provider}`")
             if model:
                 st.markdown(f"- **Modello**: `{model}`")
-            elif base_url:
+            if base_url:
                 st.markdown(f"- **LLM_BASE_URL**: `{base_url}`")
+            if (
+                provider in {"ollama", "lmstudio"}
+                and base_url
+                and urlsplit(base_url).path in {"", "/"}
+            ):
+                st.warning(t("llm_base_url_hint"))
         else:
             st.warning(
                 "LLM not configured. Set LLM_PROVIDER (and credentials) in .env (see .env.example)."
@@ -1217,6 +1654,22 @@ def render() -> None:
     st.title(f"\U0001f319 {t('title')}")
     st.caption(t("subtitle"))
 
+    tab_play, tab_evaluation = st.tabs([t("tab_play"), t("tab_evaluation")])
+    with tab_play:
+        _render_play()
+    with tab_evaluation:
+        _render_evaluation()
+
+
+def _render_play() -> None:
+    """Render the play tab: state editor, planning action and result tabs.
+
+    args:
+        (none)
+
+    returns:
+        None: renders the planning half of the app page.
+    """
     kb = build_default_knowledge()
 
     left, right = st.columns(2)
@@ -1370,6 +1823,96 @@ def render() -> None:
         return
 
     st.info(t("info_edit_state"))
+
+
+def _render_evaluation() -> None:
+    """Render the evaluation tab: scenario picker, run control and results.
+
+    The sweep runs the whole pipeline once per scenario, so it happens in a
+    background thread and reports every finished scenario live.
+
+    args:
+        (none)
+
+    returns:
+        None: renders the evaluation half of the app page.
+    """
+    _section(t("eval_title"), t("eval_caption"))
+    if not os.getenv("LLM_PROVIDER", "").strip():
+        st.warning(t("eval_need_llm"))
+
+    task = st.session_state.get(_EVALUATION_TASK_KEY)
+    running = task is not None and task.status in _ACTIVE_STATUSES
+
+    scenario_ids = st.multiselect(
+        t("eval_scenarios"),
+        options=[scenario.id for scenario in EVALUATION_SCENARIOS],
+        default=[scenario.id for scenario in EVALUATION_SCENARIOS],
+        format_func=_scenario_label,
+        help=t("eval_scenarios_help"),
+        key="eval_scenarios",
+    )
+    rag_on = st.toggle(t("eval_rag"), value=True, help=t("eval_rag_help"), key="eval_rag")
+
+    run_col, stop_col = st.columns([4, 1])
+    with run_col:
+        run = st.button(
+            t("eval_run"),
+            type="primary",
+            use_container_width=True,
+            disabled=running or not scenario_ids,
+            key="eval_run_button",
+        )
+    with stop_col:
+        stop = st.button(
+            t("eval_stop"),
+            use_container_width=True,
+            disabled=not running,
+            key="eval_stop_button",
+        )
+
+    if stop and running:
+        task.stop_event.set()
+        task.status = "stopping"
+        st.rerun()
+
+    if run and not running and scenario_ids:
+        _start_evaluation_task(scenario_ids, rag_on)
+        st.rerun()
+
+    load_col, hint_col = st.columns([1, 3])
+    with load_col:
+        load = st.button(t("eval_load_last"), key="eval_load_button")
+    with hint_col:
+        report_path = _saved_report_path()
+        if report_path is not None:
+            st.caption(t("eval_saved_report", path=str(report_path)))
+    if load:
+        saved = load_report()
+        if saved is None:
+            st.info(t("eval_no_saved_report"))
+        else:
+            st.session_state[_EVALUATION_REPORT_KEY] = saved
+
+    task = st.session_state.get(_EVALUATION_TASK_KEY)
+    if task is not None and task.status in _ACTIVE_STATUSES:
+        # Block here, redrawing only when a scenario finishes. The final
+        # rerun renders the report below.
+        _evaluation_live(task)
+        st.rerun()
+
+    if task is not None:
+        if task.status == "stopped":
+            st.warning(t("eval_stopped"))
+        if task.error:
+            st.error(task.error)
+        _render_evaluation_results(EvaluationReport(results=task.results))
+        return
+
+    # No sweep in this session: show the report restored from disk.
+    saved = st.session_state.get(_EVALUATION_REPORT_KEY)
+    if saved is not None:
+        _render_evaluation_results(saved)
 
 
 if __name__ == "__main__":

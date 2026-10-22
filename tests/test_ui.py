@@ -514,3 +514,345 @@ def test_inventory_pills_add_custom_item_and_keep_it_selected() -> None:
     assert "Deku Leaf" in pills.options
     assert pills.value == ["Deku Leaf"]
     assert at.get_by_key("save_inventory_new").value == ""
+
+
+def test_evaluation_tab_renders_the_sweep_controls() -> None:
+    """The evaluation tab exposes the scenario picker and the run control."""
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    from app.evaluation.scenarios import EVALUATION_SCENARIOS
+
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at.session_state["lang"] = "en"
+    at.run()
+
+    assert not at.exception
+    assert [tab.label for tab in at.tabs] == ["Play", "Evaluation"]
+    picker = at.get_by_key("eval_scenarios")
+    assert picker.value == [scenario.id for scenario in EVALUATION_SCENARIOS]
+    assert at.get_by_key("eval_rag").value is True
+    assert at.button(key="eval_run_button").disabled is False
+    assert at.button(key="eval_stop_button").disabled is True
+
+
+def test_evaluation_task_drains_results_and_completes() -> None:
+    """The evaluation task collects every finished scenario and then closes."""
+    from app.evaluation.models import ScenarioResult
+    from app.evaluation.scenarios import SCENARIOS_BY_ID
+
+    task = ui._EvaluationTask(total=1)
+    task.events.put(
+        (SCENARIOS_BY_ID["anju-kafei"], ScenarioResult(scenario_id="anju-kafei", passed=True))
+    )
+    task.events.put(None)
+
+    assert ui._drain_evaluation_task(task) is True
+    assert task.status == "done"
+    assert [result.scenario_id for result in task.results] == ["anju-kafei"]
+    assert task.current == "anju-kafei"
+
+
+def test_evaluation_task_stop_is_cooperative() -> None:
+    """A stop request ends the sweep as stopped, not as done."""
+    task = ui._EvaluationTask(total=2)
+    task.stop_event.set()
+    task.events.put(None)
+
+    ui._drain_evaluation_task(task)
+
+    assert task.status == "stopped"
+    assert task.results == []
+
+
+def test_evaluation_task_reports_worker_errors() -> None:
+    """A failing sweep is reported instead of swallowed."""
+    task = ui._EvaluationTask(total=1)
+    task.events.put(RuntimeError("boom"))
+    task.events.put(None)
+
+    ui._drain_evaluation_task(task)
+
+    assert task.error == "boom"
+    assert task.status == "error"
+
+
+def test_sweep_timestamp_is_shown_without_the_iso_noise():
+    """A stored sweep time renders as a readable date, not raw ISO."""
+    assert ui._format_timestamp("2026-10-22T15:25:21+00:00") == "22/10/2026 15:25 UTC"
+    # An unparsable value is shown unchanged instead of disappearing.
+    assert ui._format_timestamp("yesterday") == "yesterday"
+
+
+def test_evaluation_tab_renders_the_report_of_a_finished_sweep(tmp_path, monkeypatch) -> None:
+    """A finished sweep shows the metrics, the table and the failed checks."""
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    from app.evaluation.models import EvaluationIssue, ScenarioResult
+
+    # The tab compares the report with the stored history: keep it empty so
+    # the developer's own sweeps never leak into this test.
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at.session_state["lang"] = "en"
+    at.run()
+    assert not at.exception
+
+    task = ui._EvaluationTask(total=2, status="done")
+    task.results = [
+        ScenarioResult(scenario_id="anju-kafei", passed=True, step_count=4, duration_s=12.4),
+        ScenarioResult(
+            scenario_id="deed-chain",
+            passed=False,
+            step_count=3,
+            duration_s=9.1,
+            issues=[
+                EvaluationIssue(
+                    severity="error",
+                    kind="temporal_ordering",
+                    message="Step 2 overlaps the previous step.",
+                    step_idx=1,
+                )
+            ],
+        ),
+    ]
+    at.session_state["_evaluation_task"] = task
+    at.run()
+
+    assert not at.exception
+    metrics = {metric.label: metric.value for metric in at.metric}
+    assert metrics["Pass rate"] == "50%"
+    assert metrics["Passed"] == "1/2"
+    assert metrics["Failed"] == "1"
+    assert len(at.table) == 1
+    assert [expander.label for expander in at.expander] == [
+        "anju-kafei — PASS",
+        "deed-chain — FAIL",
+    ]
+
+
+def test_evaluation_tab_flags_a_regression_against_the_stored_history(
+    tmp_path, monkeypatch
+) -> None:
+    """A stored sweep that passed every scenario makes the new failure a regression."""
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    from app.evaluation.models import EvaluationIssue, EvaluationReport, ScenarioResult
+    from app.evaluation.storage import save_report
+
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
+    # The stored sweep becomes both the last report and the history entry the
+    # tab compares against.
+    save_report(
+        EvaluationReport(
+            results=[
+                ScenarioResult(scenario_id="anju-kafei", passed=True),
+                ScenarioResult(scenario_id="deed-chain", passed=True),
+            ],
+            rag_on=True,
+            created_at="2026-10-20T09:00:00+00:00",
+        )
+    )
+
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at.session_state["lang"] = "en"
+    at.run()
+    assert not at.exception
+
+    task = ui._EvaluationTask(total=2, status="done")
+    task.results = [
+        ScenarioResult(scenario_id="anju-kafei", passed=True),
+        ScenarioResult(
+            scenario_id="deed-chain",
+            passed=False,
+            issues=[
+                EvaluationIssue(
+                    severity="error",
+                    kind="temporal_ordering",
+                    message="Step 2 overlaps the previous step.",
+                )
+            ],
+        ),
+    ]
+    at.session_state["_evaluation_task"] = task
+    at.run()
+
+    assert not at.exception
+    warnings = [warning.value for warning in at.warning]
+    assert any(
+        "Previous sweep of 20/10/2026 09:00 UTC" in warning
+        and "2/2" in warning
+        and "1/2" in warning
+        for warning in warnings
+    )
+    # The scenario table plus the comparison table.
+    assert len(at.table) == 2
+
+
+def test_evaluation_run_error_never_shows_the_success_message(tmp_path, monkeypatch) -> None:
+    """A crashed run shows the error only, never "no issues"."""
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    from app.evaluation.models import ScenarioResult
+
+    # The tab compares the report with the stored history: keep it empty.
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at.session_state["lang"] = "en"
+    at.run()
+    assert not at.exception
+
+    task = ui._EvaluationTask(total=1, status="done")
+    task.results = [
+        ScenarioResult(
+            scenario_id="anju-kafei",
+            passed=False,
+            step_count=0,
+            duration_s=2.0,
+            error="PlanningAgentError: LLM invocation failed",
+        )
+    ]
+    at.session_state["_evaluation_task"] = task
+    at.run()
+
+    assert not at.exception
+    assert not at.success
+    assert any("LLM invocation failed" in error.value for error in at.error)
+
+
+def test_evaluation_worker_saves_the_report(tmp_path, monkeypatch) -> None:
+    """The sweep outcome reaches disk even when nobody drains the queue."""
+    from app.evaluation.models import ScenarioResult
+    from app.evaluation.scenarios import SCENARIOS_BY_ID
+    from app.evaluation.storage import load_report
+
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    def _fake_run(scenarios, rag_on=True, on_progress=None, should_stop=None):
+        """Emit one result per scenario without touching a model."""
+        for item in scenarios:
+            if on_progress is not None:
+                on_progress(item, ScenarioResult(scenario_id=item.id, passed=True))
+        return ui.EvaluationReport(results=[])
+
+    monkeypatch.setattr(ui, "run_scenarios", _fake_run)
+    task = ui._EvaluationTask(total=1)
+    ui._run_evaluation([scenario], rag_on=False, task=task)
+
+    saved = load_report()
+    assert saved is not None
+    assert [result.scenario_id for result in saved.results] == ["anju-kafei"]
+    assert saved.passed == 1
+
+
+def test_evaluation_worker_skips_an_empty_sweep(tmp_path, monkeypatch) -> None:
+    """A sweep that produced nothing never overwrites a good report."""
+    from app.evaluation.models import ScenarioResult
+    from app.evaluation.scenarios import SCENARIOS_BY_ID
+    from app.evaluation.storage import load_report, save_report
+
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
+    save_report(
+        ui.EvaluationReport(results=[ScenarioResult(scenario_id="anju-kafei", passed=True)])
+    )
+
+    def _failing_run(scenarios, rag_on=True, on_progress=None, should_stop=None):
+        """Raise before producing any result, like an unconfigured LLM."""
+        raise RuntimeError("LLM not configured")
+
+    monkeypatch.setattr(ui, "run_scenarios", _failing_run)
+    task = ui._EvaluationTask(total=1)
+    ui._run_evaluation([SCENARIOS_BY_ID["anju-kafei"]], rag_on=False, task=task)
+
+    saved = load_report()
+    assert saved is not None
+    assert [result.scenario_id for result in saved.results] == ["anju-kafei"]
+
+
+def test_evaluation_tab_loads_the_saved_report(tmp_path, monkeypatch) -> None:
+    """The evaluation tab restores the checks persisted by the last sweep."""
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    from app.evaluation.models import EvaluationIssue, ScenarioResult
+    from app.evaluation.storage import save_report
+
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
+    save_report(
+        ui.EvaluationReport(
+            results=[
+                ScenarioResult(
+                    scenario_id="anju-kafei", passed=True, step_count=4, duration_s=12.4
+                ),
+                ScenarioResult(
+                    scenario_id="deed-chain",
+                    passed=False,
+                    step_count=3,
+                    duration_s=9.1,
+                    issues=[
+                        EvaluationIssue(
+                            severity="error",
+                            kind="temporal_ordering",
+                            message="Step 2 overlaps the previous step.",
+                            step_idx=1,
+                        )
+                    ],
+                ),
+            ]
+        ),
+        history=False,
+    )
+
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at.session_state["lang"] = "en"
+    at.run()
+    assert not at.exception
+
+    at.button(key="eval_load_button").click()
+    at.run()
+
+    assert not at.exception
+    metrics = {metric.label: metric.value for metric in at.metric}
+    assert metrics["Pass rate"] == "50%"
+    assert metrics["Passed"] == "1/2"
+    assert len(at.table) == 1
+    assert [expander.label for expander in at.expander] == [
+        "anju-kafei — PASS",
+        "deed-chain — FAIL",
+    ]
+
+
+def test_evaluation_tab_reports_a_missing_saved_report(tmp_path, monkeypatch) -> None:
+    """Loading with nothing on disk says so instead of failing."""
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
+
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at.session_state["lang"] = "en"
+    at.run()
+    assert not at.exception
+
+    at.button(key="eval_load_button").click()
+    at.run()
+
+    assert not at.exception
+    assert any("No saved evaluation report yet." in info.value for info in at.info)
+    assert not at.table

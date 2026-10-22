@@ -18,6 +18,7 @@ from app.agents import critic_agent, knowledge_agent, memory_agent, planning_age
 from app.domain import GameState, Goal
 from app.memory.models import PlayerPreferences
 from app.memory.store import get_memory_store
+from app.phoenix import publish_plan_validation
 from app.progress import report
 from app.state import PlanningState
 from app.trace import (
@@ -219,4 +220,9 @@ def run_pipeline(
         get_memory_store().save_preferences(preferences)
     with pipeline_span(goal.description):
         result = build_graph().invoke(PlanningState(game_state=game_state, goal=goal))
-    return PlanningState.model_validate(result)
+    state = PlanningState.model_validate(result)
+    # The root span is closed (and flushed) here, so the Critic's verdict
+    # can be annotated onto the trace in Phoenix; best-effort, no endpoint
+    # or a dead Phoenix is a log line, never a failed run.
+    publish_plan_validation(state)
+    return state

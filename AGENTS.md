@@ -79,8 +79,8 @@ breaker so a down wiki is not repaid on every run. A wiki failure on that leg
 degrades to a `wiki_miss` with a warning and an explicit `wiki_unreachable`
 flag, so a single slow request never turns retrieval `unavailable`; only an index
 or embedding failure does. Either way the pipeline continues with structured
-context. Persistent memory, broader tracing and formal plan evaluation remain
-future work; leave clear extension points for them.
+context. Persistent memory remains future work; leave clear extension points
+for it. Plan evaluation is implemented in `app/evaluation/`.
 
 ## Development Principles
 
@@ -120,9 +120,15 @@ future work; leave clear extension points for them.
   any of its objectives matches, "obtain item" steps are pruned when the
   player already owns what they provide (`provides_items`/`provides_masks` on
   `Objective`), missing chain steps are re-inserted in prerequisite order and
-  `depends_on` is recomputed; on replan attempts kept steps are re-slotted onto
-  a 1h window after their dependencies end, where the LLM's windows are only
-  advisory. The Knowledge Agent calls MCP tools in-process for authoritative
+  `depends_on` is recomputed; a kept step keeps the LLM's window only when it
+  fits the chain — after its dependencies, after the previous step, before the
+  successor's slot — and is re-slotted onto a 1h window otherwise, while a
+  re-plan re-slots every window, so the rebuilt plan is always chronological
+  and non-overlapping and the LLM's windows are only advisory. The planner also
+  returns its untouched proposal as `plan_proposal` (the input the
+  `proposal_fidelity` check compares), and the Critic appends one
+  `AttemptRecord` to `attempt_log` per validated attempt. The Knowledge
+  Agent calls MCP tools in-process for authoritative
   structured data, then calls `app.rag.retriever.retrieve` for adaptive wiki
   evidence. Retrieval runs immediately before planning; RAG failure is logged
   and degrades to structured context, never changing the objective chain.
@@ -136,8 +142,10 @@ future work; leave clear extension points for them.
   evidence/source-manifest contracts, MediaWiki client and HTML cleanup,
   heading-aware chunking, FastEmbed adapter, persistent embedded Qdrant store,
   ingestion lock and cache-aside retrieval. `retrieve` is the Knowledge Agent
-  seam; it always attempts retrieval, records `cache_hit`/`wiki_ingested`/
-  `wiki_miss`/`unavailable`, and fails soft without bypassing MCP authority. A
+  seam; it always attempts retrieval (except when `RAG_ENABLED` turns it off,
+  which returns the `disabled` status without touching any backend), records
+  `cache_hit`/`wiki_ingested`/`wiki_miss`/`unavailable`/`disabled`, and fails
+  soft without bypassing MCP authority. A
   wiki-leg failure maps to `wiki_miss` with a warning and a `wiki_unreachable`
   flag when the wiki could not be reached; only an index or embedding failure
   maps to `unavailable`.
@@ -153,8 +161,21 @@ future work; leave clear extension points for them.
   with frozen wiki titles; `scripts/calibrate_rag.py` reruns the threshold grid
   (current provisional default `0.60`, calibrated 2026-10-10).
 * `app/llm.py` — LLM provider factory (`get_chat_model()`); raises
-  `LLMConfigurationError` when no usable provider is configured. The Planning
-  Agent has no rule-based fallback.
+  `LLMConfigurationError` when no usable provider is configured. Local
+  OpenAI-compatible servers (Ollama, LM Studio) get their `/v1` path added
+  when `LLM_BASE_URL` names only a host; `llm_error_hint()` turns a failed
+  call into an actionable message (base URL, API key, server down). The
+  Planning Agent has no rule-based fallback.
+* `app/phoenix.py` — the shared Phoenix span-annotation client: endpoint
+  resolution (`PHOENIX_BASE_URL` else the OTLP endpoint, so annotations land
+  where the traces do), explanation clipping, deterministic
+  `termina:{run_id}:{suffix}` upsert identifiers and a fail-soft
+  `post_annotations()` that can never break a run or a sweep.
+  `publish_plan_validation()` annotates every run's trace with the Critic's
+  verdict (`plan/validation`, score 1/0 with PASS/FAIL and the issues in the
+  explanation) and is called by `run_pipeline` once the root span is closed;
+  the evaluation harness builds its `evaluation/*` payloads on top of the
+  same client (`app/evaluation/phoenix.py`).
 * `app/log.py` — console logging setup: `configure_logging()`, called from both
   entry points, installs one timestamped handler
   (`%(asctime)s %(levelname)s [%(name)s] %(message)s`) and reads a single
@@ -178,19 +199,82 @@ future work; leave clear extension points for them.
 * `app/state.py` — `PlanningState`, the workflow state threaded
   through the graph (Pydantic model, used as the LangGraph state schema),
   including retrieved evidence, indexed-source manifest, retrieval status,
-  player preferences and relevant past episodes.
+  player preferences, relevant past episodes, the `tool_calls` list the
+  Knowledge Agent records (MCP tools as `"tool"` or `"tool:<arg>"`), plus the
+  trajectory the trajectory checks read: `plan_proposal` (the LLM's plan
+  before grounding and reconciliation) and `attempt_log` (one `AttemptRecord`
+  per planning attempt, appended by the Critic).
+* `app/evaluation/` — plan evaluation. `models.py` holds the
+  Pydantic contracts (`PlanScenario`, `EvaluationIssue`, `ScenarioResult`,
+  `EvaluationReport`); a crashed run counts as one error and a `run_error`
+  failure kind, never as a scenario without issues; `scenarios.py` holds the
+  nine shipped scenarios (one
+  per quest, spanning every game area); `evaluator.py` is the deterministic
+  evaluator with nine checks — plan shape, objective achievement, temporal
+  ordering, prerequisites, tool usage, critic, plus the three trajectory checks
+  (agent order, re-plan bound, LLM proposal fidelity) that only fire on a
+  recorded run — reading game knowledge only
+  through the MCP tools, never the knowledge base directly, so it measures
+  what the Knowledge Agent could have known; `runner.py` runs the scenarios
+  against the live pipeline (memory store cleared before each scenario) and is
+  shared by the CLI harness and the UI; `phoenix.py` builds each sweep's
+  score payloads on the shared client (`app/phoenix.py`) and posts them
+  to Phoenix as span annotations on the run's own trace — `evaluation/overall`
+  (score 1/0 with PASS/FAIL), one annotation per failed check, warnings
+  labelled but unscored — only when a Phoenix endpoint is configured
+  (`PHOENIX_BASE_URL` or the OTLP endpoint), flushing pending spans first and
+  failing soft, so an unreachable Phoenix never fails a sweep;
+  `storage.py` persists the report in
+  the save directory derived from `RAG_QDRANT_PATH` (`last_evaluation.json`
+  plus a timestamped `evaluations/` copy; a missing creation date is stamped
+  once before any write, so every copy of a sweep agrees), so the checks
+  outlive the session:
+  the UI worker writes it when a sweep finishes and *Load last report* reads
+  it back. The report also carries sweep metadata (RAG flag, producing model,
+  repeat count, creation timestamp) so two saved sweeps can be compared; its
+  `wiki_retrieval` computed field reports what the runs actually recorded
+  (`off`/`on`/`degraded`/`unknown`) instead of echoing the requested flag, so a
+  sweep whose wiki leg died partway is never labelled healthy; `wiki_miss` is
+  not degraded, it is also the ordinary outcome of an irrelevant query.
+  `RAG_ENABLED` (`rag_enabled()` in
+  `app/rag/retriever.py`) switches the supplemental wiki retrieval off for
+  A/B runs. `comparison.py` compares a sweep with the newest compatible stored
+  one: `select_baseline` skips the report itself and prefers the same wiki
+  flag, `compare_reports` classifies every scenario as
+  `regressed`/`improved`/`new`/`missing` (a pass→fail is a regression with its
+  new failing checks; a scenario present on one side only is a gap, never a
+  regression, so a partial sweep cannot look like a quality drop) and carries
+  both sides' pass counts and metadata. `storage.load_history()` reads the
+  timestamped copies newest first and skips corrupt files.
+* `scripts/evaluate_plans.py` — CLI harness for the evaluation sweep:
+  `--scenario`, `--repeat`, `--rag on|off`, `--baseline PATH`, `--json`,
+  `--list`; prints one
+  PASS/FAIL line per scenario plus the aggregate pass rate, then the comparison
+  against the newest stored sweep (or `--baseline`), and exits 1 when
+  any scenario fails. It always writes the shared last report (same store as
+  the UI) and `--json PATH` writes an extra copy. It needs a configured LLM
+  provider and is not part of pytest.
 * `app/memory/` — player memory: Pydantic `PlayerPreferences`/`Episode` models
   plus the `MemoryStore` protocol with the thread-safe `InMemoryMemoryStore`
   (keyword ranking; the protocol is the extension point for future persistence).
 * `app/agents/memory_agent.py` — `retrieve_run` (before `state`) and `store_run`
   (after `critic`, one episode per finished run, planner context only).
 * `app/graph.py` — graph wiring and the bounded re-planning
-  loop (max `MAX_PLANNING_ATTEMPTS = 3`) driven by the Critic Agent. Each node is
+  loop (max `MAX_PLANNING_ATTEMPTS = 3`) driven by the Critic Agent.
+  `run_pipeline` also posts the run's Critic verdict to Phoenix as a
+  `plan/validation` span annotation (best-effort, via `app/phoenix.py`).
+  Each node is
   wrapped to announce its start on the custom progress stream, open one
   `node.*` trace span and record its outcome (duration, status, detail) for
   the run audit; a failing node is also added to the run's error list.
 * `app/ui.py` — Streamlit frontend logic (`render()`); requires a configured
-  LLM provider, with local providers supported for offline runs. Planning runs
+  LLM provider, with local providers supported for offline runs. The page has
+  two top-level tabs: *Play* (`_render_play()`, the state editor and the
+  planning flow) and *Evaluation* (`_render_evaluation()`, the evaluation
+  sweep: scenario picker, RAG toggle, Run/Stop, the per-scenario report, the
+  comparison card against the newest stored sweep, and
+  *Load last report* for the sweep persisted by the worker).
+  Planning runs
   as a session-scoped background task: Generate is disabled while active and
   Stop requests cooperative cancellation between agent/LLM calls. The progress
   stepper grows with the run instead of redrawing itself: the outer status title
@@ -206,14 +290,19 @@ future work; leave clear extension points for them.
   the finished stepper is re-rendered statically after the final rerun. The
   worker run is wrapped in `pipeline_span`, and the Trace tab's audit section
   shows the run id, a Phoenix link, the node timeline and errors only (in
-  `st.code`); full LLM prompts are deliberately not shown in the UI.
+  `st.code`); full LLM prompts are deliberately not shown in the UI. The
+  worker streams the graph directly (not via `run_pipeline`), so it also
+  rebuilds the final state from the stream chunks and posts the Critic's
+  verdict to Phoenix as `plan/validation` itself, after its root span
+  closed (same best-effort publication as `run_pipeline`, via
+  `app/phoenix.py`).
 * `app/progress.py` — the streaming progress seam: `report()` publishes custom
   LangGraph events and is a silent no-op outside a stream (headless, tests). The
   graph wraps each node to announce its start, and the Knowledge and Planning
   agents publish phase events (objectives, MCP data, wiki search/fetch/index,
   second retrieval, LLM call). The retriever takes an optional `on_progress`
   callback, so RAG stays decoupled from LangGraph.
-* `app/trace.py` — OpenTelemetry tracing seam (Phase 10). `setup_tracing()`
+* `app/trace.py` — OpenTelemetry tracing seam. `setup_tracing()`
   (called from `main.py` and `app/__main__.py`) installs a `TracerProvider`
   that exports over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (e.g.
   the local Phoenix container) and is a cheap no-op otherwise, so tests, the
@@ -222,8 +311,11 @@ future work; leave clear extension points for them.
   (`CHAIN`/`TOOL`/`RETRIEVER`/`LLM`), `input.value`/`output.value`, and an
   explicit `OK`/`ERROR` status set before the span closes. `pipeline_span()`
   opens one root span per
-  run and feeds a per-run in-memory `RunTrace` (run id, node timeline, errors)
-  that the UI reads. `span()` traces one MCP call, the RAG retrieval or a
+  run and feeds a per-run in-memory `RunTrace` (run id, the root span's
+  `span_id`/`trace_id` for report↔trace links, node timeline, errors)
+  that the UI reads; `current_span_ids()` exposes those ids per context (so a
+  background sweep and a UI run cannot mix them up) and `flush_spans()` pushes
+  queued spans before annotations are posted. `span()` traces one MCP call, the RAG retrieval or a
   validation and records failures; use `set_output()` inside the block for the
   output payload. `TraceCallback` is a LangChain callback
   attached at the single LLM call site: it puts the complete system/user/
@@ -273,11 +365,14 @@ future work; leave clear extension points for them.
 * The default branch is `main`.
 * Feature work happens on dedicated branches:
   `feat/<feature-name>` or `fix/<fix-name>`.
-* Never use `phase` in branch names (`feat/npcs-schedules-events`, not
-  `feat/phase3-game-knowledge`).
+* Never use `phase` in branch names: name the branch after the feature
+  (`feat/npcs-schedules-events`), never after a project phase.
+* Never reference project phases in `README.md`: the phases live in `TODO.md`
+  only.
 * Open pull requests with `gh` following `.github/pull_request_template.md`
   (Description/Type/Checks/Workflow) and wait for review; the maintainer
   reviews and merges them (never self-merge).
+* Never open a pull request unless the maintainer explicitly asks for it.
 * PR titles and descriptions must always be written in English.
 
 ## Maintaining AGENTS.md
