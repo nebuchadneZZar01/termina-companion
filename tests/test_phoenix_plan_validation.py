@@ -7,7 +7,16 @@ import json
 import httpx
 import pytest
 
-from app.domain import ClockTime, GameState, Goal, ValidationIssue, ValidationResult
+from app.domain import (
+    ClockTime,
+    GameState,
+    Goal,
+    Plan,
+    PlanStep,
+    TimeWindow,
+    ValidationIssue,
+    ValidationResult,
+)
 from app.phoenix import (
     plan_validation_annotation,
     publish_plan_validation,
@@ -197,8 +206,26 @@ def test_run_pipeline_annotates_the_critic_verdict(monkeypatch):
     assert result.validation is not None and result.validation.valid
 
 
+def _plan() -> Plan:
+    return Plan(
+        goal="ricongiungi Anju",
+        steps=[
+            PlanStep(
+                title="Parla con Anju",
+                location="clock-town",
+                window=TimeWindow(start=ClockTime(hour=8), end=ClockTime(hour=9)),
+            )
+        ],
+    )
+
+
 def test_ui_worker_publishes_the_critic_verdict(monkeypatch):
-    """The Play tab streams the graph directly, but still annotates its run."""
+    """The Play tab streams the graph directly, but still annotates its run.
+
+    Chunks use the real ``{"node": {...fields...}}`` shape, including the
+    ``"plan"`` node whose name collides with the ``plan`` state field: the
+    merge must unwrap it, not overwrite the field with the update dict.
+    """
     import queue
     import threading
 
@@ -208,15 +235,19 @@ def test_ui_worker_publishes_the_critic_verdict(monkeypatch):
 
     class _FakeGraph:
         def stream(self, initial, stream_mode=None):
-            yield "updates", {"state_summary": "ready"}
+            yield "updates", {"state": {"state_summary": "ready"}}
             yield "custom", "progress"
             yield (
                 "updates",
                 {
-                    "validation": ValidationResult(valid=True),
-                    "plan_model": "llama3.2",
+                    "plan": {
+                        "plan": _plan(),
+                        "plan_proposal": _plan(),
+                        "plan_model": "llama3.2",
+                    }
                 },
             )
+            yield "updates", {"critic": {"validation": ValidationResult(valid=True)}}
 
     monkeypatch.setattr(ui_module, "publish_plan_validation", captured.append)
 
@@ -233,6 +264,7 @@ def test_ui_worker_publishes_the_critic_verdict(monkeypatch):
     assert state.validation is not None and state.validation.valid
     assert state.goal.description == "Meet Anju"
     assert state.plan_model == "llama3.2"
+    assert state.plan is not None and state.plan.goal == "ricongiungi Anju"
 
 
 def test_ui_worker_survives_a_broken_publisher(monkeypatch):

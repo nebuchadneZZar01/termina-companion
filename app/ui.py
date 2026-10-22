@@ -220,7 +220,13 @@ def _run_stream(
                     return
                 mode, chunk = item
                 if mode == "updates" and isinstance(chunk, dict):
-                    merged.update(chunk)
+                    # Stream updates arrive as {"node": {...fields...}}; unwrap
+                    # them exactly like the task drain does, or a node whose
+                    # name collides with a state field (e.g. "plan") would
+                    # overwrite it with its whole update dict.
+                    for _node, data in chunk.items():
+                        if isinstance(data, dict):
+                            merged.update(data)
                 events.put(_Progress(chunk) if mode == "custom" else chunk)
         # After the with: the root span is closed and this worker thread's
         # context still holds its ids, so the Critic's verdict can be posted
