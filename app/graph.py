@@ -76,7 +76,7 @@ def _node_input(state) -> str:
     try:
         goal = getattr(getattr(state, "goal", None), "description", "")
         gs = state.game_state
-        clock = f"day {gs.time.day} {gs.time.hour:02d}:{gs.time.minute:02d}"
+        clock = str(gs.time)
         return f"{goal} | {clock} | {gs.location}"
     except Exception:  # noqa: BLE001 - audit input must never break a run
         return ""

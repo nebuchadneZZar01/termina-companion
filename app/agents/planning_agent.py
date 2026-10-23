@@ -4,7 +4,7 @@ The agent always asks the configured LLM via structured Pydantic output. It
 receives the state summary, retrieved objectives and, on re-planning, the
 previous validation feedback. The LLM answers against a permissive draft
 schema (``_DraftPlan``) so degenerate windows (e.g. zero-length at Day 3
-23:59) parse instead of failing the strict cross-field window check during
+29:59) parse instead of failing the strict cross-field window check during
 invocation.
 
 LLM output is post-processed deterministically: raw draft windows are
@@ -45,7 +45,7 @@ class PlanningAgentError(RuntimeError):
 # the authoritative `Plan`/`PlanStep`/`TimeWindow` contracts but WITHOUT the
 # cross-field `end must be after start` validator: raw LLM windows may be
 # degenerate (e.g. a zero-length window at the last cycle instant, Day 3
-# 23:59), and rejecting them during parsing would bypass the deterministic
+# 29:59), and rejecting them during parsing would bypass the deterministic
 # repair below. Every draft window is sanitized by `_sanitize_window` before a
 # strict `Plan` is built.
 class _DraftTimeWindow(BaseModel):
@@ -129,7 +129,7 @@ def _llm_run(state: PlanningState, model) -> Plan:
     """Ask the LLM for a structured plan, with replan feedback when provided.
 
     The model answers against the permissive ``_DraftPlan`` schema, so raw
-    degenerate windows (e.g. a zero-length window at Day 3 23:59) parse
+    degenerate windows (e.g. a zero-length window at Day 3 29:59) parse
     instead of failing the cross-field ``end must be after start`` check inside
     ``with_structured_output``. The draft is then materialized into a strict
     :class:`~app.domain.Plan` whose windows are sanitized deterministically.
@@ -164,8 +164,10 @@ def _llm_run(state: PlanningState, model) -> Plan:
         "items and masks it lists.\n"
         "  - depends_on: indices of earlier steps this step needs (only properly "
         "earlier indices).\n"
-        "  - every window stays inside the three-day cycle (Day 1 to Day 3 "
-        "23:59).\n"
+        "  - every window stays inside the three-day cycle (Day 1 06:00 to "
+        "Day 3 29:59). A game day runs from 06:00 to 05:59 the next morning, "
+        "so use hours 24-29 for the night after midnight (e.g. Day 1 26:00 is "
+        "Day 1 02:00 (+1)).\n"
         "  - Supplemental RAG passages are narrative context only: never use "
         "their times, locations, items or prerequisites to override the "
         "bracketed structured objective fields.\n"
@@ -250,8 +252,7 @@ def _log_plan(plan: Plan) -> None:
     """
     logger.info("Planning Agent: final plan (%d step(s)):", len(plan.steps))
     for i, step in enumerate(plan.steps, 1):
-        s, e = step.window.start, step.window.end
-        window = f"Day {s.day} {s.hour:02d}:{s.minute:02d}-{e.hour:02d}:{e.minute:02d}"
+        window = f"{step.window.start} - {step.window.end}"
         items = f" needs={step.requires_items}" if step.requires_items else ""
         logger.info("  %2d. [%s] %s @ %s%s", i, window, step.title, step.location, items)
 
@@ -321,7 +322,7 @@ def _sanitize_window(window: _DraftTimeWindow, obj: Objective | None) -> TimeWin
         if _clock(start) < _clock(end):
             return TimeWindow(start=start, end=end)
         # Degenerate even inside the slot (the LLM crammed the step into the
-        # last instant of a slot that ends Day 3 23:59): fall back to the whole
+        # last instant of a slot that ends Day 3 29:59): fall back to the whole
         # authoritative slot, which is always valid in the knowledge base.
         return TimeWindow(start=obj.window.start, end=obj.window.end)
     return _draft_fallback_window(window.start)
@@ -342,28 +343,31 @@ def _draft_fallback_window(start: ClockTime) -> TimeWindow:
     earlier = _add_minutes(start, -1)
     if _clock(earlier) < _clock(start):
         return TimeWindow(start=earlier, end=start)
-    # Both bounds pinned at the same single cycle instant; back off one minute.
+    # Both bounds pinned at the same single cycle instant; start at cycle dawn.
     return TimeWindow(
-        start=ClockTime(day=1, hour=0, minute=0),
-        end=ClockTime(day=1, hour=0, minute=1),
+        start=ClockTime(day=1, hour=6, minute=0),
+        end=ClockTime(day=1, hour=6, minute=1),
     )
 
 
 def _add_minutes(t: ClockTime, minutes: int) -> ClockTime:
     """Shift a clock by minutes, clamped to the playable cycle.
 
+    The cycle starts at Day 1 06:00 (offset 0) and ends at Day 3 29:59
+    (offset 4319); day rollover happens at 06:00, not midnight.
+
     args:
         t (ClockTime): the starting time.
         minutes (int): signed minute offset.
 
     returns:
-        ClockTime: the resulting time, inside Day 1 00:00 to Day 3 23:59.
+        ClockTime: the resulting time, inside Day 1 06:00 to Day 3 29:59.
     """
-    total = (t.day - 1) * 24 * 60 + t.hour * 60 + t.minute + minutes
-    total = min(max(total, 0), (3 - 1) * 24 * 60 + 23 * 60 + 59)
+    total = (t.day - 1) * 24 * 60 + (t.hour - 6) * 60 + t.minute + minutes
+    total = min(max(total, 0), 3 * 24 * 60 - 1)
     day, rem = divmod(total, 24 * 60)
     hour, minute = divmod(rem, 60)
-    return ClockTime(day=day + 1, hour=hour, minute=minute)
+    return ClockTime(day=day + 1, hour=hour + 6, minute=minute)
 
 
 def _to_step(obj: Objective, window: TimeWindow, prior: list[PlanStep]) -> PlanStep:
@@ -711,8 +715,8 @@ def _window_inside(obj: Objective, earliest: ClockTime) -> TimeWindow:
     end = min(_add_hours(start, _SLOT), obj.window.end, key=_clock)
     if _clock(end) <= _clock(start):
         # The slot is too short for a whole hour (e.g. the LLM anchored the
-        # previous step at the last playable instant, Day 3 23:59). Forcing
-        # ``end`` to Day 3 23:59 would reproduce the LLM's degenerate window,
+        # previous step at the last playable instant, Day 3 29:59). Forcing
+        # ``end`` to Day 3 29:59 would reproduce the LLM's degenerate window,
         # so pin the whole authoritative slot instead.
         if _clock(obj.window.start) < _clock(obj.window.end):
             return TimeWindow(start=obj.window.start, end=obj.window.end)
@@ -750,7 +754,7 @@ def _clock(t: ClockTime) -> tuple[int, int, int]:
 
 
 def _add_hours(t: ClockTime, hours: int) -> ClockTime:
-    """Add hours to the three-day clock, clamped to Day 3 23:59.
+    """Add hours to the three-day clock, clamped to Day 3 29:59.
 
     args:
         t (ClockTime): the starting time.
@@ -759,11 +763,7 @@ def _add_hours(t: ClockTime, hours: int) -> ClockTime:
     returns:
         ClockTime: the resulting time, never past the last playable instant.
     """
-    total = (t.day - 1) * 24 * 60 + t.hour * 60 + t.minute + hours * 60
-    total = min(total, (3 - 1) * 24 * 60 + 23 * 60 + 59)  # last playable instant: Day 3 23:59
-    day, rem = divmod(total, 24 * 60)
-    hour, minute = divmod(rem, 60)
-    return ClockTime(day=day + 1, hour=hour, minute=minute)
+    return _add_minutes(t, hours * 60)
 
 
 def _order_by_prerequisites(objectives: list[Objective]) -> list[Objective]:
