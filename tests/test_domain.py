@@ -4,15 +4,33 @@ from pydantic import ValidationError
 from app.domain import ClockTime, GameState, Plan, TimeWindow
 
 
-def test_clock_time_defaults():
-    """ClockTime defaults to Day 1."""
-    assert ClockTime().day == 1
+def test_clock_time_defaults_to_cycle_dawn():
+    """ClockTime defaults to Day 1 06:00, the start of the cycle."""
+    clock = ClockTime()
+    assert clock.day == 1
+    assert clock.hour == 6
+    assert str(clock) == "Day 1, 06:00"
 
 
-def test_clock_time_rejects_hour_24():
-    """Hour 24 is out of range for the three-day clock."""
+def test_clock_time_accepts_the_game_day_night_hours():
+    """Hours 24-29 are the night after midnight on the same game day."""
+    assert ClockTime(hour=24).display_hour == 0
+    assert ClockTime(hour=29, minute=59).display_hour == 5
+    assert ClockTime(hour=29, minute=59).next_morning is True
+    assert str(ClockTime(day=1, hour=26, minute=30)) == "Day 1, 02:30 (+1)"
+
+
+def test_clock_time_normalizes_display_hours_to_the_same_game_day():
+    """Raw 00:00-05:59 input means late night at the end of the same day."""
+    assert ClockTime(day=2, hour=2) == ClockTime(day=2, hour=26)
+    assert ClockTime(day=1, hour=0).hour == 24
+    assert ClockTime(day=1, hour=5, minute=59).hour == 29
+
+
+def test_clock_time_rejects_hours_outside_the_cycle():
+    """The cycle ends at 29:59; 30 is not a valid hour."""
     with pytest.raises(ValidationError):
-        ClockTime(hour=24)
+        ClockTime(hour=30)
 
 
 def test_clock_time_rejects_minute_60():
