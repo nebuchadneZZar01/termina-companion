@@ -23,24 +23,48 @@ _DISPLAY_IT: dict[str, str] = {
     "Earn the Bomber's Notebook from the Bombers' leader": (
         "Guadagna il Taccuino del Bomber dal leader dei Bombers"
     ),
-    "Retrieve Kafei's letter from the mailbox": (
-        "Recupera la lettera di Kafei dalla cassetta postale"
-    ),
-    "Give the letter to Kafei at the Curiosity Shop": (
-        "Consegna la lettera a Kafei al Negozio di Curiosità"
+    "Get Kafei's Mask from Madame Aroma": ("Ottieni la Maschera di Kafei da Madame Aroma"),
+    "Get the Stockpot Inn room key from Anju": (
+        "Ottieni la chiave della camera alla Locanda Stockpot da Anju"
     ),
     "Reunite Anju and Kafei at the Stockpot Inn": ("Riunisci Anju e Kafei alla Locanda Stockpot"),
     "Talk to Anju at the Stockpot Inn": ("Parla con Anju alla Locanda Stockpot"),
+    "Meet Anju in the Stockpot Inn kitchen": ("Incontra Anju nella cucina della Locanda Stockpot"),
+    "Post the letter to Kafei in the Laundry Pool": ("Imposta la lettera per Kafei al Lavatoio"),
+    "Meet Kafei in the Curiosity Shop back room": (
+        "Incontra Kafei nella stanza sul retro del Negozio di Curiosità"
+    ),
+    "Deliver the Pendant of Memories to Anju": ("Consegna il Ciondolo dei Ricordi ad Anju"),
+    "Enter Sakon's Hideout and recover the Sun's Mask": (
+        "Entra nel Nascondiglio di Sakon e recupera la Maschera del Sole"
+    ),
     # objective descriptions
-    "Learn about her missing fiancé Kafei.": ("Scopri sul suo fidanzato scomparso Kafei."),
-    "Kafei left a letter for you behind the Post Office.": (
-        "Kafei ha lasciato una lettera per te dall'Ufficio Postale."
+    "Madame Aroma gives you Kafei's Mask at the Mayor's Residence.": (
+        "Madame Aroma ti dà la Maschera di Kafei alla Residenza del Sindaco."
     ),
-    "Kafei is hiding out in the Curiosity Shop basement.": (
-        "Kafei si nasconde nella cantina del Negozio di Curiosità."
+    "Anju lends you the key to her room at the Stockpot Inn.": (
+        "Anju ti presta la chiave della sua camera alla Locanda Stockpot."
     ),
-    "Bring everyone together before the dawn of the Third Day.": (
-        "Riunisci tutti prima dell'alba del Terzo Giorno."
+    "Show Kafei's Mask to Anju after Kafei's letter arrives.": (
+        "Mostra la Maschera di Kafei ad Anju dopo l'arrivo della sua lettera."
+    ),
+    "Anju gives you a letter for Kafei during the night.": (
+        "Anju ti consegna una lettera per Kafei durante la notte."
+    ),
+    "Drop the Letter to Kafei in the mailbox so it reaches him at dawn.": (
+        "Imposta la Lettera per Kafei nella buca postale perché gli arrivi all'alba."
+    ),
+    "Kafei gives you the Pendant of Memories for Anju.": (
+        "Kafei ti affida il Ciondolo dei Ricordi per Anju."
+    ),
+    "Bring Kafei's pendant back to Anju at the Stockpot Inn.": (
+        "Riporta il ciondolo di Kafei ad Anju alla Locanda Stockpot."
+    ),
+    "Use the Garo's Mask and Hookshot to help Kafei reclaim the Sun's Mask.": (
+        "Usa la Maschera Garo e il Rampino per aiutare Kafei a recuperare la Maschera del Sole."
+    ),
+    "Bring the couple together before the moon falls and receive the Couple's Mask.": (
+        "Riunisci la coppia prima che cada la luna e ricevi la Maschera della Coppia."
     ),
     "The kid gang is suspicious of strangers.": (
         "La gang di ragazzini è sospettosa degli estranei."
@@ -206,6 +230,8 @@ _DISPLAY_IT: dict[str, str] = {
     ),
     # event names
     "Kafei's letter is delivered": ("La lettera di Kafei viene consegnata"),
+    "Pendant of Memories reaches Anju": ("Il Ciondolo dei Ricordi arriva ad Anju"),
+    "Sakon returns to his hideout": ("Sakon torna nel suo nascondiglio"),
     "Anju and Kafei reunite": "Anju e Kafei si riuniscono",
     "Bombers gather at the hideout": ("I Bombers si radunano al nascondiglio"),
     "Romani defends the ranch from aliens": ("Romani difende la fattoria dagli alieni"),
@@ -228,9 +254,11 @@ _DISPLAY_IT: dict[str, str] = {
     "West Clock Town": "Ovest Clock Town",
     "East Clock Town": "Est Clock Town",
     "Market District": "Distretto del Mercato",
+    "Mayor's Residence": "Residenza del Sindaco",
     "Stockpot Inn": "Locanda Stockpot",
     "Curiosity Shop": "Negozio di Curiosità",
     "Post Office": "Ufficio Postale",
+    "Laundry Pool": "Lavatoio",
     "Swamp Spider House": "Casa dei Ragni della Palude",
     "Deku Palace": "Palazzo Deku",
     "Woodfall": "Woodfall",
@@ -241,6 +269,7 @@ _DISPLAY_IT: dict[str, str] = {
     "Great Bay Coast": "Costa della Grande Baia",
     "Canyon Shrine": "Santuaro del Canyon",
     "Ancient Castle of Ikana": "Antico Castello di Ikana",
+    "Sakon's Hideout": "Nascondiglio di Sakon",
     "Ranch House": "Casa della Fattoria",
     "Termina Field": "Pianura di Termina",
     # masks / items
@@ -248,6 +277,8 @@ _DISPLAY_IT: dict[str, str] = {
     "Goron Mask": "Maschera Goron",
     "Zora Mask": "Maschera Zora",
     "Kafei's Mask": "Maschera di Kafei",
+    "Garo's Mask": "Maschera Garo",
+    "Couple's Mask": "Maschera della Coppia",
     "Gibdo Mask": "Maschera Gibdo",
     "All-Night Mask": "Maschera della Veglia",
     "Blast Mask": "Maschera della Scoppio",
@@ -255,6 +286,11 @@ _DISPLAY_IT: dict[str, str] = {
     "Great Fairy Mask": "Maschera della Grande Fata",
     "Postman's Hat": "Cappello del Postino",
     "Kafei's Letter": "Lettera di Kafei",
+    "Room Key": "Chiave della Camera",
+    "Letter to Kafei": "Lettera per Kafei",
+    "Pendant of Memories": "Ciondolo dei Ricordi",
+    "Sun's Mask": "Maschera del Sole",
+    "Hookshot": "Rampino",
     "Swamp Title Deed": "Carta di Proprietà della Palude",
     "Mountain Title Deed": "Carta di Proprietà della Montagna",
     "Ocean Title Deed": "Carta di Proprietà dell'Oceano",
@@ -264,6 +300,7 @@ _DISPLAY_IT: dict[str, str] = {
     # NPCs / quests (short names)
     "Anju and Kafei": "Anju e Kafei",
     "Postman": "Postino",
+    "Madame Aroma": "Madame Aroma",
     "Goron Elder": "Anziano Goron",
     "Darmani": "Darmani",
     "Mikau": "Mikau",
@@ -289,6 +326,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "goal_caption": "What you want to achieve, in one phrase.",
         "day": "Day (1-3)",
         "time": "In-game time",
+        "time_day": "Day {day} \u00b7 {time} \u2014 daytime",
+        "time_night": "Day {day} \u00b7 {time} \u2014 night",
+        "time_after_midnight": "Day {day} \u00b7 {time} \u2014 night after midnight",
+        "time_caption": "Each game day runs from 06:00 to 05:59 the next morning.",
         "location": "Location",
         "masks": "Masks you own",
         "masks_help": "Select the masks you carry. Selected = owned.",
@@ -592,6 +633,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "goal_caption": "Cosa vuoi ottenere, in una frase.",
         "day": "Giorno (1-3)",
         "time": "Ora nel gioco",
+        "time_day": "Giorno {day} \u00b7 {time} \u2014 giorno",
+        "time_night": "Giorno {day} \u00b7 {time} \u2014 notte",
+        "time_after_midnight": "Giorno {day} \u00b7 {time} \u2014 notte (dopo la mezzanotte)",
+        "time_caption": ("Ogni giorno va dalle 06:00 alle 05:59 del mattino successivo."),
         "location": "Posizione",
         "masks": "Maschere in tuo possesso",
         "masks_help": ("Seleziona le maschere che porti. Selezionato = in possesso."),
