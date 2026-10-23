@@ -100,9 +100,8 @@ _IDLE_WAIT = 0.25
 _TICK_SECONDS = 2.0
 
 # Agent nodes in execution order; the stepper shows a step only once it starts.
-_AGENT_NODES = ("memory", "state", "knowledge", "plan", "critic")
+_AGENT_NODES = ("state", "knowledge", "plan", "critic")
 _AGENT_LABEL_KEY = {
-    "memory": "agent_memory",
     "state": "agent_state",
     "knowledge": "agent_knowledge",
     "plan": "agent_planning",
@@ -111,7 +110,6 @@ _AGENT_LABEL_KEY = {
 # Section caption drawn above each agent's detail card, so the card content is
 # not confused with the activity log above it.
 _RESULT_LABEL_KEY = {
-    "memory": "result_memory",
     "state": "result_state",
     "knowledge": "result_knowledge",
     "plan": "result_plan",
@@ -476,13 +474,16 @@ def _apply_log(stepper: _PlanStepper, task: _PlanningTask, cursor: int) -> int:
     for entry in task.log[cursor:]:
         kind = entry[0]
         if kind == "start":
-            if entry[1] not in _AGENT_LABEL_KEY:
+            if entry[1] not in _AGENT_LABEL_KEY or entry[1] in {"memory", "memory_store"}:
                 continue
             stepper.start(entry[1])
         elif kind == "progress":
+            payload = entry[1]
+            if isinstance(payload, dict) and payload.get("node") in {"memory", "memory_store"}:
+                continue
             stepper.progress(entry[1])
         elif kind == "update":
-            if entry[1] == "memory_store":
+            if entry[1] in {"memory", "memory_store"}:
                 continue
             stepper.finish(entry[1], task.result)
     return len(task.log)
@@ -539,6 +540,10 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
         st.success(t("plan_valid"))
     else:
         st.error(t("plan_not_valid"))
+        if validation.issues:
+            st.markdown(f"**{t('issues')}**")
+            for issue in validation.issues:
+                _render_issue(st, issue)
 
     plan_model = result.get("plan_model")
     if plan_model:
@@ -635,8 +640,6 @@ def _append_step(status, node: str, result: dict) -> None:
     """
     if node == "state":
         _step_state(status, result)
-    elif node == "memory":
-        _step_memory(status, result)
     elif node == "knowledge":
         _step_knowledge(status, result)
     elif node == "plan":
