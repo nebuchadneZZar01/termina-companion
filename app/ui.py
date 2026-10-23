@@ -673,7 +673,9 @@ def _result_label(node: str) -> str:
     return t(_RESULT_LABEL_KEY[node])
 
 
-_WINDOW_RE = re.compile(r"\[(Day \d, \d{2}:\d{2} \u2192 Day \d, \d{2}:\d{2})\]")
+_WINDOW_RE = re.compile(
+    r"\[(Day \d, \d{2}:\d{2}(?: \(\+1\))? \u2192 Day \d, \d{2}:\d{2}(?: \(\+1\))?)\]"
+)
 
 
 def _markdown_windows(s: str) -> str:
@@ -790,8 +792,7 @@ def _step_plan(status, result: dict) -> None:
         return
     lines = []
     for i, step in enumerate(plan.steps, 1):
-        s, e = step.window.start, step.window.end
-        window = f"Day {s.day} - {s.hour:02d}:{s.minute:02d}\u2013{e.hour:02d}:{e.minute:02d}"
+        window = _fmt_window(step.window)
         lines.append(f"{i}. {tr(step.title)} @ {tr(step.location)} (`{window}`)")
     c.markdown("\n".join(lines))
 
@@ -870,10 +871,11 @@ def _section(title: str, caption: str = "") -> None:
 
 
 def _fmt_clock(t: ClockTime) -> str:
-    """Format a clock as inline code "Day N - HH:MM".
+    """Format a clock as inline code "Day N - HH:MM (+1)".
 
     Every instant renders as a code span so times stand out from the
-    surrounding labels, matching models, engines and statuses.
+    surrounding labels, matching models, engines and statuses. The ``(+1)``
+    marks the night after midnight at the end of the same game day.
 
     args:
         t (ClockTime): the time to format.
@@ -881,7 +883,28 @@ def _fmt_clock(t: ClockTime) -> str:
     returns:
         str: the readable representation.
     """
-    return f"`Day {t.day} - {t.hour:02d}:{t.minute:02d}`"
+    suffix = " (+1)" if t.next_morning else ""
+    return f"`Day {t.day} - {t.display_hour:02d}:{t.minute:02d}{suffix}`"
+
+
+def _fmt_window(w: TimeWindow) -> str:
+    """Format a window as "Day N - HH:MM–HH:MM" without code spans.
+
+    args:
+        w (TimeWindow): the window to format.
+
+    returns:
+        str: the readable range, with the end day named when it differs.
+    """
+    start = f"Day {w.start.day} - {w.start.display_hour:02d}:{w.start.minute:02d}"
+    start += " (+1)" if w.start.next_morning else ""
+    if w.end.day == w.start.day:
+        end = f"{w.end.display_hour:02d}:{w.end.minute:02d}"
+        end += " (+1)" if w.end.next_morning else ""
+    else:
+        end = f"Day {w.end.day} - {w.end.display_hour:02d}:{w.end.minute:02d}"
+        end += " (+1)" if w.end.next_morning else ""
+    return f"{start}\u2013{end}"
 
 
 _MONTHS_SHORT = {
@@ -979,7 +1002,10 @@ def _window_range(w: TimeWindow) -> str:
         str: e.g. "Day 1 08:00–09:00".
     """
     start = tr(_fmt_clock(w.start))
-    return f"{start}\u2013{w.end.hour:02d}:{w.end.minute:02d}"
+    if w.end.day != w.start.day:
+        return f"{start}\u2013{tr(_fmt_clock(w.end))}"
+    suffix = " (+1)" if w.end.next_morning else ""
+    return f"{start}\u2013{w.end.display_hour:02d}:{w.end.minute:02d}{suffix}"
 
 
 def _render_sources(objectives, kb) -> None:
@@ -1566,6 +1592,41 @@ def _rag_label(state: str) -> str:
     return t(f"eval_rag_{state}")
 
 
+def _internal_hour(hour: int) -> int:
+    """Map a wall-clock hour to the internal 06:00-29:59 game clock.
+
+    Hours 00:00-05:59 belong to the night at the end of the selected game
+    day, so they become 24-29 rather than the start of that day.
+
+    args:
+        hour (int): the wall-clock hour, 0-23.
+
+    returns:
+        int: the internal hour, 6-29.
+    """
+    return hour if hour >= 6 else hour + 24
+
+
+def _time_label(day: int, value: datetime.time) -> str:
+    """Describe a selected time in the current game-day model.
+
+    args:
+        day (int): the selected game day.
+        value (datetime.time): the selected wall-clock time.
+
+    returns:
+        str: a translated label such as "Day 1 · 02:30 — night after midnight".
+    """
+    display = f"{value.hour:02d}:{value.minute:02d}"
+    if value.hour < 6:
+        key = "time_after_midnight"
+    elif value.hour < 18:
+        key = "time_day"
+    else:
+        key = "time_night"
+    return t(key, day=day, time=display)
+
+
 def render() -> None:
     """Main Streamlit UI: state editor, planning action and result tabs.
 
@@ -1594,10 +1655,11 @@ def render() -> None:
                 goal_val = st.session_state.get("save_goal", "")
                 tm_val = st.session_state.get("save_time") or _datetime.time(6, 0)
                 day_val = int(st.session_state.get("save_day", 1))
+                hour_val = _internal_hour(tm_val.hour)
                 data = {
-                    "version": 1,
+                    "version": 2,
                     "day": day_val,
-                    "time": {"day": day_val, "hour": tm_val.hour, "minute": tm_val.minute},
+                    "time": {"day": day_val, "hour": hour_val, "minute": tm_val.minute},
                     "location": st.session_state.get("save_location") or "South Clock Town",
                     "masks": list(st.session_state.get("save_masks") or []),
                     "inventory": list(st.session_state.get("save_inventory") or []),
@@ -1616,10 +1678,12 @@ def render() -> None:
                     st.warning(t("load_none"))
                 else:
                     try:
-                        st.session_state["save_day"] = int(snapshot.day)
+                        st.session_state["save_day"] = int(snapshot.time.day)
                         st.session_state["save_time"] = _datetime.time(
-                            snapshot.time.hour, snapshot.time.minute
+                            snapshot.time.display_hour, snapshot.time.minute
                         )
+                        if snapshot.migration_warning:
+                            st.session_state["_save_warning"] = snapshot.migration_warning
                         if snapshot.location:
                             st.session_state["save_location"] = snapshot.location
                         st.session_state["save_masks"] = list(snapshot.masks)
@@ -1629,6 +1693,9 @@ def render() -> None:
                         st.rerun()
                     except Exception as exc:
                         st.error(str(exc))
+        save_warning = st.session_state.pop("_save_warning", "")
+        if save_warning:
+            st.warning(save_warning)
         st.divider()
         _section(t("llm_settings"))
         provider = os.getenv("LLM_PROVIDER", "").strip()
@@ -1679,7 +1746,9 @@ def _render_play() -> None:
         with c1:
             day = st.selectbox(t("day"), [1, 2, 3], index=0, key="save_day")
         with c2:
-            tm = st.time_input(t("time"), datetime.time(6, 0), key="save_time")
+            tm = st.time_input(t("time"), datetime.time(6, 0), step=60, key="save_time")
+        st.caption(_time_label(day, tm))
+        st.caption(t("time_caption"))
 
         locations = sorted({loc.name for loc in kb.locations})
         default_loc = "South Clock Town"
@@ -1715,7 +1784,7 @@ def _render_play() -> None:
         inventory_options = sorted(set(item_options) | set(owned_now))
         inventory = st.pills(
             t("inventory"),
-            inventory_options or ["Kafei's Letter"],
+            inventory_options or ["Hookshot"],
             selection_mode="multi",
             format_func=tr,
             help=t("inventory_help"),
@@ -1791,7 +1860,7 @@ def _render_play() -> None:
 
     if run and not _task_is_active(task) and (goal_text or "").strip():
         game_state = GameState(
-            time=ClockTime(day=day, hour=tm.hour, minute=tm.minute),
+            time=ClockTime(day=day, hour=_internal_hour(tm.hour), minute=tm.minute),
             location=location,
             inventory=list(inventory or []),
             masks=list(masks or []),
