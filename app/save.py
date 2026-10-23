@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.domain import ClockTime
 
@@ -15,7 +15,7 @@ from app.domain import ClockTime
 class SaveSnapshot(BaseModel):
     """Snapshot of UI/game state for save/load."""
 
-    version: int = 1
+    version: int = 2
     day: int = 1
     time: ClockTime
     location: str = "South Clock Town"
@@ -23,6 +23,49 @@ class SaveSnapshot(BaseModel):
     inventory: list[str] = Field(default_factory=list)
     quest_progress: list[str] = Field(default_factory=list)
     goal: str = ""
+    migration_warning: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_clock(cls, data):
+        """Rewrite pre-game-day saves into the 06:00-05:59 clock model.
+
+        Old saves stored wall-clock hours 0-23 on an absolute day. In the new
+        model those early hours belong to the previous game day's night, e.g.
+        old Day 2 02:00 is Day 1 26:00. The invalid pre-dawn hours of Day 1
+        are clamped to the cycle start with a warning.
+
+        args:
+            data: the raw save payload.
+
+        returns:
+            dict: the migrated payload, or the input unchanged.
+        """
+        if not isinstance(data, dict) or int(data.get("version", 1)) >= 2:
+            return data
+        raw_time = data.get("time")
+        if not isinstance(raw_time, dict):
+            return data
+
+        out = dict(data)
+        day = int(raw_time.get("day", data.get("day", 1)))
+        hour = int(raw_time.get("hour", 6))
+        minute = int(raw_time.get("minute", 0))
+        warning = ""
+        if hour < 6:
+            day -= 1
+            hour += 24
+            if day < 1:
+                day, hour, minute = 1, 6, 0
+                warning = (
+                    "Legacy save time was before Day 1 06:00; clamped to the start of the cycle."
+                )
+        out["version"] = 2
+        out["day"] = day
+        out["time"] = {"day": day, "hour": hour, "minute": minute}
+        if warning:
+            out["migration_warning"] = warning
+        return out
 
 
 DEFAULT_SAVE_NAME = "last_save.json"

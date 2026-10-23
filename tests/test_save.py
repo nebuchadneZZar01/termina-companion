@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.domain import ClockTime
 from app.save import DEFAULT_SAVE_NAME, SaveSnapshot, get_save_path, load_state, save_state
 
 
@@ -13,7 +14,7 @@ def _save_dir(tmp_path, monkeypatch):
 
 def _payload() -> dict:
     return {
-        "version": 1,
+        "version": 2,
         "day": 2,
         "time": {"day": 2, "hour": 9, "minute": 30},
         "location": "North Clock Town",
@@ -31,6 +32,7 @@ def test_save_and_load_round_trip():
 
     snapshot = load_state()
     assert snapshot is not None
+    assert snapshot.version == 2
     assert snapshot.day == 2
     assert snapshot.time.hour == 9
     assert snapshot.time.minute == 30
@@ -39,6 +41,42 @@ def test_save_and_load_round_trip():
     assert snapshot.inventory == ["Kafei's Letter"]
     assert snapshot.quest_progress == ["human_girl"]
     assert snapshot.goal == "Reunite Anju and Kafei"
+    assert snapshot.migration_warning == ""
+
+
+def test_save_migrates_legacy_pre_dawn_hour_to_previous_night():
+    """Old Day 2 02:30 becomes the night at the end of Day 1."""
+    legacy = {
+        "version": 1,
+        "day": 2,
+        "time": {"day": 2, "hour": 2, "minute": 30},
+    }
+    save_state(legacy)
+    snapshot = load_state()
+
+    assert snapshot is not None
+    assert snapshot.version == 2
+    assert snapshot.day == 1
+    assert snapshot.time == ClockTime(day=1, hour=26, minute=30)
+    assert snapshot.migration_warning == ""
+
+
+def test_save_clamps_legacy_day_one_pre_dawn_with_a_warning():
+    """Old Day 1 02:00 has no previous game day, so it clamps to the cycle start."""
+    save_state(
+        {
+            "version": 1,
+            "day": 1,
+            "time": {"day": 1, "hour": 2, "minute": 0},
+        }
+    )
+    snapshot = load_state()
+
+    assert snapshot is not None
+    assert snapshot.version == 2
+    assert snapshot.day == 1
+    assert snapshot.time == ClockTime(day=1, hour=6)
+    assert "clamped" in snapshot.migration_warning
 
 
 def test_save_accepts_snapshot_model():
