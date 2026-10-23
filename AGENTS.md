@@ -102,12 +102,19 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
 
 * `main.py` — Streamlit UI entry point at the repository root.
 * `app/domain.py` — system-wide Pydantic contracts (GameState,
-  ClockTime/TimeWindow, Plan, ValidationResult).
+  ClockTime/TimeWindow, Plan, ValidationResult). The clock follows the
+  game-day model: `day` is 1-3 and `hour` is 6-29, where hours 24-29 are
+  `00:00-05:59` of the night at the end of the same game day. Input hours
+  0-5 are normalized to 24-29, `display_hour`/`next_morning` drive the
+  `Day 1, 02:30 (+1)` rendering, and the cycle ends at Day 3 29:59.
 * `app/data/mock_knowledge.py` — game data (areas, quests, objectives,
   NPCs, events, windows, mask/item requirements). Data covers several
   major areas but is deliberately NOT lore-complete; do not tie the
-  architecture to one quest. Agents never access this directly — they go
-  through the MCP tools in `app/mcp/tools.py`.
+  architecture to one quest. The Anju & Kafei vertical slice is the
+  game-accurate nine-step main path (Kafei's Mask, Room Key, kitchen
+  letter, posting it, Kafei, pendant, Sakon's Hideout, reunion), with
+  optional rewards mentioned only in descriptions. Agents never access
+  this directly — they go through the MCP tools in `app/mcp/tools.py`.
 * `app/agents/` — one module per agent (state, knowledge,
   planning, critic), each exposing a LangGraph node function `run(state) -> dict`.
   State, Knowledge and Critic run deterministic rule-based logic. The Planning
@@ -124,7 +131,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   fits the chain — after its dependencies, after the previous step, before the
   successor's slot — and is re-slotted onto a 1h window otherwise, while a
   re-plan re-slots every window, so the rebuilt plan is always chronological
-  and non-overlapping and the LLM's windows are only advisory. The planner also
+  and non-overlapping and the LLM's windows are only advisory. All timing
+  arithmetic uses the 06:00-29:59 game-day cycle, not a midnight rollover.
+  The planner also
   returns its untouched proposal as `plan_proposal` (the input the
   `proposal_fidelity` check compares), and the Critic appends one
   `AttemptRecord` to `attempt_log` per validated attempt. The Knowledge
@@ -193,9 +202,12 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
 * `app/save.py` — `SaveSnapshot` plus `save_state`/`load_state`: persists the
   sidebar form (day/time, location, masks, inventory, quest progress, goal) as
   JSON in `saves/last_save.json` under the save directory derived from
-  `RAG_QDRANT_PATH`. Corrupt or missing files load as `None` (the UI warns and
-  keeps the current state); the Streamlit sidebar Save/Load buttons are the
-  only caller.
+  `RAG_QDRANT_PATH`. Version-1 saves are migrated to the game-day clock on
+  load: an old early-morning hour moves to the previous game day's night
+  (`Day 2 02:00` -> `Day 1 26:00`), while an invalid pre-dawn Day 1 time
+  clamps to `Day 1 06:00` and carries a `migration_warning`. Corrupt or
+  missing files load as `None` (the UI warns and keeps the current state);
+  the Streamlit sidebar Save/Load buttons are the only caller.
 * `app/state.py` — `PlanningState`, the workflow state threaded
   through the graph (Pydantic model, used as the LangGraph state schema),
   including retrieved evidence, indexed-source manifest, retrieval status,
@@ -209,7 +221,8 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   `EvaluationReport`); a crashed run counts as one error and a `run_error`
   failure kind, never as a scenario without issues; `scenarios.py` holds the
   nine shipped scenarios (one
-  per quest, spanning every game area); `evaluator.py` is the deterministic
+  per quest, spanning every game area, including the game-accurate nine-step
+  Anju & Kafei chain); `evaluator.py` is the deterministic
   evaluator with nine checks — plan shape, objective achievement, temporal
   ordering, prerequisites, tool usage, critic, plus the three trajectory checks
   (agent order, re-plan bound, LLM proposal fidelity) that only fire on a
@@ -268,7 +281,11 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   `node.*` trace span and record its outcome (duration, status, detail) for
   the run audit; a failing node is also added to the run's error list.
 * `app/ui.py` — Streamlit frontend logic (`render()`); requires a configured
-  LLM provider, with local providers supported for offline runs. The page has
+  LLM provider, with local providers supported for offline runs. The state
+  editor picks Day 1-3 and a 24-hour time (minute precision, default 06:00);
+  `00:00-05:59` is mapped to hours 24-29 internally so it stays the night at
+  the end of the selected game day, and a caption explains the 06:00 boundary.
+  The page has
   two top-level tabs: *Play* (`_render_play()`, the state editor and the
   planning flow) and *Evaluation* (`_render_evaluation()`, the evaluation
   sweep: scenario picker, RAG toggle, Run/Stop, the per-scenario report, the

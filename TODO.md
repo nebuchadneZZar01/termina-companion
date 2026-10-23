@@ -124,12 +124,16 @@ Start with a small vertical slice.
 * [x] Add prerequisites
 * [x] Add Anju & Kafei as an example
 * [x] Keep the data model generic for future quests/content
+* [x] Correct the Anju & Kafei main path to the real nine-step chain, with
+  Kafei's Mask and the Stockpot Inn Room Key as explicit objectives
+* [x] Adopt the game-day clock: three days, each running 06:00-05:59, with
+  hours after midnight represented as the end of the same game day
 * [x] Add tests for game knowledge queries
 
 # Phase 4 — Streamlit UI
 
 * [x] Create Game State editor
-* [x] Day / Time
+* [x] Day / Time (Day 1-3 with the 06:00-05:59 game-day clock)
 * [x] Location
 * [x] Masks
 * [x] Inventory
