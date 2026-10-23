@@ -20,25 +20,41 @@ EVALUATION_SCENARIOS: list[PlanScenario] = [
     PlanScenario(
         id="anju-kafei",
         name="Anju and Kafei",
-        description="Four-step chain over three days, with a letter and a dinner event.",
+        description=(
+            "Nine-step chain over three days: the mask and room key unlock Anju, "
+            "the letter reaches Kafei, and the couple reunites before dawn."
+        ),
         goal="Reunite Anju and Kafei before the dawn of the Third Day",
         game_state=GameState(
-            time=ClockTime(day=2, hour=8),
-            location="Stockpot Inn",
+            time=ClockTime(day=1, hour=6),
+            location="South Clock Town",
+            inventory=["Hookshot"],
+            masks=["Garo's Mask"],
         ),
         required_objective_refs=[
+            "ak_get_kafei_mask",
+            "ak_get_room_key",
             "ak_talk_to_anju",
-            "ak_get_letter",
-            "ak_deliver_letter",
+            "ak_meet_in_kitchen",
+            "ak_post_letter",
+            "ak_meet_kafei",
+            "ak_deliver_pendant",
+            "ak_sakon_hideout",
             "ak_reunite",
         ],
         terminal_objective_ref="ak_reunite",
         expected_order=[
-            ("ak_get_letter", "ak_deliver_letter"),
-            ("ak_deliver_letter", "ak_reunite"),
+            ("ak_get_kafei_mask", "ak_get_room_key"),
+            ("ak_get_room_key", "ak_talk_to_anju"),
+            ("ak_talk_to_anju", "ak_meet_in_kitchen"),
+            ("ak_meet_in_kitchen", "ak_post_letter"),
+            ("ak_post_letter", "ak_meet_kafei"),
+            ("ak_meet_kafei", "ak_deliver_pendant"),
+            ("ak_deliver_pendant", "ak_sakon_hideout"),
+            ("ak_sakon_hideout", "ak_reunite"),
         ],
-        min_steps=4,
-        max_steps=4,
+        min_steps=9,
+        max_steps=9,
     ),
     PlanScenario(
         id="bombers-notebook",
@@ -137,7 +153,7 @@ EVALUATION_SCENARIOS: list[PlanScenario] = [
     PlanScenario(
         id="pamela-father",
         name="Pamela's Father",
-        description="Night-only slot (00:00-04:00) behind the Gibdo Mask.",
+        description="Night-only slot (00:00-04:00, after midnight) behind the Gibdo Mask.",
         goal="Break Pamela's father's Gibdo curse inside the castle",
         game_state=GameState(
             time=ClockTime(day=1, hour=9),
@@ -184,12 +200,12 @@ EVALUATION_SCENARIOS: list[PlanScenario] = [
         id="romani-ranch",
         name="Romani Ranch",
         description=(
-            "Early-morning Powder Keg purchase, then a 2 AM alien defence and the "
-            "moonlit milk delivery."
+            "Morning Powder Keg purchase, then a 2 AM alien defence at the end "
+            "of the First Day and the moonlit milk delivery."
         ),
         goal="Help Romani defend the ranch and escort Cremia",
         game_state=GameState(
-            time=ClockTime(day=1, hour=5),
+            time=ClockTime(day=1, hour=6),
             location="Termina Field",
         ),
         required_objective_refs=[
