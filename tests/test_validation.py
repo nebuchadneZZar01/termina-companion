@@ -215,12 +215,13 @@ def test_unsatisfied_dependency_rejected():
     assert any(i.kind == "sequence" for i in validate_plan(plan, _gs(), objectives).issues)
 
 
-def test_pipeline_builds_feasible_plan_with_letter():
+def test_pipeline_builds_feasible_plan_with_required_gear():
     """The LLM plan is reconciled into a valid Anju & Kafei plan."""
     gs = GameState(
-        time=ClockTime(day=2, hour=8),
-        location="Stockpot Inn",
-        inventory=["Kafei's Letter"],
+        time=ClockTime(day=1, hour=6),
+        location="South Clock Town",
+        inventory=["Hookshot"],
+        masks=["Garo's Mask"],
     )
     result = run_pipeline(
         gs, Goal(description="Reunite Anju and Kafei before the dawn of the Third Day")
@@ -255,7 +256,12 @@ def test_pipeline_replans_after_critic_failure(monkeypatch):
 
     monkeypatch.setattr(critic_agent, "run", _critic_with_one_forced_failure)
     result = run_pipeline(
-        GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn"),
+        GameState(
+            time=ClockTime(day=1, hour=6),
+            location="South Clock Town",
+            inventory=["Hookshot"],
+            masks=["Garo's Mask"],
+        ),
         Goal(description="Reunite Anju and Kafei before the dawn of the Third Day"),
     )
 
@@ -266,13 +272,28 @@ def test_pipeline_replans_after_critic_failure(monkeypatch):
 
 def test_pipeline_valid_when_item_is_provided_by_plan():
     """A required item is credited when an earlier step provides it."""
-    gs = GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn", inventory=[])
+    gs = GameState(
+        time=ClockTime(day=1, hour=6),
+        location="South Clock Town",
+        inventory=["Hookshot"],
+        masks=["Garo's Mask"],
+    )
     result = run_pipeline(
         gs, Goal(description="Reunite Anju and Kafei before the dawn of the Third Day")
     )
     assert result.validation is not None and result.validation.valid
     refs = [s.objective_ref for s in result.plan.steps]
-    assert refs == ["ak_talk_to_anju", "ak_get_letter", "ak_deliver_letter", "ak_reunite"]
+    assert refs == [
+        "ak_get_kafei_mask",
+        "ak_get_room_key",
+        "ak_talk_to_anju",
+        "ak_meet_in_kitchen",
+        "ak_post_letter",
+        "ak_meet_kafei",
+        "ak_deliver_pendant",
+        "ak_sakon_hideout",
+        "ak_reunite",
+    ]
 
 
 def test_pipeline_valid_with_required_mask():
@@ -313,7 +334,12 @@ def test_pipeline_valid_when_item_is_acquired_in_plan():
 
 def test_pipeline_valid_across_multi_quest_goal():
     """A goal matching several quests chains each quest only to itself."""
-    gs = GameState(time=ClockTime(day=1, hour=8), location="Termina Field")
+    gs = GameState(
+        time=ClockTime(day=1, hour=8),
+        location="Termina Field",
+        inventory=["Hookshot"],
+        masks=["Garo's Mask"],
+    )
     result = run_pipeline(
         gs, Goal(description="I want to enter the Ancient Castle of Ikana at night")
     )
@@ -342,7 +368,7 @@ def test_knowledge_retrieval_filters_by_keywords():
 
     groups = search_quests("find the kafei letter")
     ids = [o["id"] for g in groups for o in g["objectives"]]
-    assert len(ids) == 4  # all four Anju & Kafei objectives match
+    assert len(ids) == 9  # the whole Anju & Kafei chain comes back
     assert all("kafei" in o["keywords"] for g in groups for o in g["objectives"])
 
 
@@ -352,7 +378,17 @@ def test_knowledge_retrieval_matches_italian_synonyms():
 
     groups = search_quests("come faccio a riunire i due innamorati alla locanda")
     ids = {o["id"] for g in groups for o in g["objectives"]}
-    assert ids == {"ak_talk_to_anju", "ak_get_letter", "ak_deliver_letter", "ak_reunite"}
+    assert ids == {
+        "ak_get_kafei_mask",
+        "ak_get_room_key",
+        "ak_talk_to_anju",
+        "ak_meet_in_kitchen",
+        "ak_post_letter",
+        "ak_meet_kafei",
+        "ak_deliver_pendant",
+        "ak_sakon_hideout",
+        "ak_reunite",
+    }
 
 
 def test_knowledge_retrieval_returns_full_quest():
@@ -361,7 +397,17 @@ def test_knowledge_retrieval_returns_full_quest():
 
     groups = search_quests("parla alla locanda")  # matches only ak_talk_to_anju
     ids = [o["id"] for g in groups for o in g["objectives"]]
-    assert ids == ["ak_talk_to_anju", "ak_get_letter", "ak_deliver_letter", "ak_reunite"]
+    assert ids == [
+        "ak_get_kafei_mask",
+        "ak_get_room_key",
+        "ak_talk_to_anju",
+        "ak_meet_in_kitchen",
+        "ak_post_letter",
+        "ak_meet_kafei",
+        "ak_deliver_pendant",
+        "ak_sakon_hideout",
+        "ak_reunite",
+    ]
 
 
 def test_missing_prerequisite_rejected():
@@ -393,10 +439,10 @@ def test_prerequisite_satisfied_by_done_quest_passes():
     from app.data.mock_knowledge import build_default_knowledge
 
     kb = build_default_knowledge()
-    deliver = next(o for q in kb.quests for o in q.objectives if o.id == "ak_deliver_letter")
-    step = _step("deliver", deliver.window, location=deliver.location, ref="ak_deliver_letter")
+    deliver = next(o for q in kb.quests for o in q.objectives if o.id == "ak_deliver_pendant")
+    step = _step("deliver", deliver.window, location=deliver.location, ref="ak_deliver_pendant")
     plan = Plan(goal="x", steps=[step])
-    gs = _gs(inventory=["Kafei's Letter"], quest_progress={"anju_kafei": "done"})
+    gs = _gs(inventory=["Pendant of Memories"], quest_progress={"anju_kafei": "done"})
     assert validate_plan(plan, gs, [deliver], kb.npcs).valid
 
 
@@ -435,5 +481,5 @@ def test_knowledge_npc_schedules_and_events():
     assert not kb.npc("anju").available_at(ClockTime(day=1, hour=23))
     assert kb.event("ak_letter_delivery").name == "Kafei's letter is delivered"
     assert len(kb.locations) >= 6
-    ak_deliver = next(o for q in kb.quests for o in q.objectives if o.id == "ak_deliver_letter")
-    assert ak_deliver.npc_id == "kafei"
+    ak_deliver = next(o for q in kb.quests for o in q.objectives if o.id == "ak_deliver_pendant")
+    assert ak_deliver.npc_id == "anju"

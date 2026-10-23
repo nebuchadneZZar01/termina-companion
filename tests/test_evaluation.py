@@ -41,9 +41,11 @@ def _earlier(a: ClockTime, b: ClockTime) -> ClockTime:
 
 
 def _add_hour(t: ClockTime) -> ClockTime:
-    total = (t.day - 1) * 24 * 60 + t.hour * 60 + t.minute + 60
+    """Move one hour forward on the 06:00-29:59 cycle."""
+    total = (t.day - 1) * 24 * 60 + (t.hour - 6) * 60 + t.minute + 60
+    total = min(max(total, 0), 3 * 24 * 60 - 1)
     day, rem = divmod(total, 24 * 60)
-    return ClockTime(day=day + 1, hour=rem // 60, minute=rem % 60)
+    return ClockTime(day=day + 1, hour=rem // 60 + 6, minute=rem % 60)
 
 
 def _reference_plan(scenario: PlanScenario) -> Plan:
@@ -225,7 +227,7 @@ def test_missing_prerequisite_fails_the_prerequisite_check():
     """A plan that skips the step handing over an item fails."""
     scenario = SCENARIOS_BY_ID["anju-kafei"]
     plan = _reference_plan(scenario)
-    plan.steps = [step for step in plan.steps if step.objective_ref != "ak_get_letter"]
+    plan.steps = [step for step in plan.steps if step.objective_ref != "ak_meet_in_kitchen"]
 
     result = evaluate_plan(plan, scenario, tool_calls=_tool_calls(scenario))
 
