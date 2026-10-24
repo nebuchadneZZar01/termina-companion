@@ -643,6 +643,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_objective": "objective",
         "kind_location": "location",
         "kind_prerequisite": "prerequisite",
+        "kind_quest_prerequisite": "quest prerequisite",
         "no_issues": "No issues.",
         "validation_details": "Validation details",
         "problems": "Problems",
@@ -959,6 +960,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_objective": "obiettivo",
         "kind_location": "posizione",
         "kind_prerequisite": "prerequisito",
+        "kind_quest_prerequisite": "prerequisito quest",
         "no_issues": "Nessun problema.",
         "validation_details": "Dettagli validazione",
         "problems": "Problemi",
@@ -1178,6 +1180,10 @@ _MSGS_IT: dict[str, str] = {
     "Missing item(s): ": "Oggetti mancanti: ",
     "Missing mask(s): ": "Maschere mancanti: ",
     "Missing prerequisite(s): ": "Prerequisiti mancanti: ",
+    "Quest prerequisite missing: ": "Prerequisito quest mancante: ",
+    " (requires ": " (richiede ",
+    "). Complete this quest first.": "). Completa questa quest prima.",
+    "). Complete these quests first.": "). Completa queste quest prima.",
     "Depends on a step that ends after this one starts.": (
         "Dipende da un passo che termina dopo l'inizio di questo."
     ),

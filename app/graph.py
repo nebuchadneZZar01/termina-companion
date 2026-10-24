@@ -158,9 +158,7 @@ def build_graph():
     graph.add_edge("state", "knowledge")
     graph.add_edge("knowledge", "plan")
     graph.add_edge("plan", "critic")
-    graph.add_conditional_edges(
-        "critic", _route, {"valid": END, "replan": "plan", "give_up": END}
-    )
+    graph.add_conditional_edges("critic", _route, {"valid": END, "replan": "plan", "give_up": END})
     return graph.compile()
 
 
@@ -178,6 +176,12 @@ def _route(state: PlanningState) -> str:
     if state.validation and state.validation.valid:
         logger.info("Graph: valid plan — done")
         return "valid"
+    if state.validation and state.validation.issues:
+        # If all errors are quest prerequisites, re-planning cannot help
+        error_issues = [i for i in state.validation.issues if i.severity == "error"]
+        if error_issues and all(i.kind == "quest_prerequisite" for i in error_issues):
+            logger.info("Graph: quest prerequisite gate(s) only — giving up (no re-plan)")
+            return "give_up"
     if state.replan_attempts >= MAX_PLANNING_ATTEMPTS:
         logger.warning("Graph: replan limit reached (%d) — giving up", MAX_PLANNING_ATTEMPTS)
         return "give_up"

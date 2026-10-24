@@ -334,6 +334,24 @@ def test_pipeline_valid_when_item_is_acquired_in_plan():
     assert refs == ["bm_pop_balloon", "bm_hide_and_seek", "bm_get_notebook", "bm_enter_hideout"]
 
 
+def test_pipeline_gates_a_quest_behind_missing_prerequisites():
+    """A quest with unmet prerequisites stops at the gate, planning only itself."""
+    gs = GameState(
+        time=ClockTime(day=1, hour=9),
+        location="Ikana Canyon",
+    )
+    result = run_pipeline(gs, Goal(description="Free Pamela's father in the Music Box House"))
+
+    assert result.validation is not None and not result.validation.valid
+    assert {issue.kind for issue in result.validation.issues} == {"quest_prerequisite"}
+    message = " ".join(issue.message for issue in result.validation.issues)
+    assert "Song of Storms" in message
+    assert "Deku Princess Rescue" in message
+    refs = [s.objective_ref for s in result.plan.steps]
+    assert refs
+    assert all(ref.startswith("pf_") for ref in refs)
+
+
 def test_knowledge_retrieval_empty_when_no_match():
     """Search returns nothing for a goal with no matching keywords."""
     from app.mcp.tools import search_quests

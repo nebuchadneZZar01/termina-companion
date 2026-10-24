@@ -314,7 +314,12 @@ def _format(objectives, npc_schedules: dict, events: dict) -> str:
     """Format objectives and authoritative MCP context for the planner."""
     lines: list[str] = []
     for obj in objectives:
-        lines.append(f"- [{obj.id}] {obj.title} ({obj.location}, {obj.window})")
+        rq = (
+            f" [requires_quests:{','.join(obj.requires_quests)}]"
+            if getattr(obj, "requires_quests", None)
+            else ""
+        )
+        lines.append(f"- [{obj.id}] {obj.title} ({obj.location}, {obj.window}){rq}")
         npc = npc_schedules.get(obj.npc_id)
         if npc:
             schedule = ", ".join(npc.get("schedule") or [])
