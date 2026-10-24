@@ -305,11 +305,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   the run audit; a failing node is also added to the run's error list.
 * `app/ui.py` — Streamlit frontend logic (`render()`); requires a configured
   LLM provider, with local providers supported for offline runs. The sidebar
-  shows the read-only runtime configuration loaded by `app/settings.py` (LLM
-  provider/model/base URL and whether the API key is set, RAG embedding model,
-  threshold/top-k and cache path, `LOG_LEVEL`, tracing state and the Phoenix
-  link when configured); it is display-only, configuration stays in env and
-  `.env`. The state
+  shows the few read-only settings a player cares about, loaded by
+  `app/settings.py` (LLM provider/model/base URL, whether wiki retrieval is on,
+  the embedding model, and the Phoenix link when configured, otherwise
+  `None`); it is display-only, configuration stays in env and `.env`. The state
   editor picks Day 1-3 and a 24-hour time (minute precision, default 06:00);
   `00:00-05:59` is mapped to hours 24-29 internally so it stays the night at
   the end of the selected game day, and a caption explains the 06:00 boundary.

@@ -1640,9 +1640,9 @@ def _time_label(day: int, value: datetime.time) -> str:
 def _render_configuration() -> None:
     """Show the read-only configuration loaded from the environment.
 
-    Display only: the values come from environment variables (and ``.env``),
-    never from the sidebar. The API key itself is never printed, only whether
-    it is set.
+    Display only: the key settings come from environment variables (and
+    ``.env``), never from the sidebar. Only the essentials are shown; the full
+    contract lives in ``app/settings.py``.
 
     args:
         (none)
@@ -1662,8 +1662,6 @@ def _render_configuration() -> None:
             st.markdown(f"- **{t('llm_model')}**: `{model}`")
         if base_url:
             st.markdown(f"- **LLM_BASE_URL**: `{base_url}`")
-        key_state = t("llm_api_key_set") if settings.llm_api_key else t("llm_api_key_unset")
-        st.markdown(f"- **{t('llm_api_key')}**: `{key_state}`")
         if provider in {"ollama", "lmstudio"} and base_url and urlsplit(base_url).path in {"", "/"}:
             st.warning(t("llm_base_url_hint"))
     else:
@@ -1677,13 +1675,6 @@ def _render_configuration() -> None:
     retrieval = t("state_on") if rag.enabled else t("state_off")
     st.markdown(f"- **{t('rag_retrieval')}**: `{retrieval}`")
     st.markdown(f"- **{t('rag_embedding_model')}**: `{rag.embedding_model}`")
-    st.markdown(
-        f"- **{t('rag_threshold')}**: `{rag.similarity_threshold}` \u00b7 **top_k**: `{rag.top_k}`"
-    )
-    st.markdown(f"- **{t('rag_cache_path')}**: `{rag.qdrant_path}`")
-    st.markdown(f"- **{t('log_level')}**: `{settings.log_level}`")
-    tracing = t("state_on") if settings.tracing_enabled else t("state_off")
-    st.markdown(f"- **{t('tracing')}**: `{tracing}`")
     if settings.tracing_enabled:
         st.markdown(f"- **{t('phoenix_url')}**: [Open \u2197]({settings.phoenix_ui_url})")
     else:
