@@ -52,11 +52,11 @@ def test_state_agent_is_rule_based():
     assert state_agent.run(_state())["state_engine"] == "rule-based"
 
 
-def test_state_agent_summary_includes_active_quest():
-    """At the Stockpot Inn the summary names the Anju & Kafei quest."""
+def test_state_agent_summary_does_not_infer_a_quest_from_location():
+    """The summary never guesses an active quest from the player's position."""
     summary = state_agent.run(_state())["state_summary"]
-    assert "Active: Anju and Kafei" in summary
-    assert "Talk to Anju at the Stockpot Inn" in summary
+    assert "Active:" not in summary
+    assert "Anju and Kafei" not in summary
 
 
 def test_progress_summary_lists_completed_quest():
@@ -64,16 +64,16 @@ def test_progress_summary_lists_completed_quest():
     from app.agents.state_agent import _progress_summary
 
     kb = build_default_knowledge()
-    out = _progress_summary({"anju_kafei": "done"}, kb, "Stockpot Inn")
+    out = _progress_summary({"anju_kafei": "done"}, kb)
     assert "Completed quests: Anju and Kafei" in out
 
 
-def test_progress_summary_empty_away_from_objectives():
-    """No progress is reported when the location has no objectives."""
+def test_progress_summary_empty_without_completed_quests():
+    """No progress is reported when no quest is completed."""
     from app.agents.state_agent import _progress_summary
 
     kb = build_default_knowledge()
-    assert _progress_summary({}, kb, "Snowhead") == ""
+    assert _progress_summary({}, kb) == ""
 
 
 def test_knowledge_agent_is_rule_based():
@@ -350,6 +350,58 @@ def test_reconcile_orders_and_completes_chain():
         [6],
         [7],
     ]
+
+
+def test_reconcile_starts_after_the_furthest_owned_reward():
+    """Owning a mid-chain reward prunes it and every objective before it."""
+    state = _state(inventory=["Letter to Kafei", "Hookshot"], masks=["Garo's Mask"])
+    out = planning_agent._reconcile_plan(Plan(goal="x"), state)
+    assert [s.objective_ref for s in out.steps] == [
+        "ak_post_letter",
+        "ak_meet_kafei",
+        "ak_deliver_pendant",
+        "ak_sakon_hideout",
+        "ak_reunite",
+    ]
+    assert out.steps[0].depends_on == []
+
+
+def test_reconcile_skips_traded_away_rewards():
+    """A traded-away reward still marks its objective and ancestors as done."""
+    state = _state(inventory=["Mountain Title Deed"]).model_copy(
+        update={
+            "goal": Goal(description="Trade the title deeds"),
+            "relevant_objectives": _relevant("title deed"),
+        }
+    )
+    out = planning_agent._reconcile_plan(Plan(goal="x"), state)
+    assert [s.objective_ref for s in out.steps] == [
+        "dc_mountain_to_bay",
+        "dc_ocean_to_rupee",
+    ]
+
+
+def test_reconcile_prunes_each_quest_independently():
+    """An owned reward only shortens its own quest's chain."""
+    state = _state(inventory=["Letter to Kafei", "Hookshot"], masks=["Garo's Mask"]).model_copy(
+        update={
+            "goal": Goal(description="Reunite Anju and Kafei and trade the deeds"),
+            "relevant_objectives": _relevant("title deed") + _relevant("kafei letter"),
+        }
+    )
+    out = planning_agent._reconcile_plan(Plan(goal="x"), state)
+    refs = [s.objective_ref for s in out.steps]
+    assert "ak_get_kafei_mask" not in refs
+    assert "dc_get_moon_tear" in refs
+
+
+def test_reconcile_keeps_requirements_the_inventory_does_not_cover():
+    """An inconsistent inventory falls back to acquiring the missing mask."""
+    state = _state(inventory=["Pendant of Memories"])
+    out = planning_agent._reconcile_plan(Plan(goal="x"), state)
+    refs = [s.objective_ref for s in out.steps]
+    assert refs[0] == "ak_get_kafei_mask"
+    assert "ak_meet_kafei" not in refs  # its reward is already owned
 
 
 def test_planning_agent_llm_plan_is_grounded(monkeypatch):
