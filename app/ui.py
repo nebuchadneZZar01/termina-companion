@@ -541,7 +541,7 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
     else:
         st.error(t("plan_not_valid"))
         if validation.issues:
-            st.markdown(f"**{t('issues')}**")
+            st.markdown(f"**{t('problems')}**")
             for issue in validation.issues:
                 _render_issue(st, issue)
 
