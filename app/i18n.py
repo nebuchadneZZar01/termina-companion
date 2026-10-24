@@ -741,6 +741,13 @@ _STRINGS: dict[str, dict[str, str]] = {
         "agent_card_knowledge": "I look up what I know",
         "agent_card_plan": "I prepare the plan",
         "agent_card_critic": "I double-check everything",
+        "agent_registry_hint": "Open an agent to read what it did.",
+        "registry_state_summary": (
+            "{when} \u00b7 {where} \u00b7 {masks} mask(s) \u00b7 {items} item(s)"
+        ),
+        "registry_plan_steps": "{n} step(s)",
+        "registry_issue_count": "{n} issue(s)",
+        "problems_count": "{n} problem(s) to solve",
         "agent_done": "completed",
         "agent_running": "working",
         "agent_pending": "waiting",
@@ -1104,6 +1111,13 @@ _STRINGS: dict[str, dict[str, str]] = {
         "agent_card_knowledge": "Cerco cosa so",
         "agent_card_plan": "Preparo il piano",
         "agent_card_critic": "Ricontrollo tutto",
+        "agent_registry_hint": "Apri un agente per leggere cosa ha fatto.",
+        "registry_state_summary": (
+            "{when} \u00b7 {where} \u00b7 {masks} maschere \u00b7 {items} oggetti"
+        ),
+        "registry_plan_steps": "{n} passo/i",
+        "registry_issue_count": "{n} problema/i",
+        "problems_count": "{n} problema/i da risolvere",
         "agent_done": "completato",
         "agent_running": "al lavoro",
         "agent_pending": "in attesa",

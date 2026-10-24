@@ -224,6 +224,83 @@ def test_drain_records_agent_starts_and_progress_events() -> None:
         ("start", "state"),
         ("progress", {"node": "state", "phase": "objectives", "n": 3}),
     ]
+    assert task.timings == {}
+
+
+def test_drain_records_the_duration_of_a_finished_agent() -> None:
+    task = ui._PlanningTask()
+
+    task.events.put(ui._Progress({"node": "state", "phase": "start"}))
+    task.events.put({"state": {"state_summary": "ok"}})
+
+    assert ui._drain_planning_task(task) is True
+    assert 1 in task.timings
+    assert task.timings[1] >= 0
+
+
+def test_agent_registry_rebuilds_attempts_and_durations(monkeypatch) -> None:
+    from app.domain import (
+        ClockTime,
+        GameState,
+        Plan,
+        PlanStep,
+        TimeWindow,
+        ValidationResult,
+    )
+
+    def _t(key: str, **kwargs) -> str:
+        params = ",".join(f"{name}={value}" for name, value in kwargs.items())
+        return f"{key}:{params}" if params else key
+
+    monkeypatch.setattr(ui, "t", _t)
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(ui, "tr_msg", lambda value: value)
+    state = GameState(
+        time=ClockTime(day=1, hour=8),
+        location="Clock Town",
+        masks=["Kafei's Mask"],
+        inventory=["Room Key"],
+    )
+    step = PlanStep(
+        title="Meet Anju",
+        location="Stockpot Inn",
+        window=TimeWindow(
+            start=ClockTime(day=1, hour=10),
+            end=ClockTime(day=1, hour=11),
+        ),
+    )
+    plan = Plan(goal="Anju", steps=[step])
+    task = ui._PlanningTask()
+    task.log = [
+        ("start", "state"),
+        ("update", "state", {"game_state": state, "state_engine": "rule-based"}),
+        ("start", "plan"),
+        (
+            "update",
+            "plan",
+            {"plan": plan, "replan_attempts": 1, "plan_engine": "llm", "plan_model": "m"},
+        ),
+        ("start", "critic"),
+        ("update", "critic", {"validation": ValidationResult(valid=True)}),
+        ("start", "plan"),
+        (
+            "update",
+            "plan",
+            {"plan": plan, "replan_attempts": 2, "plan_engine": "llm", "plan_model": "m"},
+        ),
+        ("start", "critic"),
+        ("update", "critic", {"validation": ValidationResult(valid=True)}),
+    ]
+    task.timings = {1: 1.0, 3: 2.0, 5: 0.5, 7: 1.5, 9: 0.4}
+    task.result = {"validation": ValidationResult(valid=True)}
+
+    markup = ui._agent_registry_html(task)
+
+    assert markup.count("<details") == 5
+    assert "step_attempt:n=1,max=3" in markup
+    assert "step_attempt:n=2,max=3" in markup
+    assert ">1.0s<" in markup
+    assert ">2.0s<" in markup
 
 
 def test_planning_task_stop_is_cooperative_and_does_not_start_new_work() -> None:

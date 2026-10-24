@@ -134,6 +134,11 @@ class _PlanningTask:
     # Ordered streaming log the stepper replays: ("start", node),
     # ("progress", payload) and ("update", node, data) entries.
     log: list[tuple] = field(default_factory=list)
+    # Wall-clock start per node and the duration of each finished update,
+    # keyed by the update's index in ``log``. Kept out of the log tuples so
+    # replay and tests see the same stable shape.
+    node_started: dict[str, float] = field(default_factory=dict)
+    timings: dict[int, float] = field(default_factory=dict)
     error: str = ""
 
 
@@ -272,6 +277,9 @@ def _drain_planning_task(task: _PlanningTask, wait: float = 0.0) -> bool:
                     continue
                 task.result.update(data)
                 task.updates.append((node, data))
+                started = task.node_started.pop(node, None)
+                if started is not None:
+                    task.timings[len(task.log)] = time.monotonic() - started
                 task.log.append(("update", node, data))
     if _task_is_active(task) and task.thread is not None and not task.thread.is_alive():
         task.status = "stopped" if task.stop_event.is_set() else "error"
@@ -300,6 +308,7 @@ def _record_progress(task: _PlanningTask, payload: dict) -> None:
     if not node:
         return
     if payload.get("phase") == "start":
+        task.node_started[node] = time.monotonic()
         task.log.append(("start", node))
     else:
         task.log.append(("progress", payload))
@@ -471,11 +480,8 @@ def _apply_log(stepper: _PlanStepper, task: _PlanningTask, cursor: int) -> int:
 
 
 def _render_planning_progress(task: _PlanningTask) -> None:
-    """Render the finished stepper statically by replaying the whole log."""
-    stepper = _PlanStepper()
-    _apply_log(stepper, task, 0)
-    stepper.set_outer(*_outer_status(task, 0))
-    stepper.close_open("error" if task.status in {"error", "stopped"} else "complete")
+    """Render the finished agent registry and any terminal error."""
+    _html_block(_agent_registry_html(task))
     if task.status == "error":
         st.error(t("planning_error", error=task.error or "unknown error"))
     elif task.status == "stopped":
@@ -1948,19 +1954,78 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: 0.1em;
   color: var(--tc-muted);
 }
-.tc-agents { display: flex; gap: 14px; flex-wrap: wrap; }
-.tc-agent {
-  flex: 1;
-  min-width: 170px;
-  padding: 10px 12px;
+.tc-registry-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.tc-registry-hint { font-size: 12px; color: var(--tc-muted); margin-top: -8px; }
+.tc-registry { display: flex; flex-direction: column; gap: 8px; }
+.tc-reg {
+  border: 1px solid var(--tc-border);
   border-radius: 10px;
   background: var(--tc-card);
-  border-left: 3px solid var(--tc-border-strong);
+  overflow: hidden;
 }
-.tc-agent.done { border-left-color: var(--tc-teal); }
-.tc-agent.running { border-left-color: var(--tc-gold); }
-.tc-agent-title { font-weight: 600; }
-.tc-agent-status { font-size: 12px; color: var(--tc-muted); }
+.tc-reg.bad { border-color: rgba(224, 90, 90, 0.55); }
+.tc-reg > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  list-style: none;
+  cursor: pointer;
+}
+.tc-reg > summary::-webkit-details-marker { display: none; }
+.tc-reg[open] > summary { border-bottom: 1px solid var(--tc-border); }
+.tc-reg-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--tc-teal);
+}
+.tc-reg.bad .tc-reg-dot { background: var(--tc-red); }
+.tc-reg-main { flex: 1; min-width: 0; }
+.tc-reg-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
+.tc-reg-sub { font-size: 12px; color: var(--tc-muted); }
+.tc-reg-engine,
+.tc-reg-attempt {
+  padding: 1px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--tc-border-strong);
+  color: var(--tc-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.tc-reg-attempt { border-color: var(--tc-gold); color: var(--tc-gold); }
+.tc-reg-right { flex: none; text-align: right; }
+.tc-reg-result { font-size: 12px; color: var(--tc-text); }
+.tc-reg-time { font-size: 11px; color: var(--tc-muted); }
+.tc-chev { color: var(--tc-muted); transition: transform 0.15s; }
+.tc-reg[open] .tc-chev { transform: rotate(180deg); }
+.tc-reg-body { padding: 12px 14px 14px; font-size: 13px; }
+.tc-reg-body ul { margin: 0; padding-left: 18px; }
+.tc-reg-body li { margin: 3px 0; }
+.tc-reg-issues { color: #f0b5a8; }
+.tc-reg-kv { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--tc-muted); }
+.tc-problems-pill {
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--tc-red);
+  background: rgba(224, 90, 90, 0.12);
+  color: var(--tc-red);
+  font-size: 12px;
+  white-space: nowrap;
+}
 
 .tc-badges { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .tc-badges-label { font-size: 12px; color: var(--tc-muted); }
@@ -2169,12 +2234,12 @@ def _fairy_html(day: int, value: datetime.time) -> str:
     )
 
 
-_AGENT_CARDS = (
-    ("state", "agent_card_state"),
-    ("knowledge", "agent_card_knowledge"),
-    ("plan", "agent_card_plan"),
-    ("critic", "agent_card_critic"),
-)
+_AGENT_SUBTITLE_KEY = {
+    "state": "agent_card_state",
+    "knowledge": "agent_card_knowledge",
+    "plan": "agent_card_plan",
+    "critic": "agent_card_critic",
+}
 
 
 def _rag_badges_html(result: dict) -> str:
@@ -2199,37 +2264,233 @@ def _rag_badges_html(result: dict) -> str:
     )
 
 
-def _agent_cards_html(task: _PlanningTask | None) -> str:
-    """Return the agent-card panel for the current (or last) run."""
-    started: set[str] = set()
-    done: set[str] = set()
-    if task is not None:
-        for entry in task.log:
-            if entry[0] == "start":
-                started.add(entry[1])
-            elif entry[0] == "update":
-                done.add(entry[1])
-    cards = []
-    for node, title_key in _AGENT_CARDS:
-        if node in done:
-            state, cls = t("agent_done"), "done"
-        elif node in started:
-            state, cls = t("agent_running"), "running"
-        else:
-            state, cls = t("agent_pending"), ""
-        cards.append(
-            f'<div class="tc-agent {cls}">'
-            f'<div class="tc-agent-title">{html.escape(t(title_key))}</div>'
-            f'<div class="tc-agent-status">{html.escape(t(_AGENT_LABEL_KEY[node]))}'
-            f" · {html.escape(state)}</div>"
-            "</div>"
+def _plain_clock(clock) -> str:
+    """Format a clock for HTML text without markdown code spans."""
+    suffix = " (+1)" if clock.next_morning else ""
+    return f"{t('day_n', n=clock.day)}, {clock.display_hour:02d}:{clock.minute:02d}{suffix}"
+
+
+def _registry_rows(task: _PlanningTask) -> list[dict]:
+    """Pair each streamed agent start with its update and measured duration."""
+    rows: list[dict] = []
+    for index, entry in enumerate(task.log):
+        kind = entry[0]
+        if kind not in {"start", "update"}:
+            continue
+        node = entry[1]
+        if node not in _AGENT_LABEL_KEY or node in {"memory", "memory_store"}:
+            continue
+        if kind == "start":
+            rows.append({"node": node, "data": None, "seconds": None})
+            continue
+        data = entry[2] if len(entry) > 2 else None
+        if not isinstance(data, dict):
+            continue
+        target = next(
+            (row for row in reversed(rows) if row["node"] == node and row["data"] is None),
+            None,
         )
-    result = task.result if task is not None else {}
+        if target is None:
+            target = {"node": node, "data": None, "seconds": None}
+            rows.append(target)
+        target["data"] = data
+        target["seconds"] = task.timings.get(index)
+    return rows
+
+
+def _registry_engine_html(node: str, data: dict) -> str:
+    """Return the engine chip for one registry row."""
+    engine, model = _engine_for(node, data)
+    if not engine:
+        return ""
+    label = _ENGINE_LABELS.get(engine, engine)
+    if model:
+        label = f"{label} · {model}"
+    return f'<span class="tc-reg-engine">{html.escape(label)}</span>'
+
+
+def _registry_state_summary(data: dict) -> str:
+    """Return the one-line State Agent result shown in the row header."""
+    gs = data.get("game_state")
+    if gs is None:
+        return ""
+    return t(
+        "registry_state_summary",
+        when=_plain_clock(gs.time),
+        where=tr(gs.location),
+        masks=len(gs.masks),
+        items=len(gs.inventory),
+    )
+
+
+def _registry_plan_summary(data: dict) -> str:
+    """Return the one-line Planning Agent result shown in the row header."""
+    plan = data.get("plan")
+    if not plan or not plan.steps:
+        return t("no_plan")
+    return t("registry_plan_steps", n=len(plan.steps))
+
+
+def _registry_critic_summary(data: dict) -> str:
+    """Return the one-line Critic result shown in the row header."""
+    validation = data.get("validation")
+    if validation is None:
+        return ""
+    if validation.valid:
+        return t("plan_valid")
+    return t("registry_issue_count", n=len(validation.issues))
+
+
+def _registry_state_body(data: dict) -> str:
+    """Return the expanded State Agent body."""
+    gs = data.get("game_state")
+    if gs is None:
+        return ""
+    items = ", ".join(tr(item) for item in gs.inventory) or t("trace_none")
+    masks = ", ".join(tr(mask) for mask in gs.masks) or t("trace_none")
+    return (
+        '<div class="tc-reg-kv">'
+        f"<span><b>{html.escape(t('trace_items'))}</b> {html.escape(items)}</span>"
+        f"<span><b>{html.escape(t('trace_masks'))}</b> {html.escape(masks)}</span>"
+        "</div>"
+    )
+
+
+def _registry_knowledge_body(data: dict) -> str:
+    """Return the expanded Knowledge Agent body, including RAG badges."""
+    objectives = data.get("relevant_objectives") or []
+    if objectives:
+        items = "".join(f"<li>{html.escape(tr(obj.title))}</li>" for obj in objectives)
+        body = f"<ul>{items}</ul>"
+    else:
+        body = f'<div class="tc-reg-kv">{html.escape(t("knowledge_empty_hint"))}</div>'
+    return body + _rag_badges_html(data)
+
+
+def _registry_plan_body(data: dict) -> str:
+    """Return the expanded Planning Agent body as a compact step list."""
+    plan = data.get("plan")
+    if not plan or not plan.steps:
+        return f'<div class="tc-reg-kv">{html.escape(t("no_plan"))}</div>'
+    items = "".join(
+        f"<li>{index}. {html.escape(tr(step.title))} "
+        f'<span class="tc-reg-time">{html.escape(_fmt_window(step.window))}</span></li>'
+        for index, step in enumerate(plan.steps, 1)
+    )
+    return f"<ul>{items}</ul>"
+
+
+def _registry_critic_body(data: dict) -> str:
+    """Return the expanded Critic body with its issues."""
+    validation = data.get("validation")
+    if validation is None:
+        return ""
+    if validation.valid:
+        return f'<div class="tc-reg-kv">{html.escape(t("plan_valid"))}</div>'
+    items = []
+    for issue in validation.issues:
+        severity = t("sev_error") if issue.severity == "error" else t("sev_warning")
+        kind = t(f"kind_{issue.kind}")
+        where = t("step_n", n=issue.step_idx + 1) if issue.step_idx is not None else t("plan")
+        message = tr_msg(issue.message)
+        items.append(
+            f"<li><b>{html.escape(severity.upper())}</b> · {html.escape(kind)} · "
+            f"{html.escape(where)} — {html.escape(message)}</li>"
+        )
+    return f'<ul class="tc-reg-issues">{"".join(items)}</ul>'
+
+
+def _registry_body(node: str, data: dict) -> str:
+    """Dispatch the expanded body for one registry row."""
+    if node == "state":
+        return _registry_state_body(data)
+    if node == "knowledge":
+        return _registry_knowledge_body(data)
+    if node == "plan":
+        return _registry_plan_body(data)
+    if node == "critic":
+        return _registry_critic_body(data)
+    return ""
+
+
+def _registry_summary(node: str, data: dict) -> str:
+    """Dispatch the one-line result for one registry row."""
+    if node == "state":
+        return _registry_state_summary(data)
+    if node == "knowledge":
+        return t("knowledge_objectives", n=len(data.get("relevant_objectives") or []))
+    if node == "plan":
+        return _registry_plan_summary(data)
+    if node == "critic":
+        return _registry_critic_summary(data)
+    return ""
+
+
+def _agent_registry_html(task: _PlanningTask) -> str:
+    """Return the finished-run agent registry with attempts and durations."""
+    rows = _registry_rows(task)
+    if not rows:
+        return ""
+    validation = task.result.get("validation")
+    error_count = (
+        len([issue for issue in validation.issues if issue.severity == "error"])
+        if validation is not None and not validation.valid
+        else 0
+    )
+    pill = ""
+    if error_count:
+        pill = (
+            '<span class="tc-problems-pill">'
+            f"{html.escape(t('problems_count', n=error_count))}</span>"
+        )
+    cards = []
+    plan_attempt = 0
+    last = len(rows) - 1
+    for index, row in enumerate(rows):
+        node = row["node"]
+        data = row["data"] or {}
+        attempt = None
+        if node == "plan":
+            plan_attempt = int(data.get("replan_attempts") or plan_attempt + 1)
+            attempt = plan_attempt
+        elif node == "critic" and plan_attempt:
+            attempt = plan_attempt
+        bad = (
+            node == "critic" and data.get("validation") is not None and not data["validation"].valid
+        )
+        attempt_chip = ""
+        if attempt is not None:
+            attempt_chip = (
+                '<span class="tc-reg-attempt">'
+                f"{html.escape(t('step_attempt', n=attempt, max=MAX_PLANNING_ATTEMPTS))}"
+                "</span>"
+            )
+        seconds = row["seconds"]
+        duration = f'<div class="tc-reg-time">{seconds:.1f}s</div>' if seconds is not None else ""
+        cards.append(
+            f'<details class="tc-reg{" bad" if bad else ""}"{" open" if index == last else ""}>'
+            "<summary>"
+            '<span class="tc-reg-dot"></span>'
+            '<div class="tc-reg-main">'
+            f'<div class="tc-reg-name">{html.escape(t(_AGENT_LABEL_KEY[node]))}'
+            f"{_registry_engine_html(node, data)}{attempt_chip}</div>"
+            f'<div class="tc-reg-sub">{html.escape(t(_AGENT_SUBTITLE_KEY[node]))}</div>'
+            "</div>"
+            '<div class="tc-reg-right">'
+            f'<div class="tc-reg-result">{html.escape(_registry_summary(node, data))}</div>'
+            f"{duration}</div>"
+            '<span class="tc-chev" aria-hidden="true">⌄</span>'
+            "</summary>"
+            f'<div class="tc-reg-body">{_registry_body(node, data)}</div>'
+            "</details>"
+        )
     return (
         '<section class="tc-panel">'
+        '<div class="tc-registry-head">'
         f'<div class="tc-panel-title">{html.escape(t("agents_title"))}</div>'
-        f'<div class="tc-agents">{"".join(cards)}</div>'
-        f"{_rag_badges_html(result)}"
+        f"{pill}</div>"
+        f'<div class="tc-registry-hint">{html.escape(t("agent_registry_hint"))}</div>'
+        f'<div class="tc-registry">{"".join(cards)}</div>'
         "</section>"
     )
 
@@ -2514,7 +2775,6 @@ def _render_play(editor: dict, kb) -> None:
             help=t("stop_plan_help"),
             key="stop_plan_button",
         )
-    _html_block(_agent_cards_html(task))
 
     if stop and _task_is_active(task):
         task.stop_event.set()
