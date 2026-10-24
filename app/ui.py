@@ -532,16 +532,31 @@ def _planning_live(task: _PlanningTask) -> None:
 
 
 def _render_planning_result(task: _PlanningTask, kb) -> None:
-    """Render a completed plan or a terminal planning failure."""
-    if task.status in {"error", "stopped"}:
-        return
+    """Render the last completed plan, even when the run failed afterwards.
+
+    A failed re-planning attempt produces no plan update, so ``task.result``
+    still holds the plan and the validation of the last attempt that reached
+    the Critic. Showing it (with its issues) beats hiding the only result the
+    run produced. When no attempt completed, the failure is already rendered
+    by :func:`_render_planning_progress` and there is nothing to show.
+    """
     result = task.result
     validation = result.get("validation")
+    failed = task.status in {"error", "stopped"}
     if validation is None:
-        st.warning(t("planning_incomplete"))
+        if not failed:
+            st.warning(t("planning_incomplete"))
         return
 
     _section(t("your_plan"))
+    if failed:
+        st.caption(
+            t(
+                "plan_last_attempt",
+                n=result.get("replan_attempts", 0),
+                max=MAX_PLANNING_ATTEMPTS,
+            )
+        )
     if validation.valid:
         st.success(t("plan_valid"))
     else:
