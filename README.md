@@ -104,7 +104,9 @@ uv run streamlit run main.py         # or: uv run python -m app
 
 Then open http://localhost:6006 to browse each run's full trace, including the
 complete system/user/assistant prompts of every LLM call (with model, token
-usage and latency). Full prompts also go to console logs at `INFO`, bounded in
+usage and latency). `PHOENIX_BASE_URL` optionally overrides where span
+annotations are posted when it differs from the OTLP endpoint (default: reuse
+the OTLP endpoint). Full prompts also go to console logs at `INFO`, bounded in
 length by `LLM_LOG_PAYLOAD_LIMIT` so one runaway prompt cannot flood the
 console. In the app, the Trace tab shows the
 `run_id`, the node timeline and any errors — errors only, no prompt bodies.
@@ -138,8 +140,9 @@ the sweep.
 
 ## Adaptive Zelda Wiki RAG
 
-RAG is supplemental and always enabled. There is no `RAG_ENABLED` switch and no
-static curated corpus. Zelda Wiki is the only RAG source. Structured MCP data
+RAG is supplemental and on by default (`RAG_ENABLED=0` switches the wiki leg
+off for A/B evaluation). There is no static curated corpus: Zelda Wiki is the
+only RAG source. Structured MCP data
 (objectives, schedules, events, prerequisites, items and masks) always wins over
 narrative text.
 
@@ -203,10 +206,13 @@ timeout; once the cooldown elapses one half-open request probes the wiki again.
 
 ### Configuration
 
-Copy `.env.example` to `.env` or export these variables:
+Copy `.env.example` to `.env` or export these variables. All of them go
+through `app/settings.py` (Pydantic settings), so an invalid value fails at
+startup instead of halfway through a run.
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `RAG_ENABLED` | `1` | Supplemental wiki retrieval switch; `0`/`false`/`off`/`no` keeps structured MCP answers only. |
 | `RAG_QDRANT_PATH` | `.cache/termina-companion/qdrant` | Embedded Qdrant data directory; created automatically. |
 | `RAG_EMBEDDING_MODEL` | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Local multilingual FastEmbed model, 384 dimensions. |
 | `RAG_SIMILARITY_THRESHOLD` | `0.60` | Provisional minimum cosine score for a sufficient hit. |

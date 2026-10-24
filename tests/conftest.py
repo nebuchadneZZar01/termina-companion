@@ -17,13 +17,21 @@ _ENV = (
     "LLM_API_KEY",
     "LLM_MODEL",
     "LLM_BASE_URL",
+    "LOG_LEVEL",
     "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "PHOENIX_BASE_URL",
+    "RAG_ENABLED",
     "RAG_QDRANT_PATH",
     "RAG_EMBEDDING_MODEL",
     "RAG_SIMILARITY_THRESHOLD",
     "RAG_TOP_K",
     "RAG_MAX_PAGES_PER_MISS",
+    "RAG_MAX_CHUNKS_PER_SOURCE",
     "RAG_REQUEST_TIMEOUT_SECONDS",
+    "RAG_WIKI_BUDGET_SECONDS",
+    "RAG_WIKI_FAILURE_THRESHOLD",
+    "RAG_WIKI_COOLDOWN_SECONDS",
+    "RAG_CACHE_TTL_SECONDS",
 )
 _KB = build_default_knowledge()
 _OBJECTIVES = {objective.id: objective for quest in _KB.quests for objective in quest.objectives}

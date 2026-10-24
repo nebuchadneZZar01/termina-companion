@@ -17,11 +17,11 @@ Two publishers use this seam:
 from __future__ import annotations
 
 import logging
-import os
 from typing import TYPE_CHECKING
 
 import httpx
 
+from app.settings import get_settings
 from app.trace import current_run_id, current_span_ids, flush_spans
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
@@ -48,11 +48,7 @@ def annotation_base_url() -> str | None:
         neither ``PHOENIX_BASE_URL`` nor ``OTEL_EXPORTER_OTLP_ENDPOINT`` is
         configured.
     """
-    for name in ("PHOENIX_BASE_URL", "OTEL_EXPORTER_OTLP_ENDPOINT"):
-        raw = os.getenv(name, "").strip().removesuffix("/")
-        if raw:
-            return raw
-    return None
+    return get_settings().phoenix_annotation_url
 
 
 def clip(text: str) -> str:

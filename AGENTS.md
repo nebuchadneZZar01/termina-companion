@@ -175,8 +175,20 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   trajectories. `app/rag/scenarios.py` holds the 14 live calibration queries
   with frozen wiki titles; `scripts/calibrate_rag.py` reruns the threshold grid
   (current provisional default `0.60`, calibrated 2026-10-10).
+* `app/settings.py` — the single environment contract. `Settings`
+  (Pydantic settings) declares every `LLM_*`, `LOG_LEVEL`, `OTEL_*` and
+  `PHOENIX_*` variable plus the nested `RAGSettings` (`RAG_` prefix, including
+  `RAG_ENABLED`); blank optional values load as `None`, `LLM_API_KEY` is a
+  `SecretStr`, and derived properties expose the Phoenix annotation URL and
+  the Phoenix UI URL. `get_settings()` builds a fresh instance (not cached, so
+  runtime env changes such as the evaluation A/B flag are seen) and is called
+  first by `configure_logging()`, so a malformed value fails at startup.
+  `load_dotenv()` lives here: `.env` still populates the process environment
+  once and tests stay hermetic.
 * `app/llm.py` — LLM provider factory (`get_chat_model()`); raises
-  `LLMConfigurationError` when no usable provider is configured. Local
+  `LLMConfigurationError` when no usable provider is configured. Reads
+  `LLM_*` through `app/settings.py`; `default_model_for()` exposes the
+  per-provider default the sidebar shows when `LLM_MODEL` is unset. Local
   OpenAI-compatible servers (Ollama, LM Studio) get their `/v1` path added
   when `LLM_BASE_URL` names only a host; `llm_error_hint()` turns a failed
   call into an actionable message (base URL, API key, server down). The
@@ -292,7 +304,12 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   `node.*` trace span and record its outcome (duration, status, detail) for
   the run audit; a failing node is also added to the run's error list.
 * `app/ui.py` — Streamlit frontend logic (`render()`); requires a configured
-  LLM provider, with local providers supported for offline runs. The state
+  LLM provider, with local providers supported for offline runs. The sidebar
+  shows the read-only runtime configuration loaded by `app/settings.py` (LLM
+  provider/model/base URL and whether the API key is set, RAG embedding model,
+  threshold/top-k and cache path, `LOG_LEVEL`, tracing state and the Phoenix
+  link when configured); it is display-only, configuration stays in env and
+  `.env`. The state
   editor picks Day 1-3 and a 24-hour time (minute precision, default 06:00);
   `00:00-05:59` is mapped to hours 24-29 internally so it stays the night at
   the end of the selected game day, and a caption explains the 06:00 boundary.

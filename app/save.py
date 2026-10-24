@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
 from app.domain import ClockTime
+from app.settings import get_settings
 
 
 class SaveSnapshot(BaseModel):
@@ -73,7 +73,7 @@ DEFAULT_SAVE_NAME = "last_save.json"
 
 def get_save_dir() -> Path:
     """Return the directory where save files are stored."""
-    cache_dir = Path(os.getenv("RAG_QDRANT_PATH", ".cache/termina-companion/qdrant")).parent
+    cache_dir = get_settings().rag.qdrant_path.parent
     save_dir = cache_dir.parent / "saves"
     save_dir.mkdir(parents=True, exist_ok=True)
     return save_dir
