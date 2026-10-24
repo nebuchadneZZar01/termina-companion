@@ -39,7 +39,7 @@ def _failed_result(**overrides) -> ScenarioResult:
             EvaluationIssue(
                 severity="warning",
                 kind="proposal_fidelity",
-                message="The LLM proposal omitted expected objectives: ak_get_letter.",
+                message="The LLM proposal omitted expected objectives: ak_get_kafei_mask.",
             ),
         ],
         model="llama3.2",

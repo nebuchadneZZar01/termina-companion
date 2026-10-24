@@ -27,9 +27,13 @@ uv sync
 uv run streamlit run main.py
 ```
 
-Edit day/hour, location, inventory, masks and quest progress (use the sidebar
-Save/Load buttons to keep the state between sessions), set a goal, then
-press **Generate plan**. The UI shows retrieved knowledge, RAG status, the
+Edit the game day, clock time, location, inventory, masks and quest progress
+(use the sidebar Save/Load buttons to keep the state between sessions), set a
+goal, then press **Generate plan**. The clock uses game days: pick **Day 1**,
+**Day 2** or **Day 3** and a 24-hour time. Each game day runs from **06:00 to
+05:59 the next morning**, so `00:00-05:59` is the night at the end of the
+selected day, not the start of the next one. The default is Day 1, 06:00.
+The UI shows retrieved knowledge, RAG status, the
 indexed-page manifest, retrieved evidence provenance, plan steps and validation
 outcome. While the agents run, **Generate plan** is disabled and **Stop** can
 request cooperative cancellation after the current agent or LLM call. The
@@ -47,7 +51,10 @@ The sidebar has **Save** and **Load** buttons for the current game state
 Saves are written as JSON to `saves/last_save.json` (the directory is
 derived from `RAG_QDRANT_PATH`, so it sits next to `.cache/`). **Load**
 restores every form field from that file; if no valid save exists the app
-shows a warning and keeps the current state.
+shows a warning and keeps the current state. Saves from the earlier absolute-day
+clock are migrated to the game-day model on load: an old `Day 2 02:00` becomes
+`Day 1 02:00 (+1)`, while invalid pre-dawn Day 1 times clamp to `Day 1 06:00`
+with a warning.
 
 ## Run the headless demo
 
@@ -286,14 +293,14 @@ player would phrase it, and the objectives the plan is expected to contain:
 
 | Scenario | What it covers |
 |---|---|
-| `anju-kafei` | Four-step chain over three days, with a letter and a dinner event |
+| `anju-kafei` | Nine-step main chain over three days: Kafei's Mask, Room Key, letter, pendant, Sakon's Hideout and the reunion |
 | `bombers-notebook` | A notebook earned from the leader unlocks the hidden hideout |
 | `darmani-ghost` | Longest mask chain, night meeting at 22:00, lullaby the next day |
 | `mikau-eggs` | The Zora Mask gates every later step, eggs need a daytime window |
 | `mikau-with-zora-mask` | The Zora Mask is already owned, so the shore step must be skipped |
-| `pamela-father` | Night-only slot (00:00-04:00) behind the Gibdo Mask |
+| `pamela-father` | Night-only slots after midnight (00:00-04:00) behind the Gibdo Mask |
 | `deku-princess` | Two-day chain through the Southern Swamp, gated by the Deku Mask |
-| `romani-ranch` | Early-morning purchase, 2 AM alien defence, moonlit milk delivery |
+| `romani-ranch` | Early-morning purchase, 02:00 alien defence, moonlit milk delivery |
 | `deed-chain` | Five-step trade cycle across three areas and all three days |
 
 The evaluator is deterministic and never calls an LLM. It reads game knowledge

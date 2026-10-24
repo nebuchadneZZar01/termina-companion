@@ -115,6 +115,42 @@ def test_fmt_timestamp_humanises_iso_in_both_languages(monkeypatch) -> None:
     assert ui._fmt_timestamp(None) == "-"
 
 
+def test_clock_helpers_keep_after_midnight_on_the_same_game_day(monkeypatch) -> None:
+    """The UI maps early hours to 24-29 and marks them as after midnight."""
+    from app.domain import ClockTime, TimeWindow
+
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+
+    assert ui._internal_hour(6) == 6
+    assert ui._internal_hour(23) == 23
+    assert ui._internal_hour(0) == 24
+    assert ui._internal_hour(5) == 29
+
+    night = ClockTime(day=1, hour=26, minute=30)
+    assert ui._fmt_clock(night) == "`Day 1 - 02:30 (+1)`"
+
+    same_day = TimeWindow(
+        start=ClockTime(day=1, hour=23, minute=30),
+        end=ClockTime(day=1, hour=24, minute=30),
+    )
+    assert ui._fmt_window(same_day) == "Day 1 - 23:30\u201300:30 (+1)"
+    assert ui._window_range(same_day) == "`Day 1 - 23:30`\u201300:30 (+1)"
+
+    cross_day = TimeWindow(start=ClockTime(day=1, hour=25), end=ClockTime(day=2, hour=8))
+    assert ui._fmt_window(cross_day) == "Day 1 - 01:00 (+1)\u2013Day 2 - 08:00"
+
+
+def test_time_label_distinguishes_day_night_and_after_midnight(monkeypatch) -> None:
+    """The dynamic caption names the selected part of the game day."""
+    import datetime
+
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: f"{key}:{kwargs['time']}")
+
+    assert ui._time_label(1, datetime.time(6, 0)) == "time_day:06:00"
+    assert ui._time_label(1, datetime.time(18, 0)) == "time_night:18:00"
+    assert ui._time_label(1, datetime.time(2, 30)) == "time_after_midnight:02:30"
+
+
 class _Graph:
     def __init__(self, updates: list[dict], error: Exception | None = None) -> None:
         self.updates = updates
@@ -327,7 +363,6 @@ def test_graph_streams_custom_start_and_agent_progress(monkeypatch) -> None:
 
     custom = [chunk for mode, chunk in emitted if mode == "custom"]
     assert {event["node"] for event in custom if event["phase"] == "start"} == {
-        "memory",
         "state",
         "knowledge",
         "plan",
@@ -502,7 +537,7 @@ def test_inventory_pills_add_custom_item_and_keep_it_selected() -> None:
     at.session_state["lang"] = "en"
     at.run()
     assert not at.exception
-    assert "Kafei's Letter" in at.get_by_key("save_inventory").options
+    assert "Hookshot" in at.get_by_key("save_inventory").options
 
     at.text_input(key="save_inventory_new").set_value("Deku Leaf")
     at.run()

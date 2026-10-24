@@ -155,9 +155,10 @@ def test_pipeline_continues_when_only_one_tool_fails(monkeypatch):
 
     result = run_pipeline(
         GameState(
-            time=ClockTime(day=2, hour=8),
+            time=ClockTime(day=1, hour=6),
             location="Stockpot Inn",
-            inventory=["Kafei's Letter"],
+            inventory=["Hookshot"],
+            masks=["Garo's Mask"],
         ),
         Goal(description="Reunite Anju and Kafei before the dawn of the Third Day"),
     )

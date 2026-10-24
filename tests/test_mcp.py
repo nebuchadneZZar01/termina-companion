@@ -22,10 +22,20 @@ from app.mcp.tools import (
 
 
 def test_search_quests_finds_anju_kafei():
-    """search_quests returns the 4 Anju & Kafei objectives for a matching goal."""
+    """search_quests returns the full Anju & Kafei chain for a matching goal."""
     groups = search_quests("Reunite Anju and Kafei before the dawn of the Third Day")
     ids = [o["id"] for g in groups for o in g["objectives"]]
-    assert set(ids) == {"ak_talk_to_anju", "ak_get_letter", "ak_deliver_letter", "ak_reunite"}
+    assert set(ids) == {
+        "ak_get_kafei_mask",
+        "ak_get_room_key",
+        "ak_talk_to_anju",
+        "ak_meet_in_kitchen",
+        "ak_post_letter",
+        "ak_meet_kafei",
+        "ak_deliver_pendant",
+        "ak_sakon_hideout",
+        "ak_reunite",
+    }
 
 
 def test_search_quests_empty_on_no_match():
@@ -130,9 +140,10 @@ def test_get_quest_info_returns_objectives():
     info = get_quest_info("anju_kafei")
     assert info["id"] == "anju_kafei"
     assert info["name"] == "Anju and Kafei"
-    assert len(info["objectives"]) == 4
+    assert len(info["objectives"]) == 9
     ids = {o["id"] for o in info["objectives"]}
-    assert "ak_talk_to_anju" in ids
+    assert "ak_get_kafei_mask" in ids
+    assert "ak_reunite" in ids
 
 
 def test_get_quest_info_unknown_raises():
@@ -148,7 +159,7 @@ def test_get_quest_info_unknown_raises():
 def test_get_event_returns_details():
     event = get_event("ak_letter_delivery")
     assert event["name"] == "Kafei's letter is delivered"
-    assert event["location"] == "Market District"
+    assert event["location"] == "Stockpot Inn"
     assert "Day" in event["window"]
 
 
@@ -180,29 +191,29 @@ def test_get_location_unknown_raises():
 def test_check_prerequisites_met():
     """Prerequisites are met when items/masks are owned and prereqs are done."""
     result = check_prerequisites(
-        "ak_deliver_letter",
-        inventory=["Kafei's Letter"],
-        quest_progress={"anju_kafei": "in_progress"},
+        "ak_sakon_hideout",
+        inventory=["Hookshot"],
+        masks=["Garo's Mask"],
+        quest_progress={"anju_kafei": "done"},
     )
-    # ak_deliver_letter requires items=["Kafei's Letter"] and prereqs=["ak_get_letter"].
-    # Quest anju_kafei is NOT done so prereq is unmet — that's expected if only
-    # the full quest progress is available. We just check the structure.
-    assert "met" in result
-    assert isinstance(result["missing_items"], list)
+    assert result["met"]
+    assert result["missing_items"] == []
+    assert result["missing_masks"] == []
+    assert result["unmet_prerequisites"] == []
 
 
 def test_check_prerequisites_missing_items():
     """Missing items are reported when the player lacks them."""
-    result = check_prerequisites("ak_deliver_letter", inventory=[])
+    result = check_prerequisites("ak_deliver_pendant", inventory=[])
     assert not result["met"]
-    assert "Kafei's Letter" in result["missing_items"]
+    assert "Pendant of Memories" in result["missing_items"]
 
 
 def test_check_prerequisites_missing_masks():
     """Missing masks are reported when the player lacks them."""
-    result = check_prerequisites("dg_talk_elder")
+    result = check_prerequisites("ak_sakon_hideout", inventory=["Hookshot"])
     assert not result["met"]
-    assert "Goron Mask" in result["missing_masks"]
+    assert "Garo's Mask" in result["missing_masks"]
 
 
 def test_check_prerequisites_unknown_raises():

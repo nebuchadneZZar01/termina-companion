@@ -28,9 +28,10 @@ def demo() -> None:
     configure_logging()
     setup_tracing()
     game_state = GameState(
-        time=ClockTime(day=2, hour=8, minute=0),
+        time=ClockTime(day=1, hour=8, minute=0),
         location="Stockpot Inn",
-        inventory=["Kafei's Letter"],
+        inventory=["Hookshot"],
+        masks=["Garo's Mask"],
     )
     goal = Goal(description="Reunite Anju and Kafei before the dawn of the Third Day")
 

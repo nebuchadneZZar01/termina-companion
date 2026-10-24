@@ -65,7 +65,7 @@ def test_pipeline_span_records_run_and_nodes(fake_planner_model):
     assert re.fullmatch(r"[0-9a-f]{8}", run.run_id)
     names = [node["name"] for node in run.nodes]
     # memory_store is not announced (no _with_start wrapper), the rest are.
-    assert {"memory", "state", "knowledge", "plan", "critic"} <= set(names)
+    assert {"state", "knowledge", "plan", "critic"} <= set(names)
     assert all(node["status"] == "ok" for node in run.nodes)
     assert run.errors == []
 

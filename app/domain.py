@@ -14,11 +14,44 @@ Day = Literal[1, 2, 3]
 
 
 class ClockTime(BaseModel):
-    """The three-day cycle clock of Majora's Mask."""
+    """The three-day cycle clock of Majora's Mask.
+
+    A game day runs from 06:00 to 05:59 the next morning. The internal
+    ``hour`` is therefore 6-29: hours 24-29 are the night after midnight
+    (24:00 is 00:00, 29:59 is 05:59). Values 0-5 are accepted as a
+    convenience and normalized to 24-29 on the same game day.
+    """
 
     day: Day = 1
-    hour: int = Field(default=0, ge=0, le=23)
+    hour: int = Field(default=6, ge=6, le=29)
     minute: int = Field(default=0, ge=0, le=59)
+
+    @field_validator("hour", mode="before")
+    @classmethod
+    def normalize_hour(cls, hour):
+        """Map a display hour (00:00-05:59) to the same day's late night.
+
+        args:
+            hour: candidate hour, possibly 0-5.
+
+        returns:
+            int: 6-29, with 0-5 shifted to 24-29.
+        """
+        if isinstance(hour, str) and hour.strip().isdigit():
+            hour = int(hour.strip())
+        if isinstance(hour, int) and 0 <= hour < 6:
+            return hour + 24
+        return hour
+
+    @property
+    def display_hour(self) -> int:
+        """The wall-clock hour, 0-23, for user-facing output."""
+        return self.hour % 24
+
+    @property
+    def next_morning(self) -> bool:
+        """Whether this time is after midnight at the end of its game day."""
+        return self.hour >= 24
 
     def __str__(self) -> str:
         """Human-readable clock representation.
@@ -27,9 +60,10 @@ class ClockTime(BaseModel):
             (none)
 
         returns:
-            str: e.g. "Day 2, 08:00".
+            str: e.g. "Day 2, 08:00" or "Day 1, 02:30 (+1)".
         """
-        return f"Day {self.day}, {self.hour:02d}:{self.minute:02d}"
+        suffix = " (+1)" if self.next_morning else ""
+        return f"Day {self.day}, {self.display_hour:02d}:{self.minute:02d}{suffix}"
 
 
 class TimeWindow(BaseModel):

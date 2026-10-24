@@ -20,6 +20,8 @@ MASKS = [
     "Goron Mask",
     "Zora Mask",
     "Kafei's Mask",
+    "Garo's Mask",
+    "Couple's Mask",
     "Gibdo Mask",
     "All-Night Mask",
     "Blast Mask",
@@ -30,36 +32,22 @@ MASKS = [
 
 
 class Location(BaseModel):
-    """A named place, grouped under an area such as Clock Town."""
-
     id: str
     name: str
     area: str
 
 
 class NPC(BaseModel):
-    """A character with a schedule: the windows they can be interacted with."""
-
     id: str
     name: str
     location: str
     schedule: list[TimeWindow] = Field(default_factory=list)
 
     def available_at(self, t: ClockTime) -> bool:
-        """Check whether the NPC can be interacted with at a given time.
-
-        args:
-            t (ClockTime): the time to test.
-
-        returns:
-            bool: True when the time falls inside any schedule window.
-        """
         return any(w.contains(t) for w in self.schedule)
 
 
 class ScheduledEvent(BaseModel):
-    """A timestamped in-world event that can gate or flavour an objective."""
-
     id: str
     name: str
     location: str
@@ -68,8 +56,6 @@ class ScheduledEvent(BaseModel):
 
 
 class Objective(BaseModel):
-    """A single objective that can become one plan step."""
-
     id: str
     title: str
     description: str = ""
@@ -78,24 +64,21 @@ class Objective(BaseModel):
     prerequisites: list[str] = Field(default_factory=list)
     requires_items: list[str] = Field(default_factory=list)
     requires_masks: list[str] = Field(default_factory=list)
+    requires_quests: list[str] = Field(default_factory=list)
     provides_items: list[str] = Field(default_factory=list)
     provides_masks: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
-    npc_id: str = ""  # id of the NPC the player must interact with, if any
-    event_ref: str = ""  # id of the ScheduledEvent this objective tracks, if any
+    npc_id: str = ""
+    event_ref: str = ""
 
 
 class Quest(BaseModel):
-    """A quest is just a named collection of objectives."""
-
     id: str
     name: str
     objectives: list[Objective]
 
 
 class KnowledgeBase(BaseModel):
-    """Holds all game data and answers retrieval queries."""
-
     quests: list[Quest] = Field(default_factory=list)
     locations: list[Location] = Field(default_factory=list)
     npcs: list[NPC] = Field(default_factory=list)
@@ -103,41 +86,16 @@ class KnowledgeBase(BaseModel):
 
     @property
     def all_objectives(self) -> list[Objective]:
-        """Flatten every objective of every quest into one list.
-
-        args:
-            (none)
-
-        returns:
-            list[Objective]: all objectives in quest order.
-        """
         return [o for quest in self.quests for o in quest.objectives]
 
     def npc(self, npc_id: str) -> NPC | None:
-        """Look up an NPC by id.
-
-        args:
-            npc_id (str): the NPC's identifier.
-
-        returns:
-            NPC | None: the matching NPC, or None when unknown.
-        """
         return next((n for n in self.npcs if n.id == npc_id), None)
 
     def event(self, event_id: str) -> ScheduledEvent | None:
-        """Look up a scheduled event by id.
-
-        args:
-            event_id (str): the event's identifier.
-
-        returns:
-            ScheduledEvent | None: the matching event, or None when unknown.
-        """
         return next((e for e in self.events if e.id == event_id), None)
 
 
 def _tw(day: int, start: tuple[int, int], end: tuple[int, int]) -> TimeWindow:
-    """Helper to build a TimeWindow from (hour, minute) pairs."""
     sh, sm = start
     eh, em = end
     return TimeWindow(
@@ -145,131 +103,176 @@ def _tw(day: int, start: tuple[int, int], end: tuple[int, int]) -> TimeWindow:
     )
 
 
+def _tw_span(
+    start_day: int,
+    start: tuple[int, int],
+    end_day: int,
+    end: tuple[int, int],
+) -> TimeWindow:
+    sh, sm = start
+    eh, em = end
+    return TimeWindow(
+        start=ClockTime(day=start_day, hour=sh, minute=sm),
+        end=ClockTime(day=end_day, hour=eh, minute=em),
+    )
+
+
 def build_default_knowledge() -> KnowledgeBase:
-    """Expanded game data: multiple areas, quests, NPCs and events."""
-    # ── Locations ────────────────────────────────────────────────────
     locations = [
-        # Clock Town
+        Location(id="clock_tower", name="Clock Tower", area="Clock Town"),
         Location(id="stockpot_inn", name="Stockpot Inn", area="West Clock Town"),
         Location(id="curiosity_shop", name="Curiosity Shop", area="South Clock Town"),
         Location(id="market_district", name="Market District", area="East Clock Town"),
+        Location(id="mayor_residence", name="Mayor's Residence", area="East Clock Town"),
         Location(id="post_office", name="Post Office", area="West Clock Town"),
+        Location(id="laundry_pool", name="Laundry Pool", area="South Clock Town"),
         Location(id="south_clock_town", name="South Clock Town", area="Clock Town"),
         Location(id="north_clock_town", name="North Clock Town", area="Clock Town"),
-        # Southern Swamp
+        Location(id="east_clock_town", name="East Clock Town", area="Clock Town"),
+        Location(id="west_clock_town", name="West Clock Town", area="Clock Town"),
         Location(id="swamp_spider_house", name="Swamp Spider House", area="Southern Swamp"),
         Location(id="dekupalace", name="Deku Palace", area="Southern Swamp"),
         Location(id="woodfall", name="Woodfall", area="Southern Swamp"),
-        # Mountain Village
+        Location(id="woodfall_temple", name="Woodfall Temple", area="Southern Swamp"),
+        Location(id="deku_shrine", name="Deku Shrine", area="Southern Swamp"),
         Location(id="goron_shrine", name="Goron Shrine", area="Mountain Village"),
         Location(id="snowhead", name="Snowhead", area="Mountain Village"),
-        # Great Bay
+        Location(id="goron_village", name="Goron Village", area="Mountain Village"),
+        Location(id="goron_graveyard", name="Goron Graveyard", area="Mountain Village"),
+        Location(id="lone_peak_shrine", name="Lone Peak Shrine", area="Mountain Village"),
+        Location(id="path_to_snowhead", name="Path to Snowhead", area="Mountain Village"),
         Location(id="zora_hall", name="Zora Hall", area="Great Bay"),
+        Location(id="zora_cape", name="Zora Cape", area="Great Bay"),
         Location(id="pinnacle_rock", name="Pinnacle Rock", area="Great Bay"),
         Location(id="great_bay_coast", name="Great Bay Coast", area="Great Bay"),
-        # Ikana Canyon
+        Location(id="pirates_fortress", name="Pirates' Fortress", area="Great Bay"),
+        Location(id="marine_research_lab", name="Marine Research Lab", area="Great Bay"),
         Location(id="canyon_shrine", name="Canyon Shrine", area="Ikana Canyon"),
         Location(id="ancient_castle_ikana", name="Ancient Castle of Ikana", area="Ikana Canyon"),
-        # Romani Ranch
-        Location(id="ranch_house", name="Ranch House", area="Romani Ranch"),
-        # Hub
+        Location(id="sakons_hideout", name="Sakon's Hideout", area="Ikana Canyon"),
+        Location(id="ikana_graveyard", name="Ikana Graveyard", area="Ikana Canyon"),
+        Location(id="music_box_house", name="Music Box House", area="Ikana Canyon"),
+        Location(id="romani_ranch", name="Romani Ranch", area="Romani Ranch"),
+        Location(id="milk_road", name="Milk Road", area="Termina"),
+        Location(id="southern_swamp", name="Southern Swamp", area="Southern Swamp"),
         Location(id="termina_field", name="Termina Field", area="Termina"),
+        Location(id="astral_observatory", name="Astral Observatory", area="Termina"),
     ]
-    # ── NPCs ─────────────────────────────────────────────────────────
+
     npcs = [
-        # Clock Town
         NPC(
             id="anju",
             name="Anju",
             location="Stockpot Inn",
-            schedule=[_tw(1, (8, 0), (21, 0)), _tw(2, (8, 0), (21, 0)), _tw(3, (8, 0), (23, 59))],
+            schedule=[
+                _tw(1, (8, 0), (21, 5)),
+                _tw(1, (23, 30), (29, 0)),
+                _tw(2, (8, 0), (21, 5)),
+                _tw(3, (8, 0), (18, 0)),
+                _tw(3, (28, 0), (29, 0)),
+            ],
         ),
         NPC(
             id="kafei",
             name="Kafei",
             location="Curiosity Shop",
-            schedule=[_tw(2, (12, 0), (23, 59)), _tw(3, (6, 0), (12, 0))],
+            schedule=[_tw_span(2, (15, 0), 3, (13, 0)), _tw(3, (18, 0), (27, 0))],
         ),
         NPC(
             id="postman",
             name="Postman",
             location="Market District",
-            schedule=[_tw(2, (9, 0), (17, 0))],
+            schedule=[_tw(1, (9, 0), (17, 0)), _tw(2, (9, 0), (17, 0))],
         ),
         NPC(
-            id="bombers_leader",
-            name="Bombers' Leader",
-            location="North Clock Town",
-            schedule=[_tw(1, (6, 0), (20, 0))],
+            id="madame_aroma",
+            name="Madame Aroma",
+            location="Mayor's Residence",
+            schedule=[_tw(1, (10, 0), (20, 0)), _tw(2, (10, 0), (20, 0))],
         ),
-        # Mountain Village
+        NPC(
+            id="jim",
+            name="Jim",
+            location="North Clock Town",
+            schedule=[_tw(1, (6, 0), (20, 0)), _tw(2, (6, 0), (20, 0)), _tw(3, (6, 0), (20, 0))],
+        ),
         NPC(
             id="goron_elder",
             name="Goron Elder",
             location="Goron Shrine",
-            schedule=[
-                _tw(1, (6, 0), (22, 0)),
-                _tw(2, (6, 0), (22, 0)),
-                _tw(3, (6, 0), (22, 0)),
-            ],
+            schedule=[_tw_span(1, (6, 0), 3, (22, 0))],
         ),
         NPC(
             id="darmani",
             name="Darmani",
-            location="Goron Shrine",
-            schedule=[
-                _tw(1, (22, 0), (23, 59)),
-                _tw(2, (22, 0), (23, 59)),
-                _tw(3, (22, 0), (23, 59)),
-            ],
+            location="Goron Graveyard",
+            schedule=[_tw_span(1, (6, 0), 3, (29, 0))],
         ),
-        # Great Bay
+        NPC(
+            id="baby_goron",
+            name="Baby Goron",
+            location="Goron Shrine",
+            schedule=[_tw_span(1, (6, 0), 3, (23, 59))],
+        ),
         NPC(
             id="mikau",
             name="Mikau",
             location="Great Bay Coast",
-            schedule=[
-                _tw(1, (6, 0), (23, 59)),
-                _tw(2, (6, 0), (23, 59)),
-                _tw(3, (6, 0), (23, 59)),
-            ],
+            schedule=[_tw_span(1, (6, 0), 3, (23, 59))],
         ),
         NPC(
-            id="tael",
-            name="Tael",
+            id="indigo_gos",
+            name="Indigo-Go's",
             location="Zora Hall",
-            schedule=[_tw(1, (18, 0), (23, 59)), _tw(2, (18, 0), (23, 59))],
+            schedule=[_tw_span(1, (6, 0), 3, (23, 59))],
         ),
-        # Southern Swamp
+        NPC(
+            id="lulu",
+            name="Lulu",
+            location="Zora Hall",
+            schedule=[_tw_span(1, (6, 0), 3, (23, 59))],
+        ),
         NPC(
             id="dekuboss",
             name="Deku King",
             location="Deku Palace",
-            schedule=[
-                _tw(1, (6, 0), (23, 59)),
-                _tw(2, (6, 0), (23, 59)),
-                _tw(3, (6, 0), (23, 59)),
-            ],
+            schedule=[_tw_span(1, (6, 0), 3, (23, 59))],
         ),
-        # Romani Ranch
+        NPC(
+            id="deku_butler",
+            name="Deku Butler",
+            location="Deku Shrine",
+            schedule=[_tw_span(1, (6, 0), 3, (23, 59))],
+        ),
+        NPC(
+            id="monkey",
+            name="Monkey",
+            location="Deku Palace",
+            schedule=[_tw_span(1, (6, 0), 3, (23, 59))],
+        ),
+        NPC(
+            id="koume",
+            name="Koume",
+            location="Southern Swamp",
+            schedule=[_tw_span(1, (6, 0), 3, (23, 59))],
+        ),
         NPC(
             id="romani",
             name="Romani",
-            location="Ranch House",
-            schedule=[_tw(1, (6, 0), (20, 0)), _tw(2, (6, 0), (20, 0))],
+            location="Romani Ranch",
+            schedule=[_tw(1, (6, 0), (18, 0)), _tw(2, (6, 0), (18, 0))],
         ),
         NPC(
             id="cremia",
             name="Cremia",
-            location="Ranch House",
-            schedule=[_tw(2, (20, 0), (23, 59))],
+            location="Romani Ranch",
+            schedule=[_tw(2, (18, 0), (19, 45))],
         ),
-        # Ikana Canyon
         NPC(
             id="pamela",
             name="Pamela",
-            location="Ancient Castle of Ikana",
-            schedule=[_tw(2, (0, 0), (4, 0)), _tw(3, (0, 0), (4, 0))],
+            location="Music Box House",
+            schedule=[_tw_span(1, (6, 0), 3, (29, 0))],
         ),
         NPC(
             id="shiro",
@@ -277,273 +280,395 @@ def build_default_knowledge() -> KnowledgeBase:
             location="Canyon Shrine",
             schedule=[_tw(2, (22, 0), (23, 59)), _tw(3, (22, 0), (23, 59))],
         ),
+        NPC(
+            id="mask_salesman",
+            name="Happy Mask Salesman",
+            location="Clock Tower",
+            schedule=[_tw_span(1, (6, 0), 3, (23, 59))],
+        ),
+        NPC(
+            id="captain_keeta",
+            name="Captain Keeta",
+            location="Ikana Graveyard",
+            schedule=[_tw_span(1, (6, 0), 3, (23, 59))],
+        ),
+        NPC(
+            id="flat",
+            name="Flat",
+            location="Ikana Graveyard",
+            schedule=[_tw_span(1, (6, 0), 3, (23, 59))],
+        ),
     ]
-    # ── Events ───────────────────────────────────────────────────────
+
     events = [
-        # Clock Town — Anju & Kafei
         ScheduledEvent(
             id="ak_letter_delivery",
             name="Kafei's letter is delivered",
-            location="Market District",
-            window=_tw(2, (9, 0), (17, 0)),
+            location="Stockpot Inn",
+            window=_tw(1, (14, 0), (14, 20)),
+        ),
+        ScheduledEvent(
+            id="ak_sakon_arrival",
+            name="Sakon returns to his hideout",
+            location="Sakon's Hideout",
+            window=_tw(3, (18, 0), (18, 30)),
         ),
         ScheduledEvent(
             id="ak_reunion_dinner",
             name="Anju and Kafei reunite",
             location="Stockpot Inn",
-            window=_tw(3, (22, 0), (23, 59)),
+            window=_tw(3, (28, 30), (29, 0)),
         ),
-        # Clock Town — Bombers
-        ScheduledEvent(
-            id="bm_hideout_gathering",
-            name="Bombers gather at the hideout",
-            location="South Clock Town",
-            window=_tw(1, (8, 0), (22, 0)),
-        ),
-        # Romani Ranch
         ScheduledEvent(
             id="ranch_aliens",
             name="Romani defends the ranch from aliens",
-            location="Ranch House",
-            window=_tw(2, (2, 0), (4, 0)),
-            description="Aliens attack the ranch at 2 AM on the Second Night.",
+            location="Romani Ranch",
+            window=_tw(1, (26, 30), (29, 15)),
+            description="Aliens attack the ranch.",
         ),
         ScheduledEvent(
             id="ranch_milk_delivery",
             name="Cremia delivers milk to Clock Town",
-            location="Market District",
-            window=_tw(2, (20, 0), (23, 59)),
-            description="Cremia's wagon ride through the canyon under moonlight.",
+            location="Milk Road",
+            window=_tw(2, (18, 0), (19, 45)),
+            description="Cremia's wagon ride.",
         ),
-        # Ikana Canyon
         ScheduledEvent(
             id="ikana_piano",
             name="Ghost plays the piano in Ikana Castle",
             location="Ancient Castle of Ikana",
-            window=_tw(3, (0, 0), (4, 0)),
+            window=_tw(2, (24, 0), (28, 0)),
         ),
-        # Mountain Village
         ScheduledEvent(
             id="snowhead_blizzard",
             name="Blizzard rages near Snowhead",
             location="Snowhead",
-            window=_tw(1, (0, 0), (23, 59)),
+            window=_tw_span(1, (6, 0), 3, (23, 59)),
         ),
     ]
-    # ── Quests ───────────────────────────────────────────────────────
+
     anju_kafei = Quest(
         id="anju_kafei",
         name="Anju and Kafei",
         objectives=[
             Objective(
+                id="ak_get_kafei_mask",
+                title="Get Kafei's Mask from Madame Aroma",
+                description="Madame Aroma gives you Kafei's Mask at the Mayor's Residence.",
+                location="Mayor's Residence",
+                window=_tw(1, (10, 0), (20, 0)),
+                provides_masks=["Kafei's Mask"],
+                npc_id="madame_aroma",
+                keywords=[
+                    "anju",
+                    "kafei",
+                    "mask",
+                    "madame",
+                    "aroma",
+                    "mayor",
+                    "residence",
+                    "maschera",
+                    "residenza",
+                    "sindaco",
+                ],
+            ),
+            Objective(
+                id="ak_get_room_key",
+                title="Get the Stockpot Inn room key from Anju",
+                description="Anju lends you the key to her room at the Stockpot Inn.",
+                location="Stockpot Inn",
+                window=_tw(1, (13, 50), (16, 10)),
+                prerequisites=["ak_get_kafei_mask"],
+                provides_items=["Room Key"],
+                npc_id="anju",
+                keywords=[
+                    "anju",
+                    "kafei",
+                    "room",
+                    "key",
+                    "stockpot",
+                    "inn",
+                    "camera",
+                    "chiave",
+                    "locanda",
+                ],
+            ),
+            Objective(
                 id="ak_talk_to_anju",
                 title="Talk to Anju at the Stockpot Inn",
-                description="Learn about her missing fiancé Kafei.",
+                description="Show Kafei's Mask to Anju after Kafei's letter arrives.",
                 location="Stockpot Inn",
-                window=_tw(2, (8, 0), (21, 0)),
+                window=_tw(1, (14, 20), (21, 5)),
+                prerequisites=["ak_get_room_key"],
+                requires_masks=["Kafei's Mask"],
+                npc_id="anju",
+                event_ref="ak_letter_delivery",
+                keywords=[
+                    "anju",
+                    "kafei",
+                    "talk",
+                    "letter",
+                    "stockpot",
+                    "inn",
+                    "lettera",
+                    "locanda",
+                    "parla",
+                ],
+            ),
+            Objective(
+                id="ak_meet_in_kitchen",
+                title="Meet Anju in the Stockpot Inn kitchen",
+                description="Anju gives you a letter for Kafei during the night.",
+                location="Stockpot Inn",
+                window=_tw(1, (23, 30), (29, 0)),
+                prerequisites=["ak_talk_to_anju"],
+                provides_items=["Letter to Kafei"],
                 npc_id="anju",
                 keywords=[
                     "anju",
                     "kafei",
                     "letter",
-                    "reunite",
-                    "start",
-                    "parla",
-                    "fidanzato",
-                    "scomparso",
+                    "kitchen",
+                    "night",
+                    "cucina",
+                    "notte",
+                    "lettera",
                     "locanda",
                 ],
             ),
             Objective(
-                id="ak_get_letter",
-                title="Retrieve Kafei's letter from the mailbox",
-                description="Kafei left a letter for you behind the Post Office.",
-                location="Market District",
-                window=_tw(2, (9, 0), (17, 0)),
-                prerequisites=["ak_talk_to_anju"],
-                provides_items=["Kafei's Letter"],
-                npc_id="postman",
-                event_ref="ak_letter_delivery",
+                id="ak_post_letter",
+                title="Post the letter to Kafei in the Laundry Pool",
+                description="Drop the Letter to Kafei in the mailbox so it reaches him at dawn.",
+                location="Laundry Pool",
+                window=_tw_span(1, (24, 0), 2, (6, 0)),
+                prerequisites=["ak_meet_in_kitchen"],
+                requires_items=["Letter to Kafei"],
                 keywords=[
+                    "anju",
                     "kafei",
                     "letter",
-                    "mailbox",
                     "post",
-                    "cassetta",
-                    "posta",
-                    "postale",
+                    "mailbox",
+                    "laundry",
+                    "pool",
+                    "buca",
+                    "lavatoio",
                     "lettera",
-                    "ufficio",
+                    "posta",
                 ],
             ),
             Objective(
-                id="ak_deliver_letter",
-                title="Give the letter to Kafei at the Curiosity Shop",
-                description="Kafei is hiding out in the Curiosity Shop basement.",
+                id="ak_meet_kafei",
+                title="Meet Kafei in the Curiosity Shop back room",
+                description="Kafei gives you the Pendant of Memories for Anju.",
                 location="Curiosity Shop",
-                window=_tw(3, (6, 0), (12, 0)),
-                prerequisites=["ak_get_letter"],
-                requires_items=["Kafei's Letter"],
+                window=_tw_span(2, (15, 0), 3, (13, 0)),
+                prerequisites=["ak_post_letter"],
+                provides_items=["Pendant of Memories"],
                 npc_id="kafei",
                 keywords=[
+                    "anju",
                     "kafei",
-                    "letter",
+                    "pendant",
+                    "curiosity",
                     "shop",
-                    "hideout",
-                    "consegna",
-                    "cantina",
+                    "ciondolo",
                     "nascondiglio",
                     "negozio",
-                    "lettera",
+                ],
+            ),
+            Objective(
+                id="ak_deliver_pendant",
+                title="Deliver the Pendant of Memories to Anju",
+                description="Bring Kafei's pendant back to Anju at the Stockpot Inn.",
+                location="Stockpot Inn",
+                window=_tw(3, (8, 0), (18, 0)),
+                prerequisites=["ak_meet_kafei"],
+                requires_items=["Pendant of Memories"],
+                npc_id="anju",
+                keywords=[
+                    "anju",
+                    "kafei",
+                    "pendant",
+                    "deliver",
+                    "stockpot",
+                    "inn",
+                    "ciondolo",
+                    "consegna",
+                    "locanda",
+                ],
+            ),
+            Objective(
+                id="ak_sakon_hideout",
+                title="Enter Sakon's Hideout and recover the Sun's Mask",
+                description=(
+                    "Use the Garo's Mask and Hookshot to help Kafei reclaim the Sun's Mask."
+                ),
+                location="Sakon's Hideout",
+                window=_tw(3, (18, 0), (27, 0)),
+                prerequisites=["ak_deliver_pendant"],
+                requires_masks=["Garo's Mask"],
+                requires_items=["Hookshot"],
+                provides_items=["Sun's Mask"],
+                npc_id="kafei",
+                event_ref="ak_sakon_arrival",
+                keywords=[
+                    "anju",
+                    "kafei",
+                    "sakon",
+                    "hideout",
+                    "garo",
+                    "hookshot",
+                    "sun",
+                    "mask",
+                    "maschera",
+                    "nascondiglio",
+                    "sole",
                 ],
             ),
             Objective(
                 id="ak_reunite",
                 title="Reunite Anju and Kafei at the Stockpot Inn",
-                description="Bring everyone together before the dawn of the Third Day.",
+                description=(
+                    "Bring the couple together before the moon falls and receive the Couple's Mask."
+                ),
                 location="Stockpot Inn",
-                window=_tw(3, (22, 0), (23, 59)),
-                prerequisites=["ak_deliver_letter"],
+                window=_tw(3, (28, 0), (29, 0)),
+                prerequisites=["ak_sakon_hideout"],
+                provides_masks=["Couple's Mask"],
                 npc_id="anju",
                 event_ref="ak_reunion_dinner",
                 keywords=[
                     "anju",
                     "kafei",
                     "reunite",
+                    "couple",
+                    "mask",
                     "inn",
-                    "riunisci",
-                    "riunire",
-                    "riunione",
-                    "innamorati",
+                    "stockpot",
                     "coppia",
-                    "terzo",
-                    "giorno",
+                    "innamorati",
                     "locanda",
+                    "mattina",
+                    "riunione",
+                    "riunire",
+                    "riunisci",
                 ],
             ),
         ],
     )
+
     bombers = Quest(
         id="bombers",
         name="Bombers' Secret Society",
         objectives=[
             Objective(
-                id="bm_talk_leader",
-                title="Talk to the Bombers' leader in North Clock Town",
-                description="The kid gang is suspicious of strangers.",
+                id="bm_pop_balloon",
+                title="Pop the Majora Balloon in North Clock Town and talk to Jim",
+                description=(
+                    "Use a Deku Bubble to pop the balloon Jim is shooting at and challenge him to "
+                    "hide-and-seek."
+                ),
                 location="North Clock Town",
                 window=_tw(1, (6, 0), (20, 0)),
-                npc_id="bombers_leader",
+                npc_id="jim",
                 keywords=[
                     "bombers",
+                    "balloon",
+                    "majora",
+                    "jim",
+                    "hide",
+                    "seek",
                     "society",
-                    "hideout",
-                    "plan",
-                    "leader",
-                    "gang",
-                    "ragazzini",
-                    "società",
-                    "nord",
+                    "palloncino",
                 ],
+            ),
+            Objective(
+                id="bm_hide_and_seek",
+                title="Find all five Bombers in hide-and-seek",
+                description=(
+                    "Locate all five Bombers scattered around Clock Town within the time limit."
+                ),
+                location="North Clock Town",
+                window=_tw(1, (6, 0), (21, 0)),
+                prerequisites=["bm_pop_balloon"],
+                npc_id="jim",
+                keywords=["bombers", "hide", "seek", "gang", "code", "nascondino"],
             ),
             Objective(
                 id="bm_get_notebook",
-                title="Earn the Bomber's Notebook from the Bombers' leader",
-                description="The leader gives the notebook to a member he trusts.",
+                title="Obtain the Bombers' Notebook",
+                description=(
+                    "After completing hide-and-seek, receive the Bombers' Notebook from Jim. The "
+                    "notebook tracks side quests throughout Termina."
+                ),
                 location="North Clock Town",
-                window=_tw(1, (6, 0), (20, 0)),
-                prerequisites=["bm_talk_leader"],
-                provides_items=["Bomber's Notebook"],
-                keywords=[
-                    "bombers",
-                    "notebook",
-                    "leader",
-                    "earn",
-                    "taccuino",
-                    "leader",
-                    "guadagna",
-                ],
+                window=_tw(1, (6, 0), (22, 0)),
+                prerequisites=["bm_hide_and_seek"],
+                provides_items=["Bombers' Notebook"],
+                npc_id="jim",
+                keywords=["bombers", "notebook", "taccuino", "jim", "member", "code"],
             ),
             Objective(
-                id="bm_find_hideout",
-                title="Locate the hidden hideout behind the clock tower",
-                description="The hideout entrance is marked by a odd drawing.",
-                location="South Clock Town",
-                window=_tw(1, (8, 0), (22, 0)),
+                id="bm_enter_hideout",
+                title="Enter the Bombers' Hideout using the secret code",
+                description=(
+                    "Use the Bombers' secret code at the "
+                    "hideout entrance in East Clock Town to gain "
+                    "access."
+                ),
+                location="East Clock Town",
+                window=_tw(1, (6, 0), (23, 0)),
                 prerequisites=["bm_get_notebook"],
-                requires_items=["Bomber's Notebook"],
-                event_ref="bm_hideout_gathering",
-                keywords=["hideout", "clock", "tower", "bombers", "tana", "orologio", "disegno"],
+                requires_items=["Bombers' Notebook"],
+                keywords=[
+                    "hideout",
+                    "code",
+                    "password",
+                    "sewer",
+                    "east",
+                    "astral",
+                    "tana",
+                    "codice",
+                ],
             ),
         ],
     )
+
     darmani_spirit = Quest(
         id="darmani_spirit",
         name="Darmani's Spirit",
         objectives=[
             Objective(
-                id="dg_get_goron_mask",
-                title="Obtain the Goron Mask from the Happy Mask Salesman",
-                description="The Happy Mask Salesman trades the mask to a traveller he trusts.",
-                location="Termina Field",
-                window=_tw(1, (6, 0), (20, 0)),
-                provides_masks=["Goron Mask"],
-                keywords=[
-                    "goron",
-                    "mask",
-                    "salesman",
-                    "obtain",
-                    "maschera",
-                    "venditore",
-                ],
-            ),
-            Objective(
-                id="dg_talk_elder",
-                title="Listen to the Goron Elder's song",
-                description="The Elder plays a melody that soothes Darmani's restless spirit.",
-                location="Goron Shrine",
-                window=_tw(1, (8, 0), (20, 0)),
-                prerequisites=["dg_get_goron_mask"],
-                requires_masks=["Goron Mask"],
-                npc_id="goron_elder",
-                keywords=[
-                    "darmani",
-                    "goron",
-                    "elder",
-                    "song",
-                    "spirit",
-                    "ghost",
-                    "montagna",
-                    "canzone",
-                    "spirito",
-                ],
-            ),
-            Objective(
                 id="dg_get_lens",
-                title="Obtain the Lens of Truth at the Curiosity Shop",
-                description="The Curiosity Shop sells the lens that sees the unseen.",
-                location="Curiosity Shop",
-                window=_tw(1, (8, 0), (20, 0)),
-                prerequisites=["dg_talk_elder"],
+                title="Obtain the Lens of Truth from the Lone Peak Shrine",
+                description=(
+                    "Obtain the Lens of Truth to see things that are invisible to the naked eye."
+                ),
+                location="Lone Peak Shrine",
+                window=_tw(1, (6, 0), (23, 59)),
                 provides_items=["Lens of Truth"],
                 keywords=[
                     "lens",
                     "truth",
-                    "curiosity",
-                    "shop",
+                    "lone",
+                    "peak",
+                    "shrine",
                     "lente",
-                    "verità",
+                    "verita",
+                    "curiosità",
                     "negozio",
+                    "verità",
                 ],
             ),
             Objective(
-                id="dg_meet_darmani",
-                title="Speak with Darmani's ghost at the Goron Shrine",
-                description="Use the Lens of Truth to see Darmani's spirit.",
-                location="Goron Shrine",
-                window=_tw(1, (22, 0), (23, 59)),
+                id="dg_see_darmani",
+                title="See Darmani's spirit at the Goron Graveyard with the Lens of Truth",
+                description="Use the Lens of Truth to see Darmani's spirit at the Goron Graveyard.",
+                location="Goron Graveyard",
+                window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dg_get_lens"],
-                requires_masks=["Goron Mask"],
                 requires_items=["Lens of Truth"],
                 npc_id="darmani",
                 keywords=[
@@ -551,467 +676,626 @@ def build_default_knowledge() -> KnowledgeBase:
                     "ghost",
                     "spirit",
                     "lens",
-                    "truth",
-                    "see",
+                    "graveyard",
                     "fantasma",
-                    "verità",
-                    "lente",
+                    "nanna",
+                    "ninna",
+                    "santuario",
+                    "spirito",
                 ],
             ),
             Objective(
-                id="dg_learn_lullaby",
-                title="Learn the Goron Lullaby from Darmani",
-                description="Darmani teaches you the lullaby that will put the baby to sleep.",
-                location="Goron Shrine",
-                window=_tw(2, (22, 0), (23, 59)),
-                prerequisites=["dg_meet_darmani"],
-                requires_masks=["Goron Mask"],
+                id="dg_heal_darmani",
+                title="Heal Darmani's spirit with the Song of Healing",
+                description=(
+                    "Play the Song of Healing for Darmani's spirit to soothe him. In return, he "
+                    "grants you the Goron Mask."
+                ),
+                location="Goron Graveyard",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["dg_see_darmani"],
+                provides_masks=["Goron Mask"],
                 npc_id="darmani",
                 keywords=[
                     "darmani",
-                    "lullaby",
-                    "baby",
+                    "healing",
+                    "song",
                     "goron",
-                    "ninna",
+                    "mask",
                     "canzone",
-                    "nanna",
-                    "bambino",
+                    "guarigione",
+                    "maschera",
                 ],
             ),
         ],
     )
+
+    goron_lullaby = Quest(
+        id="goron_lullaby",
+        name="Goron Lullaby",
+        objectives=[
+            Objective(
+                id="dg_get_hot_spring",
+                title="Get hot spring water from Darmani's grave",
+                description=(
+                    "Obtain hot spring water from Darmani's grave to thaw the frozen Goron Elder."
+                ),
+                location="Goron Graveyard",
+                window=_tw(1, (6, 0), (23, 59)),
+                requires_quests=["darmani_spirit"],
+                provides_items=["Hot Spring Water"],
+                keywords=["hot", "spring", "water", "darmani", "grave"],
+            ),
+            Objective(
+                id="dg_thaw_elder",
+                title="Thaw the frozen Goron Elder on the path to Snowhead",
+                description=(
+                    "Use hot spring water to thaw the frozen "
+                    "Goron Elder and learn the Lullaby Intro."
+                ),
+                location="Path to Snowhead",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["dg_get_hot_spring"],
+                requires_items=["Hot Spring Water"],
+                npc_id="goron_elder",
+                keywords=["elder", "thaw", "lullaby", "intro", "snowhead"],
+            ),
+            Objective(
+                id="dg_learn_lullaby",
+                title="Learn the full Goron Lullaby from the Baby Goron in Goron Shrine",
+                description="Learn the full Goron Lullaby from the Baby Goron in Goron Shrine.",
+                location="Goron Shrine",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["dg_thaw_elder"],
+                npc_id="baby_goron",
+                keywords=["baby", "goron", "lullaby", "full", "shrine"],
+            ),
+        ],
+    )
+
     mikau_memory = Quest(
         id="mikau_memory",
         name="Mikau's Memory",
         objectives=[
             Objective(
-                id="mm_get_zora_mask",
-                title="Recover the Zora Mask from the Great Bay Coast",
-                description="The Zora Mask lies buried in the tide-washed shore.",
+                id="mm_heal_mikau",
+                title="Heal Mikau's spirit with the Song of Healing",
+                description=(
+                    "Find Mikau's spirit washed up on Great Bay Coast and play the Song of Healing "
+                    "to soothe him. In return, he grants you the Zora Mask."
+                ),
                 location="Great Bay Coast",
                 window=_tw(1, (6, 0), (23, 59)),
-                provides_masks=["Zora Mask"],
-                keywords=["zora", "mask", "recover", "shore", "maschera", "riva"],
-            ),
-            Objective(
-                id="mm_find_tael",
-                title="Ask Tael about Mikau at Zora Hall",
-                description="Tael knows where Mikau's stolen eggs are hidden.",
-                location="Zora Hall",
-                window=_tw(1, (18, 0), (23, 59)),
-                prerequisites=["mm_get_zora_mask"],
-                requires_masks=["Zora Mask"],
-                npc_id="tael",
-                keywords=[
-                    "mikau",
-                    "tael",
-                    "zora",
-                    "eggs",
-                    "fish",
-                    "stolen",
-                    "uova",
-                    "pesce",
-                    "zora",
-                    "hall",
-                ],
-            ),
-            Objective(
-                id="mm_recover_eggs",
-                title="Retrieve Mikau's eggs from Pinnacle Rock",
-                description="The Gerudo Pirates stole Mikau's eggs and hid them at Pinnacle Rock.",
-                location="Pinnacle Rock",
-                window=_tw(2, (6, 0), (18, 0)),
-                prerequisites=["mm_find_tael"],
-                requires_masks=["Zora Mask"],
-                keywords=[
-                    "mikau",
-                    "eggs",
-                    "pinnacle",
-                    "rock",
-                    "pirate",
-                    "retrieve",
-                    "uova",
-                    "pirata",
-                    "recupera",
-                    "scogliera",
-                ],
-            ),
-            Objective(
-                id="mm_learn_song",
-                title="Learn the Song of Opening from Mikau",
-                description="Mikau teaches you the song that opens the Great Bay Temple.",
-                location="Great Bay Coast",
-                window=_tw(2, (18, 0), (23, 59)),
-                prerequisites=["mm_recover_eggs"],
-                requires_masks=["Zora Mask"],
                 npc_id="mikau",
+                provides_masks=["Zora Mask"],
+                requires_quests=["romani_ranch"],
                 keywords=[
+                    "zora",
+                    "mask",
                     "mikau",
+                    "healing",
                     "song",
-                    "temple",
-                    "great",
-                    "bay",
-                    "canzone",
-                    "tempio",
-                    "baia",
+                    "coast",
+                    "guarigione",
+                    "maschera",
+                    "spiaggia",
                 ],
+            ),
+            Objective(
+                id="mm_talk_band",
+                title="Talk to the Indigo-Go's about Lulu's stolen eggs",
+                description=(
+                    "In Zora form, speak to the members of "
+                    "the Indigo-Go's at Zora Hall. They reveal "
+                    "that Lulu's eggs were stolen by Gerudo "
+                    "Pirates and hidden at Pirates' Fortress "
+                    "and Pinnacle Rock."
+                ),
+                location="Zora Hall",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["mm_heal_mikau"],
+                npc_id="indigo_gos",
+                keywords=["indigo", "zora", "hall", "eggs", "lulu", "pirates", "uova"],
+            ),
+            Objective(
+                id="mm_get_fortress_eggs",
+                title="Retrieve four Zora Eggs from the Pirates' Fortress",
+                description=(
+                    "Swim through the Pirates' Fortress in Zora form and recover four of Lulu's "
+                    "stolen eggs."
+                ),
+                location="Pirates' Fortress",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["mm_talk_band"],
+                keywords=["eggs", "pirates", "fortress", "uova"],
+            ),
+            Objective(
+                id="mm_get_pinnacle_eggs",
+                title="Retrieve three Zora Eggs from Pinnacle Rock",
+                description="Recover the remaining three Zora Eggs from Pinnacle Rock.",
+                location="Pinnacle Rock",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["mm_get_fortress_eggs"],
+                keywords=["eggs", "pinnacle", "rock"],
+            ),
+            Objective(
+                id="mm_deliver_eggs",
+                title="Deliver Lulu's eggs to the Marine Research Lab",
+                description="Deliver all seven Zora Eggs to the Marine Research Lab.",
+                location="Marine Research Lab",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["mm_get_pinnacle_eggs"],
+                keywords=["eggs", "lab", "deliver"],
+            ),
+            Objective(
+                id="mm_learn_bossa_nova",
+                title="Learn the New Wave Bossa Nova from the baby Zoras",
+                description="The baby Zoras teach Link the New Wave Bossa Nova at Zora Hall.",
+                location="Zora Hall",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["mm_deliver_eggs"],
+                npc_id="indigo_gos",
+                keywords=["bossa", "nova", "song", "mikau", "eggs", "canzone", "lulu"],
+            ),
+            Objective(
+                id="mm_play_for_lulu",
+                title="Play the New Wave Bossa Nova for Lulu at Zora Cape",
+                description=(
+                    "Play the New Wave Bossa Nova for Lulu at Zora Cape to help her recover."
+                ),
+                location="Zora Cape",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["mm_learn_bossa_nova"],
+                npc_id="lulu",
+                keywords=["lulu", "cape", "song", "bossa", "nova"],
             ),
         ],
     )
+
     pamela_father = Quest(
         id="pamela_father",
         name="Pamela's Father",
         objectives=[
             Objective(
-                id="pf_get_gibdo_mask",
-                title="Buy the Gibdo Mask at the Curiosity Shop",
-                description="The Curiosity Shop sells the mask before nightfall.",
-                location="Curiosity Shop",
-                window=_tw(1, (8, 0), (20, 0)),
-                provides_masks=["Gibdo Mask"],
-                keywords=[
-                    "gibdo",
-                    "mask",
-                    "buy",
-                    "curiosity",
-                    "shop",
-                    "maschera",
-                    "compra",
-                    "negozio",
-                ],
-            ),
-            Objective(
-                id="pf_sneak_castle",
-                title="Enter the Ancient Castle of Ikana at night",
-                description="The castle is crawling with Gibdos during the night.",
-                location="Ancient Castle of Ikana",
-                window=_tw(2, (0, 0), (4, 0)),
-                prerequisites=["pf_get_gibdo_mask"],
-                requires_masks=["Gibdo Mask"],
-                keywords=[
-                    "pamela",
-                    "father",
-                    "castle",
-                    "gibdo",
-                    "ikana",
-                    "castle",
-                    "notte",
-                    "gibdo",
-                    "castello",
-                ],
-            ),
-            Objective(
-                id="pf_free_father",
-                title="Free Pamela's father from the Gibdo curse",
-                description="Wearing the Gibdo Mask, play the Song of Healing to free him.",
-                location="Ancient Castle of Ikana",
-                window=_tw(2, (0, 0), (4, 0)),
-                prerequisites=["pf_sneak_castle"],
-                requires_masks=["Gibdo Mask"],
-                keywords=[
-                    "pamela",
-                    "father",
-                    "free",
-                    "curse",
-                    "healing",
-                    "libera",
-                    "maledizione",
-                    "guarigione",
-                ],
-            ),
-            Objective(
-                id="pf_meet_pamela",
-                title="Reunite with Pamela after freeing her father",
-                description="Pamela is overjoyed to have her father back.",
-                location="Ancient Castle of Ikana",
-                window=_tw(3, (0, 0), (4, 0)),
-                prerequisites=["pf_free_father"],
-                requires_masks=["Gibdo Mask"],
+                id="pf_find_pamela",
+                title="Find Pamela and her cursed father at the Music Box House",
+                description="Travel to Ikana Canyon and visit the Music Box House.",
+                location="Music Box House",
+                window=_tw(1, (6, 0), (29, 0)),
                 npc_id="pamela",
                 keywords=[
                     "pamela",
                     "father",
-                    "thank",
-                    "freed",
-                    "saved",
-                    "padre",
-                    "grazie",
-                    "libero",
+                    "gibdo",
+                    "music",
+                    "box",
+                    "house",
+                    "curse",
+                    "cursed",
+                    "ikana",
                 ],
+            ),
+            Objective(
+                id="pf_restore_river",
+                title="Restore the river with the Song of Storms",
+                description=(
+                    "Use the Song of Storms to restore the dried riverbed so that Pamela's father "
+                    "can be reached."
+                ),
+                location="Ikana Canyon",
+                window=_tw(1, (6, 0), (29, 0)),
+                prerequisites=["pf_find_pamela"],
+                requires_quests=["song_of_storms"],
+                keywords=["pamela", "father", "river", "storm", "song", "music", "box", "house"],
+            ),
+            Objective(
+                id="pf_enter_house",
+                title="Enter the Music Box House to reach the basement",
+                description=(
+                    "Sneak into the Music Box House to reach the basement where Pamela's father "
+                    "rests."
+                ),
+                location="Music Box House",
+                window=_tw(1, (6, 0), (29, 0)),
+                prerequisites=["pf_restore_river"],
+                npc_id="pamela",
+                keywords=[
+                    "pamela",
+                    "father",
+                    "enter",
+                    "house",
+                    "basement",
+                    "sneak",
+                    "music",
+                    "box",
+                ],
+            ),
+            Objective(
+                id="pf_free_father",
+                title="Free Pamela's father with the Song of Healing",
+                description=(
+                    "Play the Song of Healing for Pamela's "
+                    "father to break the curse. In return, he "
+                    "grants you the Gibdo Mask."
+                ),
+                location="Music Box House",
+                window=_tw(1, (6, 0), (29, 0)),
+                prerequisites=["pf_enter_house"],
+                provides_masks=["Gibdo Mask"],
+                npc_id="pamela",
+                keywords=[
+                    "pamela",
+                    "father",
+                    "free",
+                    "break",
+                    "curse",
+                    "healing",
+                    "song",
+                    "gibdo",
+                    "mask",
+                    "music",
+                    "box",
+                    "house",
+                    "guarigione",
+                    "liberare",
+                ],
+            ),
+            Objective(
+                id="pf_reunite_pamela",
+                title="Reunite Pamela with her father",
+                description=(
+                    "Pamela is overjoyed to be reunited with her father after breaking his curse."
+                ),
+                location="Music Box House",
+                window=_tw(1, (6, 0), (29, 0)),
+                prerequisites=["pf_free_father"],
+                npc_id="pamela",
+                keywords=["pamela", "father", "music", "box", "house", "ikana", "riunione"],
             ),
         ],
     )
+
     deku_princess = Quest(
         id="deku_princess",
         name="Deku Princess Rescue",
         objectives=[
             Objective(
                 id="dp_get_deku_mask",
-                title="Receive the Deku Mask from the Happy Mask Salesman",
-                description="The salesman loans the travelling hero the Deku Mask.",
-                location="Termina Field",
-                window=_tw(1, (6, 0), (20, 0)),
+                title="Obtain the Deku Mask from the Happy Mask Salesman",
+                description=(
+                    "After retrieving the Ocarina of Time and turning back time with the Song of "
+                    "Time, learn the Song of Healing from the Happy Mask Salesman to receive the "
+                    "Deku Mask."
+                ),
+                location="Clock Tower",
+                window=_tw(1, (6, 0), (23, 59)),
                 provides_masks=["Deku Mask"],
-                keywords=[
-                    "deku",
-                    "mask",
-                    "salesman",
-                    "receive",
-                    "maschera",
-                    "ricevi",
-                    "venditore",
-                ],
+                npc_id="mask_salesman",
+                keywords=["deku", "mask", "salesman", "healing", "song", "maschera", "venditore"],
             ),
             Objective(
                 id="dp_talk_king",
-                title="Plead with the Deku King for the princess",
-                description="The Deku King believes you kidnapped his daughter.",
+                title="Speak to the Deku King at Deku Palace",
+                description=(
+                    "Enter Deku Palace in Deku form and speak to the Deku King. He blames you for "
+                    "the disappearance of the Deku Princess."
+                ),
                 location="Deku Palace",
-                window=_tw(1, (8, 0), (20, 0)),
+                window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dp_get_deku_mask"],
                 requires_masks=["Deku Mask"],
                 npc_id="dekuboss",
-                keywords=[
-                    "deku",
-                    "princess",
-                    "king",
-                    "palace",
-                    "rescue",
-                    "deku",
-                    "principessa",
-                    "re",
-                    "palazzo",
-                ],
+                keywords=["deku", "princess", "king", "palace", "palazzo", "principessa", "re"],
+            ),
+            Objective(
+                id="dp_learn_sonata",
+                title="Learn the Sonata of Awakening from the Monkey",
+                description=(
+                    "Talk to the Monkey in the Deku Palace "
+                    "dungeon to learn the Sonata of Awakening."
+                ),
+                location="Deku Palace",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["dp_talk_king"],
+                npc_id="monkey",
+                keywords=["monkey", "sonata", "awakening", "song"],
+            ),
+            Objective(
+                id="dp_save_koume",
+                title="Save Koume in Southern Swamp to obtain the boat cruise",
+                description=(
+                    "Rescue Koume in Southern Swamp to obtain the boat cruise to Woodfall Temple."
+                ),
+                location="Southern Swamp",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["dp_learn_sonata"],
+                npc_id="koume",
+                keywords=["koume", "swamp", "boat", "cruise"],
             ),
             Objective(
                 id="dp_enter_woodfall",
-                title="Navigate the swamp to reach Woodfall",
-                description="Follow the trail through the Southern Swamp to Woodfall.",
-                location="Woodfall",
-                window=_tw(1, (8, 0), (23, 59)),
-                prerequisites=["dp_talk_king"],
-                requires_masks=["Deku Mask"],
-                keywords=[
-                    "woodfall",
-                    "swamp",
-                    "navigate",
-                    "trail",
-                    "palude",
-                    "sentiero",
-                    "woodfall",
-                ],
+                title="Enter Woodfall Temple through Southern Swamp",
+                description=(
+                    "Use the boat cruise and Sonata of Awakening to reach Woodfall Temple to find "
+                    "the source of the poison."
+                ),
+                location="Woodfall Temple",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["dp_save_koume"],
+                keywords=["woodfall", "swamp", "temple", "sonata", "palude"],
             ),
             Objective(
-                id="dp_free_princess",
-                title="Free the Deku Princess from the monkey's cage",
-                description="The monkey locked the princess in a cage at Woodfall.",
-                location="Woodfall",
-                window=_tw(2, (6, 0), (20, 0)),
+                id="dp_rescue_princess",
+                title="Defeat Odolwa and rescue the Deku Princess",
+                description=(
+                    "Clear Woodfall Temple and defeat Odolwa. "
+                    "Rescue the Deku Princess, capture her "
+                    "in an Empty Bottle."
+                ),
+                location="Woodfall Temple",
+                window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dp_enter_woodfall"],
-                requires_masks=["Deku Mask"],
-                keywords=[
-                    "deku",
-                    "princess",
-                    "monkey",
-                    "cage",
-                    "free",
-                    "principesa",
-                    "gabbia",
-                    "libera",
-                ],
+                requires_items=["Empty Bottle"],
+                keywords=["odolwa", "princess", "bottle", "temple", "rescue"],
+            ),
+            Objective(
+                id="dp_return_princess",
+                title="Return the Deku Princess to the Deku King",
+                description=(
+                    "Return the Deku Princess to the Deku King in Deku Palace to lift the blame."
+                ),
+                location="Deku Palace",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["dp_rescue_princess"],
+                keywords=["princess", "return", "king", "palace"],
+            ),
+            Objective(
+                id="dp_butler_race",
+                title="Race the Deku Butler for the Mask of Scents",
+                description=(
+                    "Race the Deku Butler through the Deku Shrine to earn the Mask of Scents."
+                ),
+                location="Deku Shrine",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["dp_return_princess"],
+                provides_masks=["Mask of Scents"],
+                npc_id="deku_butler",
+                keywords=["butler", "race", "mask", "scents", "shrine", "gara", "maschera"],
             ),
         ],
     )
+
     romani_ranch = Quest(
         id="romani_ranch",
         name="Romani Ranch",
         objectives=[
             Objective(
                 id="rr_get_powder_keg",
-                title="Buy the Powder Keg for the alien defense",
-                description="The keg shop sells the blast that drives the aliens away.",
-                location="Termina Field",
-                window=_tw(1, (0, 0), (6, 0)),
+                title="Get a Powder Keg from the Goron in Goron Village",
+                description=(
+                    "Obtain a Powder Keg (with certification as needed) to blast the boulder "
+                    "blocking Milk Road."
+                ),
+                location="Goron Village",
+                window=_tw(1, (6, 0), (23, 59)),
+                requires_quests=["darmani_spirit"],
                 provides_items=["Powder Keg"],
-                keywords=["powder", "keg", "buy", "explosive", "polvere", "botte", "compra"],
+                keywords=["powder", "keg", "village", "romani"],
             ),
             Objective(
-                id="rr_help_romani",
-                title="Help Romani practice shooting aliens at the ranch",
+                id="rr_clear_path",
+                title="Clear the boulder to Milk Road with a Powder Keg",
                 description=(
-                    "Romani needs your help defending the ranch from the Bremmmy Gyorgs tonight."
+                    "Use the Powder Keg to blast the boulder blocking the entrance to Romani Ranch."
                 ),
-                location="Ranch House",
-                window=_tw(1, (8, 0), (20, 0)),
+                location="Milk Road",
+                window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["rr_get_powder_keg"],
                 requires_items=["Powder Keg"],
+                keywords=["boulder", "milk", "road", "romani", "ranch"],
+            ),
+            Objective(
+                id="rr_learn_epona",
+                title="Help Romani practice and learn Epona's Song",
+                description=(
+                    "Talk to Romani at Romani Ranch. She asks for help defending the ranch from "
+                    "'them' and teaches Link Epona's Song."
+                ),
+                location="Romani Ranch",
+                window=_tw(1, (6, 0), (18, 0)),
+                prerequisites=["rr_clear_path"],
                 npc_id="romani",
-                event_ref="ranch_aliens",
-                keywords=[
-                    "romani",
-                    "ranch",
-                    "aliens",
-                    "shoot",
-                    "practice",
-                    "fattoria",
-                    "alieni",
-                    "tiro",
-                ],
+                keywords=["romani", "epona", "song", "practice", "aliens", "ranch"],
             ),
             Objective(
                 id="rr_defend_ranch",
-                title="Defend the ranch from the alien invasion",
-                description="The aliens come at 2 AM. Use Cremia's wagon cannon to fight them off.",
-                location="Ranch House",
-                window=_tw(2, (2, 0), (4, 0)),
-                prerequisites=["rr_help_romani"],
-                requires_items=["Powder Keg"],
+                title="Defend Romani Ranch from the alien invasion",
+                description=(
+                    "Return to Romani Ranch before 2:30 AM on the night of the First Day. Use your "
+                    "bow to stop the aliens from reaching the barn until dawn."
+                ),
+                location="Romani Ranch",
+                window=_tw(1, (26, 30), (29, 15)),
+                prerequisites=["rr_learn_epona"],
+                requires_items=["Bow"],
+                npc_id="romani",
                 event_ref="ranch_aliens",
-                keywords=[
-                    "aliens",
-                    "defend",
-                    "wagon",
-                    "night",
-                    "alieni",
-                    "difendi",
-                    "notte",
-                    "carrozza",
-                ],
+                keywords=["aliens", "them", "barn", "bow", "defend", "ranch", "notte"],
             ),
             Objective(
                 id="rr_milk_delivery",
-                title="Ride with Cremia to deliver milk to Clock Town",
-                description="Cremia needs an escort through the canyon on the Second Night.",
-                location="Market District",
-                window=_tw(2, (20, 0), (23, 59)),
+                title="Escort Cremia on the milk delivery to Clock Town",
+                description=(
+                    "On the Second Day at 6:00 PM, ride with "
+                    "Cremia in her wagon to deliver milk to "
+                    "Clock Town. Defend the wagon from the Gorman Brothers with your bow."
+                ),
+                location="Milk Road",
+                window=_tw(2, (18, 0), (19, 45)),
                 prerequisites=["rr_defend_ranch"],
                 npc_id="cremia",
                 event_ref="ranch_milk_delivery",
+                provides_masks=["Romani's Mask"],
                 keywords=[
                     "cremia",
                     "milk",
                     "delivery",
-                    "escort",
                     "wagon",
-                    "latticini",
+                    "gorman",
+                    "romani",
+                    "mask",
                     "consegna",
-                    "scorta",
                 ],
             ),
         ],
     )
+
+    song_of_storms = Quest(
+        id="song_of_storms",
+        name="Song of Storms",
+        objectives=[
+            Objective(
+                id="ss_wake_keeta",
+                title="Wake Captain Keeta in Ikana Graveyard with the Sonata of Awakening",
+                description=(
+                    "Use the Sonata of Awakening to wake Captain Keeta in the Ikana Graveyard."
+                ),
+                location="Ikana Graveyard",
+                window=_tw(1, (6, 0), (23, 59)),
+                requires_quests=["deku_princess"],
+                npc_id="captain_keeta",
+                keywords=["keeta", "graveyard", "sonata", "awakening"],
+            ),
+            Objective(
+                id="ss_open_grave",
+                title="Open the grave of the Composer Brother Flat",
+                description="Open the grave of the Composer Brother Flat in the Ikana Graveyard.",
+                location="Ikana Graveyard",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["ss_wake_keeta"],
+                keywords=["grave", "flat", "composer", "ikana"],
+            ),
+            Objective(
+                id="ss_learn_song_storms",
+                title="Learn the Song of Storms from Flat",
+                description=(
+                    "Learn the Song of Storms from the ghost of Flat in the Ikana Graveyard."
+                ),
+                location="Ikana Graveyard",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["ss_open_grave"],
+                npc_id="flat",
+                keywords=["song", "storms", "flat", "graveyard"],
+            ),
+        ],
+    )
+
     deed_chain = Quest(
         id="deed_chain",
         name="Land Title Deed Chain",
         objectives=[
             Objective(
-                id="dc_get_swamp_deed",
-                title="Receive the Swamp Title Deed in the Southern Swamp",
-                description="The swamp owner hands over the deed to a worthy bearer.",
-                location="Swamp Spider House",
-                window=_tw(1, (6, 0), (18, 0)),
+                id="dc_get_moon_tear",
+                title="Obtain the Moon's Tear from the Astral Observatory",
+                description=(
+                    "Look through the telescope in the Astral "
+                    "Observatory and zoom in on the top of "
+                    "the Clock Tower to make the moon drop a Moon's Tear."
+                ),
+                location="Astral Observatory",
+                window=_tw(1, (6, 0), (23, 59)),
+                provides_items=["Moon's Tear"],
+                requires_quests=["deku_princess"],
+                keywords=["moon", "tear", "observatory", "clock", "tower", "lacrima", "luna"],
+            ),
+            Objective(
+                id="dc_get_land_deed",
+                title="Trade the Moon's Tear for the Town Title Deed",
+                description=(
+                    "Trade the Moon's Tear to the Business Scrub in South Clock Town to obtain the "
+                    "Town Title Deed."
+                ),
+                location="South Clock Town",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["dc_get_moon_tear"],
+                requires_items=["Moon's Tear"],
+                provides_items=["Town Title Deed"],
+                keywords=["town", "deed", "title", "moon", "tear", "scrub", "terra", "titolo"],
+            ),
+            Objective(
+                id="dc_land_to_swamp",
+                title="Trade the Town Title Deed for the Swamp Title Deed",
+                description=(
+                    "Trade the Town Title Deed to the Business "
+                    "Scrub in Southern Swamp to obtain the "
+                    "Swamp Title Deed."
+                ),
+                location="Southern Swamp",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["dc_get_land_deed"],
+                requires_items=["Town Title Deed"],
                 provides_items=["Swamp Title Deed"],
-                keywords=[
-                    "deed",
-                    "title",
-                    "swamp",
-                    "receive",
-                    "titolo",
-                    "palude",
-                    "ricevi",
-                ],
+                keywords=["swamp", "deed", "title", "town", "palude", "titolo"],
             ),
             Objective(
                 id="dc_swamp_to_mountain",
-                title="Deliver the Swamp Title Deed to the Goron Shrine",
-                description="Trade the Swamp Title Deed for the Mountain Title Deed.",
-                location="Goron Shrine",
-                window=_tw(1, (8, 0), (20, 0)),
-                prerequisites=["dc_get_swamp_deed"],
+                title="Trade the Swamp Title Deed for the Mountain Title Deed",
+                description=(
+                    "Trade the Swamp Title Deed to the Business "
+                    "Scrub in Goron Village to obtain the "
+                    "Mountain Title Deed."
+                ),
+                location="Goron Village",
+                window=_tw(1, (6, 0), (23, 59)),
+                prerequisites=["dc_land_to_swamp"],
                 requires_items=["Swamp Title Deed"],
                 provides_items=["Mountain Title Deed"],
-                keywords=[
-                    "deed",
-                    "title",
-                    "swamp",
-                    "mountain",
-                    "shrine",
-                    "titolo",
-                    "palude",
-                    "montagna",
-                    "scambio",
-                ],
+                keywords=["mountain", "deed", "title", "swamp", "montagna", "titolo"],
             ),
             Objective(
                 id="dc_mountain_to_bay",
-                title="Deliver the Mountain Title Deed to Zora Hall",
-                description="Trade the Mountain Title Deed for the Ocean Title Deed.",
+                title="Trade the Mountain Title Deed for the Ocean Title Deed",
+                description=(
+                    "Trade the Mountain Title Deed to the "
+                    "Business Scrub in Lulu's room at Zora Hall "
+                    "to obtain the Ocean Title Deed."
+                ),
                 location="Zora Hall",
-                window=_tw(2, (6, 0), (18, 0)),
+                window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dc_swamp_to_mountain"],
                 requires_items=["Mountain Title Deed"],
                 provides_items=["Ocean Title Deed"],
-                keywords=[
-                    "deed",
-                    "title",
-                    "mountain",
-                    "ocean",
-                    "zora",
-                    "titolo",
-                    "montagna",
-                    "oceano",
-                ],
+                requires_quests=["mikau_memory", "romani_ranch"],
+                keywords=["ocean", "deed", "title", "mountain", "zora", "oceano", "titolo"],
             ),
             Objective(
-                id="dc_bay_to_ikana",
-                title="Deliver the Ocean Title Deed to Ikana Canyon",
-                description="Trade the Ocean Title Deed for the Land Title Deed.",
-                location="Canyon Shrine",
-                window=_tw(2, (18, 0), (23, 59)),
+                id="dc_ocean_to_rupee",
+                title="Trade the Ocean Title Deed for a Huge Rupee",
+                description=(
+                    "Trade the Ocean Title Deed to the Business Scrub in Ikana Canyon to obtain a "
+                    "Huge Rupee."
+                ),
+                location="Ikana Canyon",
+                window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dc_mountain_to_bay"],
                 requires_items=["Ocean Title Deed"],
-                provides_items=["Land Title Deed"],
-                keywords=[
-                    "deed",
-                    "title",
-                    "ocean",
-                    "land",
-                    "ikana",
-                    "titolo",
-                    "oceano",
-                    "terra",
-                ],
-            ),
-            Objective(
-                id="dc_land_to_ct",
-                title="Deliver the Land Title Deed to Clock Town",
-                description="Complete the cycle by returning the Land Title Deed.",
-                location="Curiosity Shop",
-                window=_tw(3, (8, 0), (18, 0)),
-                prerequisites=["dc_bay_to_ikana"],
-                requires_items=["Land Title Deed"],
-                keywords=[
-                    "deed",
-                    "title",
-                    "land",
-                    "clock",
-                    "town",
-                    "titolo",
-                    "terra",
-                    "città",
-                ],
+                provides_items=["Huge Rupee"],
+                keywords=["ocean", "deed", "title", "rupee", "ikana", "huge", "oro", "rupia"],
             ),
         ],
     )
+
     return KnowledgeBase(
         quests=[
             anju_kafei,
             bombers,
             darmani_spirit,
+            goron_lullaby,
             mikau_memory,
             pamela_father,
             deku_princess,
             romani_ranch,
+            song_of_storms,
             deed_chain,
         ],
         locations=locations,

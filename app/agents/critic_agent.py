@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from app.data.mock_knowledge import NPC, Objective, build_default_knowledge
+from app.data.mock_knowledge import NPC, Objective, Quest, build_default_knowledge
 from app.domain import (
     ClockTime,
     GameState,
@@ -23,6 +23,75 @@ from app.trace import set_output
 from app.trace import span as traced_span
 
 logger = logging.getLogger(__name__)
+
+
+def _build_quest_maps(quests: list[Quest]) -> tuple[dict[str, Quest], dict[str, str]]:
+    quest_by_id = {q.id: q for q in quests}
+    quest_terminal = {q.id: q.objectives[-1].id for q in quests if q.objectives}
+    return quest_by_id, quest_terminal
+
+
+_KB = build_default_knowledge()
+_QUEST_BY_ID, _QUEST_TERMINAL = _build_quest_maps(_KB.quests)
+_OBJ_BY_ID = {obj.id: obj for q in _KB.quests for obj in q.objectives}
+
+
+def _quest_is_satisfied(required_quest_id: str, game_state: GameState, plan: Plan) -> bool:
+    if game_state.quest_progress.get(required_quest_id) == "done":
+        return True
+    terminal = _QUEST_TERMINAL.get(required_quest_id)
+    if terminal:
+        for step in plan.steps:
+            if step.objective_ref == terminal:
+                return True
+        # Owning the quest's reward is proof enough that its terminal step
+        # already happened (the planner prunes it as an owned provide).
+        terminal_obj = _OBJ_BY_ID.get(terminal)
+        if terminal_obj is not None and _provides_owned(terminal_obj, game_state):
+            return True
+    return False
+
+
+def _quest_prerequisite_closure(
+    required_quest_id: str,
+    game_state: GameState,
+    plan: Plan,
+    visited: set[str] | None = None,
+) -> list[str]:
+    if visited is None:
+        visited = set()
+    if required_quest_id in visited:
+        return []
+    visited.add(required_quest_id)
+
+    if _quest_is_satisfied(required_quest_id, game_state, plan):
+        return []
+
+    missing: list[str] = []
+    q = _QUEST_BY_ID.get(required_quest_id)
+    if not q:
+        # still missing, but we don't know its deps
+        missing.append(required_quest_id)
+    else:
+        reqs: set[str] = set()
+        for obj in q.objectives:
+            for r in getattr(obj, "requires_quests", []) or []:
+                reqs.add(r)
+        for r in sorted(reqs):
+            missing.extend(_quest_prerequisite_closure(r, game_state, plan, visited))
+        # add this quest if still missing
+        if not _quest_is_satisfied(required_quest_id, game_state, plan):
+            missing.append(required_quest_id)
+
+    # deduplicate preserving order
+    seen = set()
+    out = []
+    for m in missing:
+        if m in seen:
+            continue
+        seen.add(m)
+        out.append(m)
+    return out
 
 
 def validate_plan(
@@ -59,6 +128,13 @@ def validate_plan(
     for idx, step in enumerate(plan.steps):
         issues.extend(_check_step(step, idx, plan, game_state, by_id, npc_by_id))
     return ValidationResult(valid=not issues, issues=issues)
+
+
+def _quest_display_name(quest_id: str) -> str:
+    q = _QUEST_BY_ID.get(quest_id)
+    if q:
+        return q.name
+    return quest_id
 
 
 def _check_step(
@@ -142,6 +218,31 @@ def _check_step(
         issues.append(
             _issue("prerequisite", idx, f"Missing prerequisite(s): {', '.join(missing_prereqs)}.")
         )
+
+    # Quest prerequisites
+    quest_reqs = getattr(objective, "requires_quests", []) or []
+    for qreq in quest_reqs:
+        missing_chain = _quest_prerequisite_closure(qreq, game_state, plan)
+        if missing_chain:
+            # build message with transitive info
+            if len(missing_chain) == 1 and missing_chain[0] == qreq:
+                msg = (
+                    f"Quest prerequisite missing: {_quest_display_name(qreq)}. "
+                    "Complete this quest first."
+                )
+            else:
+                # ancestors first, then the required quest
+                parts = []
+                for mq in missing_chain:
+                    parts.append(_quest_display_name(mq))
+                msg = (
+                    f"Quest prerequisite missing: {', '.join(parts)}. Complete these quests first."
+                )
+            issues.append(
+                ValidationIssue(
+                    severity="error", step_idx=idx, kind="quest_prerequisite", message=msg
+                )
+            )
 
     for earlier in step.depends_on:
         if earlier >= idx:

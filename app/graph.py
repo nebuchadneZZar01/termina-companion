@@ -14,7 +14,7 @@ import time
 from langgraph.graph import END, START, StateGraph
 from opentelemetry.trace import Status, StatusCode
 
-from app.agents import critic_agent, knowledge_agent, memory_agent, planning_agent, state_agent
+from app.agents import critic_agent, knowledge_agent, planning_agent, state_agent
 from app.domain import GameState, Goal
 from app.memory.models import PlayerPreferences
 from app.memory.store import get_memory_store
@@ -76,7 +76,7 @@ def _node_input(state) -> str:
     try:
         goal = getattr(getattr(state, "goal", None), "description", "")
         gs = state.game_state
-        clock = f"day {gs.time.day} {gs.time.hour:02d}:{gs.time.minute:02d}"
+        clock = str(gs.time)
         return f"{goal} | {clock} | {gs.location}"
     except Exception:  # noqa: BLE001 - audit input must never break a run
         return ""
@@ -108,11 +108,6 @@ def _node_output(name: str, result: dict):
                 "valid": validation.valid,
                 "issues": [f"[{i.severity}/{i.kind}] {i.message}" for i in validation.issues],
             }
-        if name in {"memory", "memory_store"}:
-            episodes = result.get("relevant_episodes") or []
-            if episodes:
-                return [{"goal": e.goal, "valid": e.valid} for e in episodes]
-            return dict(result)
     except Exception:  # noqa: BLE001 - audit output must never break a run
         return ""
     return dict(result)
@@ -135,9 +130,6 @@ def _node_detail(name: str, result: dict) -> str:
                 return ""
             n = len(validation.issues)
             return "valid" if validation.valid else f"{n} issue(s)"
-        if name in {"memory", "memory_store"}:
-            episodes = result.get("relevant_episodes") or []
-            return f"{len(episodes)} episode(s)" if episodes else ""
     except Exception:  # noqa: BLE001 - audit detail must never break a run
         return ""
     return ""
@@ -157,22 +149,16 @@ def build_graph():
         ``stream``.
     """
     graph = StateGraph(PlanningState)
-    graph.add_node("memory", _with_start("memory", memory_agent.retrieve_run))
-    graph.add_node("memory_store", memory_agent.store_run)
     graph.add_node("state", _with_start("state", state_agent.run))
     graph.add_node("knowledge", _with_start("knowledge", knowledge_agent.run))
     graph.add_node("plan", _with_start("plan", planning_agent.run))
     graph.add_node("critic", _with_start("critic", critic_agent.run))
 
-    graph.add_edge(START, "memory")
-    graph.add_edge("memory", "state")
+    graph.add_edge(START, "state")
     graph.add_edge("state", "knowledge")
     graph.add_edge("knowledge", "plan")
     graph.add_edge("plan", "critic")
-    graph.add_conditional_edges(
-        "critic", _route, {"valid": "memory_store", "replan": "plan", "give_up": "memory_store"}
-    )
-    graph.add_edge("memory_store", END)
+    graph.add_conditional_edges("critic", _route, {"valid": END, "replan": "plan", "give_up": END})
     return graph.compile()
 
 
@@ -190,6 +176,12 @@ def _route(state: PlanningState) -> str:
     if state.validation and state.validation.valid:
         logger.info("Graph: valid plan — done")
         return "valid"
+    if state.validation and state.validation.issues:
+        # If all errors are quest prerequisites, re-planning cannot help
+        error_issues = [i for i in state.validation.issues if i.severity == "error"]
+        if error_issues and all(i.kind == "quest_prerequisite" for i in error_issues):
+            logger.info("Graph: quest prerequisite gate(s) only — giving up (no re-plan)")
+            return "give_up"
     if state.replan_attempts >= MAX_PLANNING_ATTEMPTS:
         logger.warning("Graph: replan limit reached (%d) — giving up", MAX_PLANNING_ATTEMPTS)
         return "give_up"
@@ -197,6 +189,27 @@ def _route(state: PlanningState) -> str:
         "Graph: re-planning (attempt %d/%d)", state.replan_attempts + 1, MAX_PLANNING_ATTEMPTS
     )
     return "replan"
+
+
+def _retrieve_memory(state: PlanningState) -> dict:
+    """Load preferences and relevant past episodes into the workflow state."""
+    try:
+        from app.agents import memory_agent
+
+        return memory_agent.retrieve_run(state)
+    except Exception:
+        logger.debug("Memory retrieval failed", exc_info=True)
+        return {}
+
+
+def _store_memory(state: PlanningState) -> None:
+    """Persist the finished run as one episode."""
+    try:
+        from app.agents import memory_agent
+
+        memory_agent.store_run(state)
+    except Exception:
+        logger.debug("Memory store failed", exc_info=True)
 
 
 def run_pipeline(
@@ -219,8 +232,13 @@ def run_pipeline(
     if preferences is not None:
         get_memory_store().save_preferences(preferences)
     with pipeline_span(goal.description):
-        result = build_graph().invoke(PlanningState(game_state=game_state, goal=goal))
+        initial = PlanningState(game_state=game_state, goal=goal)
+        mem = _retrieve_memory(initial)
+        if mem:
+            initial = initial.model_copy(update=mem)
+        result = build_graph().invoke(initial)
     state = PlanningState.model_validate(result)
+    _store_memory(state)
     # The root span is closed (and flushed) here, so the Critic's verdict
     # can be annotated onto the trace in Phoenix; best-effort, no endpoint
     # or a dead Phoenix is a log line, never a failed run.
