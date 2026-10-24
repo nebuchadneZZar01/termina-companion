@@ -539,7 +539,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "generate_plan_caption": "Builds the plan from your state and goal.",
         "stop_plan": "Stop",
         "stop_plan_help": "Stop after the current agent or LLM call finishes.",
-        "info_edit_state": ("Set your state and goal, then press **Ask TaIA**."),
+        "empty_plan_title": "No plan yet",
+        "empty_plan_body": (
+            "Tell me what you want to do, Link, and press \u201cAsk TaIA\u201d: "
+            "your path will appear here, hour by hour, until the Moon falls."
+        ),
         "llm_settings": "LLM Settings",
         "runtime_config": "Runtime configuration",
         "rag_retrieval": "Wiki retrieval",
@@ -888,7 +892,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "stop_plan_help": (
             "Interrompe dopo il completamento dell'agente o della chiamata LLM in corso."
         ),
-        "info_edit_state": ("Imposta stato e obiettivo, poi premi **Chiedi a TaIA**."),
+        "empty_plan_title": "Ancora nessun piano",
+        "empty_plan_body": (
+            "Dimmi cosa vuoi fare, Link, e premi \u201cChiedi a TaIA\u201d: "
+            "qui comparir\u00e0 il tuo percorso, ora per ora, fino alla caduta della Luna."
+        ),
         "llm_settings": "Impostazioni LLM",
         "runtime_config": "Configurazione runtime",
         "rag_retrieval": "Retrieval wiki",

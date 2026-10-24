@@ -1902,15 +1902,19 @@ h1, h2, h3, h4, h5, h6 {
 .tc-daylabels .on { color: var(--tc-gold); font-weight: 600; }
 .tc-time-caption { color: var(--tc-muted); font-size: 12px; }
 
-.tc-fairy { display: flex; gap: 16px; align-items: center; }
+.tc-fairy { display: flex; gap: 10px; align-items: center; }
+.tc-fairy-figure { position: relative; width: 96px; height: 72px; flex: none; }
+.tc-fairy-wings { position: absolute; inset: 0; width: 96px; height: 72px; }
 .tc-fairy-orb {
-  width: 44px;
-  height: 44px;
-  flex: none;
+  position: absolute;
+  left: 30px;
+  top: 26px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 50%, #ffffff 0%, #b8f3ec 28%,
-    #5fd1c4 60%, rgba(95, 209, 196, 0.15) 100%);
-  box-shadow: 0 0 22px 6px rgba(95, 209, 196, 0.45);
+  background: radial-gradient(circle at 50% 50%, #ffffff 0%, #fff3a0 30%,
+    #f5d142 62%, rgba(245, 209, 66, 0.15) 100%);
+  box-shadow: 0 0 22px 8px rgba(245, 209, 66, 0.5);
 }
 .tc-fairy-bubble {
   flex: 1;
@@ -1992,6 +1996,26 @@ h1, h2, h3, h4, h5, h6 {
 .tc-verdict.fail .tc-verdict-title { color: var(--tc-red); }
 .tc-verdict-body { font-size: 13px; color: #b9e5e0; }
 .tc-verdict.fail .tc-verdict-body { color: #f0b5a8; }
+
+.tc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 56px 24px;
+  border-radius: 14px;
+  border: 1px dashed var(--tc-border-strong);
+  background: var(--tc-surface);
+  text-align: center;
+}
+.tc-empty-icon { color: var(--tc-gold); }
+.tc-empty-title {
+  font-family: Cinzel, serif;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--tc-gold);
+}
+.tc-empty-body { max-width: 460px; color: var(--tc-muted); }
 
 .tc-timeline { display: flex; flex-direction: column; }
 .tc-step { display: flex; gap: 18px; }
@@ -2086,12 +2110,58 @@ def _time_card_html(day: int, value: datetime.time) -> str:
     )
 
 
+def _empty_plan_html() -> str:
+    """Return the dashed empty-state card shown before the first plan."""
+    return (
+        '<section class="tc-empty">'
+        '<svg class="tc-empty-icon" width="40" height="40" viewBox="0 0 24 24" '
+        'fill="none" stroke="currentColor" stroke-width="1.5" '
+        'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        '<circle cx="12" cy="12" r="9"></circle>'
+        '<path d="M12 7v5l3 2"></path></svg>'
+        f'<div class="tc-empty-title">{html.escape(t("empty_plan_title"))}</div>'
+        f'<div class="tc-empty-body">{html.escape(t("empty_plan_body"))}</div>'
+        "</section>"
+    )
+
+
 def _fairy_html(day: int, value: datetime.time) -> str:
     """Return TaIA's greeting bubble with the hours left in the cycle."""
     hours = _hours_left(day, _internal_hour(value.hour), value.minute)
+    wings = (
+        '<svg class="tc-fairy-wings" viewBox="0 0 96 72" aria-hidden="true">'
+        '<defs><linearGradient id="taiaw" x1="0" y1="0" x2="0" y2="1">'
+        '<stop offset="0" stop-color="#bfe6f2" stop-opacity="0.75"></stop>'
+        '<stop offset="1" stop-color="#fff3a0" stop-opacity="0.75"></stop>'
+        "</linearGradient></defs>"
+        '<path d="M40 38C28 30 16 16 12 3C26 8 38 22 40 38Z" fill="url(#taiaw)" '
+        'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
+        'stroke-linecap="round"></path>'
+        '<path d="M39 35C29 25 21 14 14 5" fill="none" stroke="#8fb8c4" '
+        'stroke-width="0.9" stroke-linecap="round"></path>'
+        '<path d="M56 38C68 30 80 16 84 3C70 8 58 22 56 38Z" fill="url(#taiaw)" '
+        'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
+        'stroke-linecap="round"></path>'
+        '<path d="M57 35C67 25 75 14 82 5" fill="none" stroke="#8fb8c4" '
+        'stroke-width="0.9" stroke-linecap="round"></path>'
+        '<path d="M38 47C29 44 21 47 13 54C23 57 33 55 38 47Z" fill="url(#taiaw)" '
+        'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
+        'stroke-linecap="round"></path>'
+        '<path d="M58 47C67 44 75 47 83 54C73 57 63 55 58 47Z" fill="url(#taiaw)" '
+        'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
+        'stroke-linecap="round"></path>'
+        '<circle cx="70" cy="60" r="3.5" fill="none" stroke="#f5d142" '
+        'stroke-width="1.2"></circle>'
+        '<circle cx="80" cy="66" r="2.2" fill="#f5d142"></circle>'
+        '<circle cx="88" cy="56" r="1.8" fill="#fff3a0"></circle>'
+        "</svg>"
+    )
     return (
         '<section class="tc-fairy">'
-        '<div class="tc-fairy-orb" aria-hidden="true"></div>'
+        '<div class="tc-fairy-figure" aria-hidden="true">'
+        f"{wings}"
+        '<span class="tc-fairy-orb"></span>'
+        "</div>"
         '<div class="tc-fairy-bubble">'
         '<div class="tc-fairy-name">TaIA</div>'
         f'<div class="tc-fairy-text">{html.escape(t("fairy_greeting", hours=hours))}</div>'
@@ -2294,7 +2364,6 @@ def render() -> None:
         if save_warning:
             st.warning(save_warning)
         _render_configuration()
-        st.selectbox(t("language"), list(_LANGS), key="lang", format_func=lambda c: _LANGS[c])
 
     tab_play, tab_evaluation = st.tabs([t("tab_play"), t("tab_evaluation")])
     with tab_play:
@@ -2318,6 +2387,7 @@ def _render_sidebar_editor(kb) -> dict:
         dict: the selected day, time, location, masks, inventory and quests.
     """
     _html_block(_brand_html())
+    st.selectbox(t("language"), list(_LANGS), key="lang", format_func=lambda c: _LANGS[c])
     day = int(st.session_state.get("save_day", 1))
     when = st.session_state.get("save_time") or datetime.time(6, 0)
     _html_block(_time_card_html(day, when))
@@ -2417,17 +2487,17 @@ def _render_play(editor: dict, kb) -> None:
         None: renders the planning half of the app page.
     """
     _html_block(_fairy_html(editor["day"], editor["time"]))
-    goal_text = st.text_area(
-        t("goal_label"),
-        placeholder=t("goal_example"),
-        height=110,
-        key="save_goal",
-    )
     task = st.session_state.get(_PLANNING_TASK_KEY)
+    goal_col, ask_col, stop_col = st.columns([7, 2, 1], vertical_alignment="bottom")
+    with goal_col:
+        goal_text = st.text_input(
+            t("goal_label"),
+            placeholder=t("goal_example"),
+            key="save_goal",
+        )
     generate_disabled, stop_disabled = _plan_controls_disabled(task)
     if not (goal_text or "").strip():
         generate_disabled = True
-    ask_col, stop_col = st.columns([4, 1])
     with ask_col:
         run = st.button(
             t("ask_taia"),
@@ -2488,7 +2558,7 @@ def _render_play(editor: dict, kb) -> None:
         _render_planning_result(task, kb)
         return
 
-    st.info(t("info_edit_state"))
+    _html_block(_empty_plan_html())
 
 
 def _render_evaluation() -> None:
