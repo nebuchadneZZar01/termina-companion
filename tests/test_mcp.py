@@ -159,7 +159,7 @@ def test_get_quest_info_unknown_raises():
 def test_get_event_returns_details():
     event = get_event("ak_letter_delivery")
     assert event["name"] == "Kafei's letter is delivered"
-    assert event["location"] == "Market District"
+    assert event["location"] == "Stockpot Inn"
     assert "Day" in event["window"]
 
 

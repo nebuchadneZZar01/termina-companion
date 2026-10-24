@@ -703,11 +703,11 @@ def test_planning_agent_repairs_degenerate_cycle_end_window(monkeypatch):
 
 def test_to_step_carries_requires_masks():
     """_to_step carries an objective's required masks into the step."""
-    obj = next(o for q in _KB.quests for o in q.objectives if o.id == "dg_talk_elder")
+    obj = next(o for q in _KB.quests for o in q.objectives if o.id == "ak_talk_to_anju")
     step = planning_agent._to_step(
         obj, TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9)), []
     )
-    assert step.requires_masks == ["Goron Mask"]
+    assert step.requires_masks == ["Kafei's Mask"]
 
 
 def test_knowledge_covers_all_major_areas():

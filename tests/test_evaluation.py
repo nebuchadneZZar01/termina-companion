@@ -159,7 +159,7 @@ def test_forbidden_objective_fails_the_achievement_check():
     scenario = SCENARIOS_BY_ID["mikau-with-zora-mask"]
     plan = _reference_plan(scenario)
     objectives = {obj.id: obj for obj in relevant_objectives(scenario)}
-    owned = objectives["mm_get_zora_mask"]
+    owned = objectives["mm_heal_mikau"]
     plan.steps.append(
         PlanStep(
             title=owned.title,

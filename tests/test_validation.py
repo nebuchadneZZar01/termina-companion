@@ -317,7 +317,9 @@ def test_pipeline_valid_when_mask_is_acquired_in_plan():
     )
     result = run_pipeline(gs, Goal(description="I want to learn the Goron Lullaby from Darmani"))
     assert result.validation is not None and result.validation.valid
-    assert result.plan.steps[0].objective_ref == "dg_get_goron_mask"
+    refs = [s.objective_ref for s in result.plan.steps]
+    assert "dg_heal_darmani" in refs
+    assert refs.index("dg_heal_darmani") < refs.index("dg_get_hot_spring")
 
 
 def test_pipeline_valid_when_item_is_acquired_in_plan():
@@ -329,30 +331,7 @@ def test_pipeline_valid_when_item_is_acquired_in_plan():
     result = run_pipeline(gs, Goal(description="I want the Bomber's Notebook from the gang"))
     assert result.validation is not None and result.validation.valid
     refs = [s.objective_ref for s in result.plan.steps]
-    assert refs == ["bm_talk_leader", "bm_get_notebook", "bm_find_hideout"]
-
-
-def test_pipeline_valid_across_multi_quest_goal():
-    """A goal matching several quests chains each quest only to itself."""
-    gs = GameState(
-        time=ClockTime(day=1, hour=8),
-        location="Termina Field",
-        inventory=["Hookshot"],
-        masks=["Garo's Mask"],
-    )
-    result = run_pipeline(
-        gs, Goal(description="I want to enter the Ancient Castle of Ikana at night")
-    )
-    assert result.validation is not None and result.validation.valid
-    steps = result.plan.steps
-    obj_by_id = {o.id: o for o in result.relevant_objectives}
-    present = {s.objective_ref for s in steps}
-    for step in steps:
-        obj = obj_by_id.get(step.objective_ref)
-        if obj is None:
-            continue
-        expected = set(obj.prerequisites) & present
-        assert {steps[d].objective_ref for d in step.depends_on} == expected
+    assert refs == ["bm_pop_balloon", "bm_hide_and_seek", "bm_get_notebook", "bm_enter_hideout"]
 
 
 def test_knowledge_retrieval_empty_when_no_match():

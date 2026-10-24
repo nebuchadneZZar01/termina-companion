@@ -75,158 +75,310 @@ _DISPLAY_IT: dict[str, str] = {
     "The leader gives the notebook to a member he trusts.": (
         "Il leader consegna il taccuino a un membro di cui si fida."
     ),
-    # objective titles — Darmani's Spirit
-    "Obtain the Goron Mask from the Happy Mask Salesman": (
-        "Ottieni la Maschera Goron dal Venditore di Maschere"
+    # objective titles / descriptions — Bombers' Secret Society
+    "Pop the Majora Balloon in North Clock Town and talk to Jim": (
+        "Fai scoppiare il Pallone di Majora a Nord Clock Town e parla con Jim"
     ),
-    "Listen to the Goron Elder's song": "Ascolta la canzone dell'Anziano Goron",
-    "Obtain the Lens of Truth at the Curiosity Shop": (
-        "Ottieni la Lente della Verità al Negozio di Curiosità"
+    "Use a Deku Bubble to pop the balloon Jim is shooting at and challenge him to hide-and-seek.": (
+        "Usa una Bolla Deku per far scoppiare il pallone a cui Jim sta mirando e sfidalo "
+        "a nascondino."
     ),
-    "Speak with Darmani's ghost at the Goron Shrine": (
-        "Parla con il fantasma di Darmani al Santuario Goron"
+    "Find all five Bombers in hide-and-seek": "Trova tutti e cinque i Bombers a nascondino",
+    "Locate all five Bombers scattered around Clock Town within the time limit.": (
+        "Trova tutti e cinque i Bombers sparsi per Clock Town entro il tempo limite."
     ),
-    "Learn the Goron Lullaby from Darmani": "Impara la Ninna Nanna Goron da Darmani",
-    # objective titles — Mikau's Memory
-    "Recover the Zora Mask from the Great Bay Coast": (
-        "Recupera la Maschera Zora sulla Costa della Grande Baia"
+    "Obtain the Bombers' Notebook": "Ottieni il Taccuino dei Bombers",
+    "After completing hide-and-seek, receive the Bombers' Notebook from Jim. "
+    "The notebook tracks side quests throughout Termina.": (
+        "Dopo aver completato il nascondino, ricevi il Taccuino dei Bombers da Jim. "
+        "Il taccuino tiene traccia delle missioni secondarie in tutta Termina."
     ),
-    "Ask Tael about Mikau at Zora Hall": "Chiedi a Tael di Mikau alla Sala Zora",
-    "Retrieve Mikau's eggs from Pinnacle Rock": (
-        "Recupera le uova di Mikau dalla Roccia Pinnacolo"
+    "Enter the Bombers' Hideout using the secret code": (
+        "Entra nel Nascondiglio dei Bombers con il codice segreto"
     ),
-    "Learn the Song of Opening from Mikau": ("Impara la Canzone dell'Apertura da Mikau"),
-    # objective titles — Pamela's Father
-    "Buy the Gibdo Mask at the Curiosity Shop": (
-        "Compra la Maschera Gibdo al Negozio di Curiosità"
+    "Use the Bombers' secret code at the hideout entrance in East Clock Town to gain access.": (
+        "Usa il codice segreto dei Bombers all'ingresso del nascondiglio a Est Clock Town "
+        "per entrare."
     ),
-    "Enter the Ancient Castle of Ikana at night": ("Entra nell'Antico Castello di Ikana di notte"),
-    "Free Pamela's father from the Gibdo curse": (
-        "Libera il padre di Pamela dalla maledizione dei Gibdo"
+    # objective titles / descriptions — Darmani's Spirit
+    "Obtain the Lens of Truth from the Lone Peak Shrine": (
+        "Ottieni la Lente della Verità dal Santuario della Vetta Solitaria"
     ),
-    "Reunite with Pamela after freeing her father": (
-        "Riunisci Pamela e suo padre dopo averlo liberato"
+    "Obtain the Lens of Truth to see things that are invisible to the naked eye.": (
+        "Ottieni la Lente della Verità per vedere ciò che è invisibile a occhio nudo."
     ),
-    # objective titles — Deku Princess Rescue
-    "Receive the Deku Mask from the Happy Mask Salesman": (
-        "Ricevi la Maschera Deku dal Venditore di Maschere"
+    "See Darmani's spirit at the Goron Graveyard with the Lens of Truth": (
+        "Vedi lo spirito di Darmani al Cimitero Goron con la Lente della Verità"
     ),
-    "Plead with the Deku King for the princess": ("Implora il Re Deku per la principessa"),
-    "Navigate the swamp to reach Woodfall": ("Attraversa la palude per raggiungere Woodfall"),
-    "Free the Deku Princess from the monkey's cage": (
-        "Libera la principessa Deku dalla gabbia della scimmia"
+    "Use the Lens of Truth to see Darmani's spirit at the Goron Graveyard.": (
+        "Usa la Lente della Verità per vedere lo spirito di Darmani al Cimitero Goron."
     ),
-    # objective titles — Romani Ranch
-    "Buy the Powder Keg for the alien defense": (
-        "Compra la Botte di Polvere per la difesa dagli alieni"
+    "Heal Darmani's spirit with the Song of Healing": (
+        "Guarisci lo spirito di Darmani con la Canzone della Guarigione"
     ),
-    "Help Romani practice shooting aliens at the ranch": (
-        "Aiuta Romani ad allenarsi a sparare agli alieni nella fattoria"
+    "Play the Song of Healing for Darmani's spirit to soothe him. "
+    "In return, he grants you the Goron Mask.": (
+        "Suona la Canzone della Guarigione per lo spirito di Darmani per calmarlo. "
+        "In cambio, ti dona la Maschera Goron."
     ),
-    "Defend the ranch from the alien invasion": ("Difendi la fattoria dall'invasione aliena"),
-    "Ride with Cremia to deliver milk to Clock Town": (
-        "Viaggia con Cremia per consegnare il latte a Clock Town"
+    # objective titles / descriptions — Goron Lullaby
+    "Get hot spring water from Darmani's grave": ("Prendi l'acqua termale dalla tomba di Darmani"),
+    "Obtain hot spring water from Darmani's grave to thaw the frozen Goron Elder.": (
+        "Ottieni l'acqua termale dalla tomba di Darmani per sciogliere l'Anziano Goron congelato."
     ),
-    # objective titles — Land Title Deed Chain
-    "Receive the Swamp Title Deed in the Southern Swamp": (
-        "Ricevi la Carta di Proprietà della Palude nella Palude del Sud"
+    "Thaw the frozen Goron Elder on the path to Snowhead": (
+        "Sciogli l'Anziano Goron congelato sul sentiero per Snowhead"
     ),
-    "Deliver the Swamp Title Deed to the Goron Shrine": (
-        "Consegna la Carta di Proprietà della Palude al Santuario Goron"
+    "Use hot spring water to thaw the frozen Goron Elder and learn the Lullaby Intro.": (
+        "Usa l'acqua termale per sciogliere l'Anziano Goron congelato e imparare "
+        "l'Intro della Ninna Nanna."
     ),
-    "Deliver the Mountain Title Deed to Zora Hall": (
-        "Consegna la Carta di Proprietà della Montagna alla Sala Zora"
+    "Learn the full Goron Lullaby from the Baby Goron in Goron Shrine": (
+        "Impara la Ninna Nanna Goron completa dal piccolo Goron al Santuario Goron"
     ),
-    "Deliver the Ocean Title Deed to Ikana Canyon": (
-        "Consegna la Carta di Proprietà dell'Oceano al Canyon di Ikana"
+    "Learn the full Goron Lullaby from the Baby Goron in Goron Shrine.": (
+        "Impara la Ninna Nanna Goron completa dal piccolo Goron al Santuario Goron."
     ),
-    "Deliver the Land Title Deed to Clock Town": (
-        "Consegna la Carta di Proprietà della Terra a Clock Town"
+    # objective titles / descriptions — Mikau's Memory
+    "Heal Mikau's spirit with the Song of Healing": (
+        "Guarisci lo spirito di Mikau con la Canzone della Guarigione"
     ),
-    # objective descriptions — Darmani's Spirit
-    "The Happy Mask Salesman trades the mask to a traveller he trusts.": (
-        "Il Venditore di Maschere cede la maschera a un viaggiatore di cui si fida."
+    "Find Mikau's spirit washed up on Great Bay Coast and play the Song of Healing "
+    "to soothe him. In return, he grants you the Zora Mask.": (
+        "Trova lo spirito di Mikau sulla Costa della Grande Baia e suona la Canzone "
+        "della Guarigione per calmarlo. In cambio, ti dona la Maschera Zora."
     ),
-    "The Elder plays a melody that soothes Darmani's restless spirit.": (
-        "L'Anziano suona una melodia che calma lo spirito inquieto di Darmani."
+    "Talk to the Indigo-Go's about Lulu's stolen eggs": (
+        "Parla con gli Indigo-Go di Lulu e delle sue uova rubate"
     ),
-    "The Curiosity Shop sells the lens that sees the unseen.": (
-        "Il Negozio di Curiosità vende la lente che vede l'invisibile."
+    "In Zora form, speak to the members of the Indigo-Go's at Zora Hall. "
+    "They reveal that Lulu's eggs were stolen by Gerudo Pirates and hidden at "
+    "Pirates' Fortress and Pinnacle Rock.": (
+        "In forma Zora, parla con i membri degli Indigo-Go alla Sala Zora. "
+        "Ti rivelano che le uova di Lulu sono state rubate dai Pirati Gerudo e "
+        "nascoste alla Fortezza dei Pirati e alla Roccia Pinnacolo."
     ),
-    "Use the Lens of Truth to see Darmani's spirit.": (
-        "Usa la Lente della Verità per vedere lo spirito di Darmani."
+    "Retrieve four Zora Eggs from the Pirates' Fortress": (
+        "Recupera quattro Uova Zora dalla Fortezza dei Pirati"
     ),
-    "Darmani teaches you the lullaby that will put the baby to sleep.": (
-        "Darmani ti insegna la ninna nanna che farà addormentare il bambino."
+    "Swim through the Pirates' Fortress in Zora form and recover four of Lulu's stolen eggs.": (
+        "Nuota nella Fortezza dei Pirati in forma Zora e recupera quattro delle "
+        "uova rubate di Lulu."
     ),
-    # objective descriptions — Mikau's Memory
-    "The Zora Mask lies buried in the tide-washed shore.": (
-        "La Maschera Zora giace sepolta sulla riva lavata dalla marea."
+    "Retrieve three Zora Eggs from Pinnacle Rock": (
+        "Recupera tre Uova Zora dalla Roccia Pinnacolo"
     ),
-    "Tael knows where Mikau's stolen eggs are hidden.": (
-        "Tael sa dove sono nascoste le uova rubate di Mikau."
+    "Recover the remaining three Zora Eggs from Pinnacle Rock.": (
+        "Recupera le restanti tre Uova Zora dalla Roccia Pinnacolo."
     ),
-    "The Gerudo Pirates stole Mikau's eggs and hid them at Pinnacle Rock.": (
-        "I Pirati Gerudo hanno rubato le uova di Mikau e le hanno nascoste alla Roccia Pinnacolo."
+    "Deliver Lulu's eggs to the Marine Research Lab": (
+        "Consegna le uova di Lulu al Laboratorio di Ricerca Marino"
     ),
-    "Mikau teaches you the song that opens the Great Bay Temple.": (
-        "Mikau ti insegna la canzone che apre il Tempio della Grande Baia."
+    "Deliver all seven Zora Eggs to the Marine Research Lab.": (
+        "Consegna tutte e sette le Uova Zora al Laboratorio di Ricerca Marino."
     ),
-    # objective descriptions — Pamela's Father
-    "The Curiosity Shop sells the mask before nightfall.": (
-        "Il Negozio di Curiosità vende la maschera prima del calare della notte."
+    "Learn the New Wave Bossa Nova from the baby Zoras": (
+        "Impara la New Wave Bossa Nova dai piccoli Zora"
     ),
-    "The castle is crawling with Gibdos during the night.": (
-        "Il castello brulica di Gibdo durante la notte."
+    "The baby Zoras teach Link the New Wave Bossa Nova at Zora Hall.": (
+        "I piccoli Zora insegnano a Link la New Wave Bossa Nova alla Sala Zora."
     ),
-    "Wearing the Gibdo Mask, play the Song of Healing to free him.": (
-        "Indossa la Maschera Gibdo e suona la Canzone della Guarigione per liberarlo."
+    "Play the New Wave Bossa Nova for Lulu at Zora Cape": (
+        "Suona la New Wave Bossa Nova per Lulu a Zora Cape"
     ),
-    "Pamela is overjoyed to have her father back.": (
-        "Pamela è felicissima di avere di nuovo suo padre."
+    "Play the New Wave Bossa Nova for Lulu at Zora Cape to help her recover.": (
+        "Suona la New Wave Bossa Nova per Lulu a Zora Cape per aiutarla a riprendersi."
     ),
-    # objective descriptions — Deku Princess Rescue
-    "The salesman loans the travelling hero the Deku Mask.": (
-        "Il venditore presta la Maschera Deku all'eroe viaggiatore."
+    # objective titles / descriptions — Pamela's Father
+    "Find Pamela and her cursed father at the Music Box House": (
+        "Trova Pamela e suo padre maledetto alla Casa del Carillon"
     ),
-    "The Deku King believes you kidnapped his daughter.": (
-        "Il Re Deku crede che tu abbia rapito sua figlia."
+    "Travel to Ikana Canyon and visit the Music Box House.": (
+        "Viaggia nel Canyon di Ikana e visita la Casa del Carillon."
     ),
-    "Follow the trail through the Southern Swamp to Woodfall.": (
-        "Segui il sentiero attraverso la Palude del Sud fino a Woodfall."
+    "Restore the river with the Song of Storms": (
+        "Ripristina il fiume con la Canzone delle Tempeste"
     ),
-    "The monkey locked the princess in a cage at Woodfall.": (
-        "La scimmia ha rinchiuso la principessa in una gabbia a Woodfall."
+    "Use the Song of Storms to restore the dried riverbed so that "
+    "Pamela's father can be reached.": (
+        "Usa la Canzone delle Tempeste per ripristinare il letto asciutto del fiume "
+        "così da poter raggiungere il padre di Pamela."
     ),
-    # objective descriptions — Romani Ranch
-    "The keg shop sells the blast that drives the aliens away.": (
-        "Il negozio di polvere vende l'esplosivo che scaccia gli alieni."
+    "Enter the Music Box House to reach the basement": (
+        "Entra nella Casa del Carillon per raggiungere il seminterrato"
     ),
-    "Romani needs your help defending the ranch from the Bremmmy Gyorgs tonight.": (
-        "Romani ha bisogno del tuo aiuto per difendere la fattoria dai Bremmmy Gyorg stasera."
+    "Sneak into the Music Box House to reach the basement where Pamela's father rests.": (
+        "Entra di nascosto nella Casa del Carillon per raggiungere il seminterrato "
+        "dove riposa il padre di Pamela."
     ),
-    "The aliens come at 2 AM. Use Cremia's wagon cannon to fight them off.": (
-        "Gli alieni arrivano alle 2 di notte. Usa il cannone della carrozza di "
-        "Cremia per respingerli."
+    "Free Pamela's father with the Song of Healing": (
+        "Libera il padre di Pamela con la Canzone della Guarigione"
     ),
-    "Cremia needs an escort through the canyon on the Second Night.": (
-        "Cremia ha bisogno di una scorta attraverso il canyon nella Seconda Notte."
+    "Play the Song of Healing for Pamela's father to break the curse. "
+    "In return, he grants you the Gibdo Mask.": (
+        "Suona la Canzone della Guarigione per il padre di Pamela per spezzare la "
+        "maledizione. In cambio, ti dona la Maschera Gibdo."
     ),
-    # objective descriptions — Land Title Deed Chain
-    "The swamp owner hands over the deed to a worthy bearer.": (
-        "Il proprietario della palude consegna la carta a un possessore degno."
+    "Reunite Pamela with her father": "Riunisci Pamela con suo padre",
+    "Pamela is overjoyed to be reunited with her father after breaking his curse.": (
+        "Pamela è felicissima di riabbracciare suo padre dopo aver spezzato la maledizione."
     ),
-    "Trade the Swamp Title Deed for the Mountain Title Deed.": (
-        "Scambia la Carta di Proprietà della Palude con quella della Montagna."
+    # objective titles / descriptions — Deku Princess Rescue
+    "Obtain the Deku Mask from the Happy Mask Salesman": (
+        "Ottieni la Maschera Deku dal Venditore di Maschere"
     ),
-    "Trade the Mountain Title Deed for the Ocean Title Deed.": (
-        "Scambia la Carta di Proprietà della Montagna con quella dell'Oceano."
+    "After retrieving the Ocarina of Time and turning back time with the Song of Time, "
+    "learn the Song of Healing from the Happy Mask Salesman to receive the Deku Mask.": (
+        "Dopo aver recuperato l'Ocarina del Tempo e riavvolto il tempo con la Canzone "
+        "del Tempo, impara la Canzone della Guarigione dal Venditore di Maschere per "
+        "ricevere la Maschera Deku."
     ),
-    "Trade the Ocean Title Deed for the Land Title Deed.": (
-        "Scambia la Carta di Proprietà dell'Oceano con quella della Terra."
+    "Speak to the Deku King at Deku Palace": "Parla con il Re Deku al Palazzo Deku",
+    "Enter Deku Palace in Deku form and speak to the Deku King. "
+    "He blames you for the disappearance of the Deku Princess.": (
+        "Entra nel Palazzo Deku in forma Deku e parla con il Re Deku. "
+        "Ti accusa della scomparsa della Principessa Deku."
     ),
-    "Complete the cycle by returning the Land Title Deed.": (
-        "Completa il ciclo restituendo la Carta di Proprietà della Terra."
+    "Learn the Sonata of Awakening from the Monkey": (
+        "Impara la Sonata del Risveglio dalla Scimmia"
+    ),
+    "Talk to the Monkey in the Deku Palace dungeon to learn the Sonata of Awakening.": (
+        "Parla con la Scimmia nella prigione del Palazzo Deku per imparare la Sonata del Risveglio."
+    ),
+    "Save Koume in Southern Swamp to obtain the boat cruise": (
+        "Salva Koume nella Palude del Sud per ottenere la crociera in barca"
+    ),
+    "Rescue Koume in Southern Swamp to obtain the boat cruise to Woodfall Temple.": (
+        "Salva Koume nella Palude del Sud per ottenere la crociera in barca verso il "
+        "Tempio di Woodfall."
+    ),
+    "Enter Woodfall Temple through Southern Swamp": (
+        "Entra nel Tempio di Woodfall attraverso la Palude del Sud"
+    ),
+    "Use the boat cruise and Sonata of Awakening to reach Woodfall Temple to find "
+    "the source of the poison.": (
+        "Usa la crociera in barca e la Sonata del Risveglio per raggiungere il Tempio "
+        "di Woodfall e trovare la fonte del veleno."
+    ),
+    "Defeat Odolwa and rescue the Deku Princess": "Sconfiggi Odolwa e salva la Principessa Deku",
+    "Clear Woodfall Temple and defeat Odolwa. Rescue the Deku Princess, "
+    "capture her in an Empty Bottle.": (
+        "Pulisci il Tempio di Woodfall e sconfiggi Odolwa. Salva la Principessa Deku "
+        "e catturala in una Bottiglia Vuota."
+    ),
+    "Return the Deku Princess to the Deku King": "Riporta la Principessa Deku al Re Deku",
+    "Return the Deku Princess to the Deku King in Deku Palace to lift the blame.": (
+        "Riporta la Principessa Deku al Re Deku nel Palazzo Deku per scagionarti."
+    ),
+    "Race the Deku Butler for the Mask of Scents": (
+        "Sfida il Maggiordomo Deku per la Maschera degli Odori"
+    ),
+    "Race the Deku Butler through the Deku Shrine to earn the Mask of Scents.": (
+        "Gareggia con il Maggiordomo Deku attraverso il Santuario Deku per guadagnare "
+        "la Maschera degli Odori."
+    ),
+    # objective titles / descriptions — Romani Ranch
+    "Get a Powder Keg from the Goron in Goron Village": (
+        "Ottieni un Barile di Polvere dal Goron al Villaggio Goron"
+    ),
+    "Obtain a Powder Keg (with certification as needed) to blast the boulder blocking Milk Road.": (
+        "Ottieni un Barile di Polvere (con la certificazione necessaria) per far "
+        "saltare il masso che blocca la Strada del Latte."
+    ),
+    "Clear the boulder to Milk Road with a Powder Keg": (
+        "Libera il masso per la Strada del Latte con un Barile di Polvere"
+    ),
+    "Use the Powder Keg to blast the boulder blocking the entrance to Romani Ranch.": (
+        "Usa il Barile di Polvere per far saltare il masso che blocca l'ingresso alla "
+        "Fattoria Romani."
+    ),
+    "Help Romani practice and learn Epona's Song": (
+        "Aiuta Romani ad allenarsi e impara la Canzone di Epona"
+    ),
+    "Talk to Romani at Romani Ranch. She asks for help defending the ranch from "
+    "'them' and teaches Link Epona's Song.": (
+        "Parla con Romani alla Fattoria Romani. Ti chiede aiuto per difendere la "
+        "fattoria da 'loro' e insegna a Link la Canzone di Epona."
+    ),
+    "Defend Romani Ranch from the alien invasion": (
+        "Difendi la Fattoria Romani dall'invasione aliena"
+    ),
+    "Return to Romani Ranch before 2:30 AM on the night of the First Day. "
+    "Use your bow to stop the aliens from reaching the barn until dawn.": (
+        "Torna alla Fattoria Romani prima delle 2:30 di notte del Primo Giorno. "
+        "Usa l'arco per fermare gli alieni dal raggiungere il fienile fino all'alba."
+    ),
+    "Escort Cremia on the milk delivery to Clock Town": (
+        "Scorta Cremia nella consegna del latte a Clock Town"
+    ),
+    "On the Second Day at 6:00 PM, ride with Cremia in her wagon to deliver milk "
+    "to Clock Town. Defend the wagon from the Gorman Brothers with your bow.": (
+        "Il Secondo Giorno alle 18:00, viaggia con Cremia sulla sua carrozza per "
+        "consegnare il latte a Clock Town. Difendi la carrozza dai Fratelli Gorman "
+        "con l'arco."
+    ),
+    # objective titles / descriptions — Song of Storms
+    "Wake Captain Keeta in Ikana Graveyard with the Sonata of Awakening": (
+        "Risveglia il Capitano Keeta al Cimitero di Ikana con la Sonata del Risveglio"
+    ),
+    "Use the Sonata of Awakening to wake Captain Keeta in the Ikana Graveyard.": (
+        "Usa la Sonata del Risveglio per risvegliare il Capitano Keeta al Cimitero di Ikana."
+    ),
+    "Open the grave of the Composer Brother Flat": ("Apri la tomba del Fratello Compositore Flat"),
+    "Open the grave of the Composer Brother Flat in the Ikana Graveyard.": (
+        "Apri la tomba del Fratello Compositore Flat al Cimitero di Ikana."
+    ),
+    "Learn the Song of Storms from Flat": "Impara la Canzone delle Tempeste da Flat",
+    "Learn the Song of Storms from the ghost of Flat in the Ikana Graveyard.": (
+        "Impara la Canzone delle Tempeste dal fantasma di Flat al Cimitero di Ikana."
+    ),
+    # objective titles / descriptions — Land Title Deed Chain
+    "Obtain the Moon's Tear from the Astral Observatory": (
+        "Ottieni la Lacrima della Luna dall'Osservatorio Astrale"
+    ),
+    "Look through the telescope in the Astral Observatory and zoom in on the top "
+    "of the Clock Tower to make the moon drop a Moon's Tear.": (
+        "Guarda nel telescopio dell'Osservatorio Astrale e ingrandisci la cima della "
+        "Torre dell'Orologio per far cadere una Lacrima della Luna."
+    ),
+    "Trade the Moon's Tear for the Town Title Deed": (
+        "Scambia la Lacrima della Luna con la Carta di Proprietà della Città"
+    ),
+    "Trade the Moon's Tear to the Business Scrub in South Clock Town to obtain "
+    "the Town Title Deed.": (
+        "Scambia la Lacrima della Luna con il Business Scrub a Sud Clock Town per "
+        "ottenere la Carta di Proprietà della Città."
+    ),
+    "Trade the Town Title Deed for the Swamp Title Deed": (
+        "Scambia la Carta di Proprietà della Città con quella della Palude"
+    ),
+    "Trade the Town Title Deed to the Business Scrub in Southern Swamp to obtain "
+    "the Swamp Title Deed.": (
+        "Scambia la Carta di Proprietà della Città con il Business Scrub nella "
+        "Palude del Sud per ottenere la Carta di Proprietà della Palude."
+    ),
+    "Trade the Swamp Title Deed for the Mountain Title Deed": (
+        "Scambia la Carta di Proprietà della Palude con quella della Montagna"
+    ),
+    "Trade the Swamp Title Deed to the Business Scrub in Goron Village to obtain "
+    "the Mountain Title Deed.": (
+        "Scambia la Carta di Proprietà della Palude con il Business Scrub al "
+        "Villaggio Goron per ottenere la Carta di Proprietà della Montagna."
+    ),
+    "Trade the Mountain Title Deed for the Ocean Title Deed": (
+        "Scambia la Carta di Proprietà della Montagna con quella dell'Oceano"
+    ),
+    "Trade the Mountain Title Deed to the Business Scrub in Lulu's room at Zora "
+    "Hall to obtain the Ocean Title Deed.": (
+        "Scambia la Carta di Proprietà della Montagna con il Business Scrub nella "
+        "stanza di Lulu alla Sala Zora per ottenere la Carta di Proprietà dell'Oceano."
+    ),
+    "Trade the Ocean Title Deed for a Huge Rupee": (
+        "Scambia la Carta di Proprietà dell'Oceano con una Rupia Gigante"
+    ),
+    "Trade the Ocean Title Deed to the Business Scrub in Ikana Canyon to obtain a Huge Rupee.": (
+        "Scambia la Carta di Proprietà dell'Oceano con il Business Scrub nel Canyon "
+        "di Ikana per ottenere una Rupia Gigante."
     ),
     # event names
     "Kafei's letter is delivered": ("La lettera di Kafei viene consegnata"),
@@ -241,14 +393,32 @@ _DISPLAY_IT: dict[str, str] = {
     # quest names
     "Bombers' Secret Society": "Società Segreta dei Bombers",
     "Darmani's Spirit": "Lo Spirito di Darmani",
+    "Goron Lullaby": "Ninna Nanna Goron",
     "Mikau's Memory": "La Memoria di Mikau",
     "Pamela's Father": "Il Padre di Pamela",
     "Deku Princess Rescue": "Il Salvataggio della Principessa Deku",
     "Romani Ranch": "Fattoria Romani",
+    "Song of Storms": "Canzone delle Tempeste",
     "Land Title Deed Chain": "Catena delle Carte di Proprietà",
     "Bombers' Leader": "Leader dei Bombers",
     "Bomber's Notebook": "Taccuino dei Bombers",
     # locations
+    "Astral Observatory": "Osservatorio Astrale",
+    "Clock Tower": "Torre dell'Orologio",
+    "Deku Shrine": "Santuario Deku",
+    "Goron Graveyard": "Cimitero Goron",
+    "Goron Village": "Villaggio Goron",
+    "Ikana Graveyard": "Cimitero di Ikana",
+    "Ikana Canyon": "Canyon di Ikana",
+    "Lone Peak Shrine": "Santuario della Vetta Solitaria",
+    "Marine Research Lab": "Laboratorio di Ricerca Marino",
+    "Milk Road": "Strada del Latte",
+    "Music Box House": "Casa del Carillon",
+    "Path to Snowhead": "Sentiero per Snowhead",
+    "Pirates' Fortress": "Fortezza dei Pirati",
+    "Southern Swamp": "Palude del Sud",
+    "Woodfall Temple": "Tempio di Woodfall",
+    "Zora Cape": "Zora Cape",
     "South Clock Town": "Sud Clock Town",
     "North Clock Town": "Nord Clock Town",
     "West Clock Town": "Ovest Clock Town",
@@ -297,7 +467,28 @@ _DISPLAY_IT: dict[str, str] = {
     "Land Title Deed": "Carta di Proprietà della Terra",
     "Lens of Truth": "Lente della Verità",
     "Powder Keg": "Barile di Polvere",
+    "Town Title Deed": "Carta di Proprietà della Città",
+    "Hot Spring Water": "Acqua Termale",
+    "Moon's Tear": "Lacrima della Luna",
+    "Huge Rupee": "Rupia Gigante",
+    "Mask of Scents": "Maschera degli Odori",
+    "Romani's Mask": "Maschera di Romani",
+    "Bombers' Notebook": "Taccuino dei Bombers",
+    "Empty Bottle": "Bottiglia Vuota",
+    "Bow": "Arco",
     # NPCs / quests (short names)
+    "Anju": "Anju",
+    "Kafei": "Kafei",
+    "Jim": "Jim",
+    "Baby Goron": "Piccolo Goron",
+    "Captain Keeta": "Capitano Keeta",
+    "Deku Butler": "Maggiordomo Deku",
+    "Flat": "Flat",
+    "Happy Mask Salesman": "Venditore di Maschere",
+    "Indigo-Go's": "Indigo-Go",
+    "Koume": "Koume",
+    "Lulu": "Lulu",
+    "Monkey": "Scimmia",
     "Anju and Kafei": "Anju e Kafei",
     "Postman": "Postino",
     "Madame Aroma": "Madame Aroma",
