@@ -547,7 +547,7 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
 
     plan_model = result.get("plan_model")
     if plan_model:
-        st.caption(t("plan_model_caption", model=plan_model))
+        st.caption(t("plan_model_caption", model=_fmt_model(plan_model)))
 
     _render_plan(result.get("plan"))
 
@@ -675,6 +675,11 @@ def _engine_for(node: str, result: dict) -> tuple[str | None, str]:
     if node == "plan":
         return result.get("plan_engine"), result.get("plan_model") or ""
     return result.get(f"{node}_engine"), ""
+
+
+def _fmt_model(model: str | None) -> str:
+    """Render a model name as inline code, or the unknown placeholder."""
+    return f"`{model}`" if model else t("eval_unknown")
 
 
 def _result_label(node: str) -> str:
@@ -1443,7 +1448,7 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
         st.caption(
             t(
                 "eval_report_meta",
-                model=report.models or t("eval_unknown"),
+                model=_fmt_model(report.models),
                 rag=t(f"eval_rag_{report.wiki_retrieval}"),
                 repeats=report.repeats,
             )
@@ -1564,8 +1569,8 @@ def _render_comparison(report: EvaluationReport) -> None:
         st.caption(
             t(
                 "eval_compare_model",
-                before=comparison.baseline_model or t("eval_unknown"),
-                after=comparison.current_model or t("eval_unknown"),
+                before=_fmt_model(comparison.baseline_model),
+                after=_fmt_model(comparison.current_model),
             )
         )
     if comparison.rag_changed:
