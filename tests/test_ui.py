@@ -54,6 +54,18 @@ class _StreamlitStub:
     def warning(self, value: str, **_kwargs) -> None:
         self.calls.append(("warning", value))
 
+    def success(self, value: str, **_kwargs) -> None:
+        self.calls.append(("success", value))
+
+    def error(self, value: str, **_kwargs) -> None:
+        self.calls.append(("error", value))
+
+    def subheader(self, value: str, **_kwargs) -> None:
+        self.calls.append(("subheader", value))
+
+    def tabs(self, labels: list[str], **_kwargs) -> list[_Container]:
+        return [_Container() for _label in labels]
+
     def expander(self, label: str, **_kwargs) -> _Container:
         self.calls.append(("expander", label))
         return _Container()
@@ -438,7 +450,61 @@ def test_step_plan_card_starts_with_result_label_without_agent_name(monkeypatch)
 def test_step_label_carries_the_engine_badge_not_the_card(monkeypatch) -> None:
     monkeypatch.setattr(ui, "t", lambda key, **kw: key)
     label = ui._PlanStepper._step_label("knowledge", {"knowledge_engine": "rule-based"})
-    assert label == "\u2713 agent_knowledge (rule-based)"
+    assert label == "agent_knowledge (rule-based)"
+
+
+def test_plan_step_label_uppercases_llm_and_code_formats_the_model(monkeypatch) -> None:
+    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
+    label = ui._PlanStepper._step_label(
+        "plan",
+        {"plan_engine": "llm", "plan_model": "llama3.2", "replan_attempts": 1},
+    )
+    assert label == "agent_planning (LLM \u00b7 `llama3.2`) \u2014 step_attempt"
+
+
+class _StepStatus:
+    """Status stub that fails if opened as a context manager."""
+
+    def __init__(self) -> None:
+        self.updates: list[dict] = []
+
+    def __enter__(self):
+        raise AssertionError("a running step must not be opened as a context manager")
+
+    def empty(self):
+        return self
+
+    def update(self, **kwargs) -> None:
+        self.updates.append(kwargs)
+
+
+class _OuterStatus:
+    def __init__(self) -> None:
+        self.created: list[tuple[str, _StepStatus]] = []
+
+    def status(self, label: str, **_kwargs) -> _StepStatus:
+        status = _StepStatus()
+        self.created.append((label, status))
+        return status
+
+
+def test_start_keeps_the_step_running_until_it_finishes(monkeypatch) -> None:
+    """A step created with ``with`` is auto-completed at once by Streamlit."""
+    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
+    stepper = ui._PlanStepper.__new__(ui._PlanStepper)
+    stepper.outer = _OuterStatus()
+    stepper._open = {}
+
+    stepper.start("state")
+
+    label, status = stepper.outer.created[0]
+    assert label == "agent_state"
+    assert stepper._open["state"].status is status
+    assert status.updates == []
+
+    stepper.close_open()
+    assert status.updates == [{"state": "complete"}]
+    assert stepper._open == {}
 
 
 def test_step_critic_valid_does_not_add_a_second_check(monkeypatch) -> None:
@@ -452,6 +518,71 @@ def test_step_critic_valid_does_not_add_a_second_check(monkeypatch) -> None:
 
     assert ("markdown", "**result_critic**") in card.calls
     assert ("write", "plan_valid") in card.calls
+
+
+def _patch_result_renderers(monkeypatch) -> list:
+    """Stub the plan-result sections so only the heading logic is exercised."""
+    rendered_issues = []
+
+    def _issue(_scope, issue, fallback="plan"):
+        rendered_issues.append(issue)
+
+    monkeypatch.setattr(ui, "_render_issue", _issue)
+    for name in (
+        "_render_plan",
+        "_render_why",
+        "_render_sources",
+        "_render_rag_evidence",
+        "_render_run_audit",
+        "_render_trace_state",
+        "_render_memory",
+        "_render_trace_attempts",
+        "_render_trace_issues",
+    ):
+        monkeypatch.setattr(ui, name, lambda *args, **kwargs: None)
+    return rendered_issues
+
+
+def test_failed_run_still_renders_the_last_completed_attempt(monkeypatch) -> None:
+    """A failed re-plan must not hide the plan of the previous attempt."""
+    from app.domain import ClockTime, GameState, ValidationIssue, ValidationResult
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(ui, "st", stub)
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+    rendered_issues = _patch_result_renderers(monkeypatch)
+
+    issue = ValidationIssue(severity="error", kind="time", message="late")
+    task = ui._PlanningTask(
+        status="error",
+        result={
+            "validation": ValidationResult(valid=False, issues=[issue]),
+            "replan_attempts": 1,
+            "relevant_objectives": [],
+            "game_state": GameState(time=ClockTime(day=1, hour=6), location="Clock Town"),
+        },
+    )
+
+    ui._render_planning_result(task, kb=None)
+
+    rendered = "\n".join(value for _kind, value in stub.calls)
+    assert ("subheader", "your_plan") in stub.calls
+    assert "plan_last_attempt" in rendered
+    assert ("error", "plan_not_valid") in stub.calls
+    assert ("markdown", "**problems**") in stub.calls
+    assert rendered_issues == [issue]
+
+
+def test_failed_run_without_a_completed_attempt_renders_no_plan(monkeypatch) -> None:
+    stub = _StreamlitStub()
+    monkeypatch.setattr(ui, "st", stub)
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
+    _patch_result_renderers(monkeypatch)
+
+    ui._render_planning_result(ui._PlanningTask(status="error"), kb=None)
+
+    assert stub.calls == []
 
 
 def test_step_state_card_formats_fields_and_keeps_quest_progress(monkeypatch) -> None:

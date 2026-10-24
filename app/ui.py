@@ -422,15 +422,20 @@ class _PlanStepper:
         self._open: dict[str, _Step] = {}
 
     def start(self, node: str) -> None:
-        """Append a running step for an agent as soon as it starts."""
-        with (
-            self.outer,
-            st.status(
-                f"\u23f3 {t(_AGENT_LABEL_KEY[node])}", state="running", expanded=True
-            ) as status,
-        ):
-            pass
+        """Append a running step for an agent as soon as it starts.
+
+        The status is created directly instead of through a ``with`` block:
+        leaving that block marks a status complete, which would swap the
+        spinner for a check mark while the agent is still working.
+        """
+        status = self.outer.status(t(_AGENT_LABEL_KEY[node]), state="running", expanded=True)
         self._open[node] = _Step(node=node, status=status, live=status.empty())
+
+    def close_open(self, state: str = "complete") -> None:
+        """Close any step still running, so no spinner survives a finished run."""
+        for step in self._open.values():
+            step.status.update(state=state)
+        self._open.clear()
 
     def progress(self, payload: dict) -> None:
         """Append a progress line to the agent's open step, if any."""
@@ -462,7 +467,7 @@ class _PlanStepper:
         if node == "plan":
             attempt = result.get("replan_attempts", 1)
             name += f" \u2014 {t('step_attempt', n=attempt, max=MAX_PLANNING_ATTEMPTS)}"
-        return f"\u2713 {name}"
+        return name
 
     def set_outer(self, state: str, label: str) -> None:
         """Update the outer status box label and state in place."""
@@ -494,6 +499,7 @@ def _render_planning_progress(task: _PlanningTask) -> None:
     stepper = _PlanStepper()
     _apply_log(stepper, task, 0)
     stepper.set_outer(*_outer_status(task, 0))
+    stepper.close_open("error" if task.status in {"error", "stopped"} else "complete")
     if task.status == "error":
         st.error(t("planning_error", error=task.error or "unknown error"))
     elif task.status == "stopped":
@@ -526,28 +532,43 @@ def _planning_live(task: _PlanningTask) -> None:
 
 
 def _render_planning_result(task: _PlanningTask, kb) -> None:
-    """Render a completed plan or a terminal planning failure."""
-    if task.status in {"error", "stopped"}:
-        return
+    """Render the last completed plan, even when the run failed afterwards.
+
+    A failed re-planning attempt produces no plan update, so ``task.result``
+    still holds the plan and the validation of the last attempt that reached
+    the Critic. Showing it (with its issues) beats hiding the only result the
+    run produced. When no attempt completed, the failure is already rendered
+    by :func:`_render_planning_progress` and there is nothing to show.
+    """
     result = task.result
     validation = result.get("validation")
+    failed = task.status in {"error", "stopped"}
     if validation is None:
-        st.warning(t("planning_incomplete"))
+        if not failed:
+            st.warning(t("planning_incomplete"))
         return
 
     _section(t("your_plan"))
+    if failed:
+        st.caption(
+            t(
+                "plan_last_attempt",
+                n=result.get("replan_attempts", 0),
+                max=MAX_PLANNING_ATTEMPTS,
+            )
+        )
     if validation.valid:
         st.success(t("plan_valid"))
     else:
         st.error(t("plan_not_valid"))
         if validation.issues:
-            st.markdown(f"**{t('issues')}**")
+            st.markdown(f"**{t('problems')}**")
             for issue in validation.issues:
                 _render_issue(st, issue)
 
     plan_model = result.get("plan_model")
     if plan_model:
-        st.caption(t("plan_model_caption", model=plan_model))
+        st.caption(t("plan_model_caption", model=_fmt_model(plan_model)))
 
     _render_plan(result.get("plan"))
 
@@ -648,20 +669,26 @@ def _append_step(status, node: str, result: dict) -> None:
         _step_critic(status, result)
 
 
+# Engines whose badge is an acronym, not a lowercase identifier.
+_ENGINE_LABELS = {"llm": "LLM"}
+
+
 def _engine_badge(engine: str | None, model: str = "") -> str:
     """Format an engine name as a parenthesised badge suffix.
 
     args:
         engine (str | None): the engine label, e.g. "llm".
-        model (str, default ""): the model name, shown when present.
+        model (str, default ""): the model name, shown as inline code when
+            present.
 
     returns:
-        str: " (engine)" or " (engine · model)" or "" when empty.
+        str: " (engine)", " (engine \u00b7 `model`)" or "" when empty.
     """
     if not engine:
         return ""
-    suffix = f" \u00b7 {model}" if model else ""
-    return f" ({engine}{suffix})"
+    label = _ENGINE_LABELS.get(engine, engine)
+    suffix = f" \u00b7 `{model}`" if model else ""
+    return f" ({label}{suffix})"
 
 
 def _engine_for(node: str, result: dict) -> tuple[str | None, str]:
@@ -669,6 +696,11 @@ def _engine_for(node: str, result: dict) -> tuple[str | None, str]:
     if node == "plan":
         return result.get("plan_engine"), result.get("plan_model") or ""
     return result.get(f"{node}_engine"), ""
+
+
+def _fmt_model(model: str | None) -> str:
+    """Render a model name as inline code, or the unknown placeholder."""
+    return f"`{model}`" if model else t("eval_unknown")
 
 
 def _result_label(node: str) -> str:
@@ -1437,7 +1469,7 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
         st.caption(
             t(
                 "eval_report_meta",
-                model=report.models or t("eval_unknown"),
+                model=_fmt_model(report.models),
                 rag=t(f"eval_rag_{report.wiki_retrieval}"),
                 repeats=report.repeats,
             )
@@ -1558,8 +1590,8 @@ def _render_comparison(report: EvaluationReport) -> None:
         st.caption(
             t(
                 "eval_compare_model",
-                before=comparison.baseline_model or t("eval_unknown"),
-                after=comparison.current_model or t("eval_unknown"),
+                before=_fmt_model(comparison.baseline_model),
+                after=_fmt_model(comparison.current_model),
             )
         )
     if comparison.rag_changed:

@@ -606,6 +606,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "your_plan": "Your Plan",
         "plan_valid": "\u2713 Plan valid",
         "plan_not_valid": "\u2717 Plan not valid \u2014 check the issues below",
+        "plan_last_attempt": (
+            "Last completed attempt ({n}/{max}) \u2014 shown despite the planning failure."
+        ),
         "agent_state": "State Agent",
         "agent_memory": "Memory Agent",
         "agent_knowledge": "Knowledge Agent",
@@ -919,6 +922,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "your_plan": "Il Tuo Piano",
         "plan_valid": "\u2713 Piano valido",
         "plan_not_valid": ("\u2717 Piano non valido \u2014 controlla i problemi qui sotto"),
+        "plan_last_attempt": (
+            "Ultimo tentativo completato ({n}/{max}) \u2014 mostrato nonostante l'errore."
+        ),
         "agent_state": "Agente di Stato",
         "agent_memory": "Agente Memoria",
         "agent_knowledge": "Agente della Conoscenza",
