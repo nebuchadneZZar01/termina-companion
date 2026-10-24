@@ -311,20 +311,25 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   `node.*` trace span and record its outcome (duration, status, detail) for
   the run audit; a failing node is also added to the run's error list.
 * `app/ui.py` — Streamlit frontend logic (`render()`); requires a configured
-  LLM provider, with local providers supported for offline runs. The sidebar
-  shows the few read-only settings a player cares about, loaded by
-  `app/settings.py` (LLM provider/model/base URL, whether wiki retrieval is on,
-  the embedding model, and the Phoenix link when configured, otherwise
-  `None`); it is display-only, configuration stays in env and `.env`. The state
-  editor picks Day 1-3 and a 24-hour time (minute precision, default 06:00);
+  LLM provider, with local providers supported for offline runs. The page uses
+  the Majora's Mask theme injected by `_inject_styles()` (Cinzel/Inter, dark
+  navy surfaces, gold/teal/red accents in `.streamlit/config.toml` and the
+  `_THEME_CSS` block). The sidebar is the state editor: brand block, the
+  "time left" card with the three-day bar, Day 1-3 and a 24-hour time (minute
+  precision, default 06:00), location, masks, items, quests, Save/Load, the
+  read-only settings from `app/settings.py`, and the language picker.
   `00:00-05:59` is mapped to hours 24-29 internally so it stays the night at
-  the end of the selected game day, and a caption explains the 06:00 boundary.
+  the end of the selected game day. `_render_sidebar_editor()` owns those
+  widgets and returns the values the Play tab turns into a `GameState`.
   The page has
-  two top-level tabs: *Play* (`_render_play()`, the state editor and the
-  planning flow) and *Evaluation* (`_render_evaluation()`, the evaluation
+  two top-level tabs: *Play* (`_render_play()`, TaIA's greeting, the goal
+  input, the agent-card panel, the live stepper and the timeline plan) and
+  *Evaluation* (`_render_evaluation()`, the evaluation
   sweep: scenario picker, RAG toggle, Run/Stop, the per-scenario report, the
   comparison card against the newest stored sweep, and
   *Load last report* for the sweep persisted by the worker).
+  The plan renders as a vertical HTML timeline (`_render_plan()`, last step in
+  red) and the Critic's verdict as a teal/red banner (`_verdict_html()`).
   Planning runs
   as a session-scoped background task: Generate is disabled while active and
   Stop requests cooperative cancellation between agent/LLM calls. The progress

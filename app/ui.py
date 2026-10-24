@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime
 import datetime as _datetime
+import html
 import logging
 import queue
 import re
@@ -532,14 +533,23 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
                 max=MAX_PLANNING_ATTEMPTS,
             )
         )
+    attempt = result.get("replan_attempts", 0)
     if validation.valid:
-        st.success(t("plan_valid"))
+        title = t("plan_valid")
+        body = t("verdict_ok_body", n=attempt, max=MAX_PLANNING_ATTEMPTS)
     else:
-        st.error(t("plan_not_valid"))
-        if validation.issues:
-            st.markdown(f"**{t('problems')}**")
-            for issue in validation.issues:
-                _render_issue(st, issue)
+        title = t("plan_not_valid")
+        body = t(
+            "verdict_fail_body",
+            n=len(validation.issues),
+            n_attempt=attempt,
+            max=MAX_PLANNING_ATTEMPTS,
+        )
+    _html_block(_verdict_html(validation.valid, title, body))
+    if not validation.valid and validation.issues:
+        st.markdown(f"**{t('problems')}**")
+        for issue in validation.issues:
+            _render_issue(st, issue)
 
     plan_model = result.get("plan_model")
     if plan_model:
@@ -952,7 +962,7 @@ def _fmt_timestamp(iso: str | None) -> str:
 
 
 def _render_plan(plan) -> None:
-    """Render the final plan: time + location header and step actions.
+    """Render the final plan as the Majora's Mask vertical timeline.
 
     args:
         plan (Plan | None): the plan to display.
@@ -963,13 +973,38 @@ def _render_plan(plan) -> None:
     if not plan or not plan.steps:
         st.write(t("no_plan"))
         return
-    for step in plan.steps:
-        wl = step.window.start
-        st.markdown(f"**{_fmt_clock(wl)} \u2500 {tr(step.location)}**")
-        with st.container(border=True):
-            st.markdown(f"**{tr(step.title)}**")
-            for action in step.actions:
-                st.markdown(f"\u2713 {tr(action)}")
+    total = len(plan.steps)
+    rows = []
+    for index, step in enumerate(plan.steps):
+        last = index == total - 1
+        start = step.window.start
+        suffix = " (+1)" if start.next_morning else ""
+        hour = f"{start.display_hour:02d}:{start.minute:02d}{suffix}"
+        meta = [html.escape(tr(step.location))]
+        needs = [tr(x) for x in (*step.requires_items, *step.requires_masks)]
+        if needs:
+            meta.append(f"{html.escape(t('needs'))} {html.escape(', '.join(needs))}")
+        if step.depends_on:
+            deps = ", ".join(str(d + 1) for d in step.depends_on)
+            meta.append(html.escape(t("depends_on", deps=deps)))
+        actions = "".join(f"<li>{html.escape(tr(action))}</li>" for action in step.actions)
+        action_html = f'<ul class="tc-actions">{actions}</ul>' if actions else ""
+        rows.append(
+            f'<div class="tc-step{" last" if last else ""}">'
+            '<div class="tc-step-time">'
+            f'<div class="tc-step-hour">{hour}</div>'
+            f'<div class="tc-step-day">{html.escape(t("day_n", n=start.day))}</div>'
+            "</div>"
+            '<div class="tc-step-rail">'
+            '<span class="tc-dot"></span><span class="tc-line"></span>'
+            "</div>"
+            '<div class="tc-step-card">'
+            f'<div class="tc-step-title">{html.escape(tr(step.title))}</div>'
+            f'<div class="tc-step-meta">{" \u00b7 ".join(meta)}</div>'
+            f"{action_html}"
+            "</div></div>"
+        )
+    _html_block(f'<div class="tc-timeline">{"".join(rows)}</div>')
 
 
 def _render_why(plan) -> None:
@@ -1637,6 +1672,461 @@ def _time_label(day: int, value: datetime.time) -> str:
     return t(key, day=day, time=display)
 
 
+_THEME_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;500;600&display=swap');
+
+:root {
+  --tc-bg: #0e1126;
+  --tc-surface: #141836;
+  --tc-card: #1b2046;
+  --tc-border: #2a2f5c;
+  --tc-border-strong: #4a4f80;
+  --tc-gold: #e0b252;
+  --tc-teal: #5fd1c4;
+  --tc-red: #e5684f;
+  --tc-text: #e8e6f2;
+  --tc-muted: #a9a6c4;
+}
+
+html, body, .stApp, [data-testid="stAppViewContainer"] {
+  font-family: Inter, system-ui, sans-serif;
+}
+.stApp {
+  background: radial-gradient(circle at 20% 0%, #171c3a 0%, #0e1126 45%, #0b0e1f 100%);
+  color: var(--tc-text);
+}
+[data-testid="stHeader"] { background: transparent; }
+#MainMenu, footer, [data-testid="stToolbar"] { visibility: hidden; }
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: Cinzel, serif !important;
+  color: var(--tc-gold);
+  letter-spacing: 0.02em;
+}
+[data-testid="stCaptionContainer"], .stCaption { color: var(--tc-muted); }
+
+[data-testid="stSidebar"] {
+  background: var(--tc-surface);
+  border-right: 1px solid var(--tc-border);
+}
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] .stMarkdown p { color: var(--tc-muted); }
+
+.stButton > button,
+[data-testid="stBaseButton-secondary"] {
+  border-radius: 10px;
+  border: 1px solid var(--tc-border-strong);
+  background: transparent;
+  color: var(--tc-text);
+  font-family: Inter, sans-serif;
+  font-weight: 500;
+}
+.stButton > button:hover { border-color: var(--tc-gold); color: var(--tc-gold); }
+.stButton > button[kind="primary"],
+[data-testid="stBaseButton-primary"] {
+  background: var(--tc-gold);
+  border-color: var(--tc-gold);
+  color: #1a1630;
+  font-family: Cinzel, serif;
+  font-weight: 700;
+}
+.stButton > button[kind="primary"]:hover,
+[data-testid="stBaseButton-primary"]:hover {
+  background: #efc46e;
+  border-color: #efc46e;
+  color: #1a1630;
+}
+
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea,
+[data-testid="stNumberInput"] input,
+[data-testid="stTimeInput"] input,
+[data-testid="stDateInput"] input {
+  background: var(--tc-bg);
+  border: 1px solid var(--tc-border);
+  border-radius: 8px;
+  color: var(--tc-text);
+}
+[data-testid="stTextArea"] textarea {
+  background: var(--tc-surface);
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-size: 16px;
+}
+[data-baseweb="select"] > div {
+  background: var(--tc-bg);
+  border-color: var(--tc-border);
+}
+
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+  gap: 28px;
+  border-bottom: 1px solid var(--tc-border);
+  background: transparent;
+}
+[data-testid="stTabs"] [data-baseweb="tab"] {
+  font-family: Cinzel, serif;
+  font-weight: 700;
+  color: var(--tc-muted);
+  background: transparent;
+  padding: 8px 2px;
+}
+[data-testid="stTabs"] [aria-selected="true"] {
+  color: var(--tc-gold);
+  border-bottom: 2px solid var(--tc-gold);
+}
+[data-testid="stTabs"] [data-baseweb="tab-highlight"] { background: var(--tc-gold); }
+[data-testid="stTabs"] [data-baseweb="tab-border"] { background: var(--tc-border); }
+
+[data-testid="stPills"] button,
+[data-testid="stPills"] [role="button"] {
+  border-radius: 999px;
+  border: 1px solid var(--tc-border-strong);
+  background: transparent;
+  color: var(--tc-muted);
+  font-size: 13px;
+}
+[data-testid="stPills"] button[aria-checked="true"],
+[data-testid="stPills"] [aria-selected="true"] {
+  background: #2b2540;
+  border-color: var(--tc-gold);
+  color: var(--tc-gold);
+}
+
+[data-testid="stExpander"] details {
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+  border-radius: 12px;
+}
+[data-testid="stExpander"] summary {
+  font-family: Cinzel, serif;
+  color: var(--tc-text);
+}
+[data-testid="stMetric"] {
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+[data-testid="stMetricValue"] { font-family: Cinzel, serif; color: var(--tc-gold); }
+[data-testid="stAlert"] {
+  border-radius: 12px;
+  border: 1px solid var(--tc-border);
+  background: var(--tc-card);
+}
+
+.tc-brand-name {
+  font-family: Cinzel, serif;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  color: var(--tc-gold);
+}
+.tc-brand-tag { color: var(--tc-muted); font-size: 13px; }
+
+.tc-time-card {
+  background: var(--tc-card);
+  border: 1px solid var(--tc-border);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tc-time-head { display: flex; justify-content: space-between; align-items: baseline; }
+.tc-time-label {
+  font-family: Cinzel, serif;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--tc-muted);
+}
+.tc-time-value { font-family: Cinzel, serif; font-size: 26px; color: var(--tc-gold); }
+.tc-time-value small { font-size: 13px; color: var(--tc-teal); }
+.tc-daybar { display: flex; gap: 6px; }
+.tc-daybar span { flex: 1; height: 8px; border-radius: 4px; background: var(--tc-border); }
+.tc-daybar span.on { background: var(--tc-gold); }
+.tc-daylabels {
+  display: flex;
+  justify-content: space-between;
+  color: var(--tc-muted);
+  font-size: 12px;
+}
+.tc-daylabels .on { color: var(--tc-gold); font-weight: 600; }
+.tc-time-caption { color: var(--tc-muted); font-size: 12px; }
+
+.tc-fairy { display: flex; gap: 16px; align-items: center; }
+.tc-fairy-orb {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #ffffff 0%, #b8f3ec 28%,
+    #5fd1c4 60%, rgba(95, 209, 196, 0.15) 100%);
+  box-shadow: 0 0 22px 6px rgba(95, 209, 196, 0.45);
+}
+.tc-fairy-bubble {
+  flex: 1;
+  padding: 14px 18px;
+  border-radius: 4px 16px 16px 16px;
+  background: #12302f;
+  border: 1px solid var(--tc-teal);
+}
+.tc-fairy-name {
+  font-family: Cinzel, serif;
+  font-weight: 700;
+  color: var(--tc-teal);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}
+.tc-fairy-text { color: var(--tc-text); }
+
+.tc-panel {
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.tc-panel-title {
+  font-family: Cinzel, serif;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--tc-muted);
+}
+.tc-agents { display: flex; gap: 12px; flex-wrap: wrap; }
+.tc-agent {
+  flex: 1;
+  min-width: 170px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--tc-card);
+  border-left: 3px solid var(--tc-border-strong);
+}
+.tc-agent.done { border-left-color: var(--tc-teal); }
+.tc-agent.running { border-left-color: var(--tc-gold); }
+.tc-agent-title { font-weight: 600; }
+.tc-agent-status { font-size: 12px; color: var(--tc-muted); }
+
+.tc-badges { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.tc-badges-label { font-size: 12px; color: var(--tc-muted); }
+.tc-badge {
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--tc-teal);
+  color: var(--tc-teal);
+  font-size: 12px;
+}
+.tc-badge.gold { border-color: var(--tc-gold); color: var(--tc-gold); }
+.tc-badge.red { border-color: var(--tc-red); color: var(--tc-red); }
+.tc-badges span:last-child { font-size: 12px; color: var(--tc-muted); }
+
+.tc-verdict {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: #12302f;
+  border: 1px solid var(--tc-teal);
+}
+.tc-verdict.fail { background: #2a1a24; border-color: var(--tc-red); }
+.tc-verdict-icon { font-size: 22px; color: var(--tc-teal); }
+.tc-verdict.fail .tc-verdict-icon { color: var(--tc-red); }
+.tc-verdict-title {
+  font-family: Cinzel, serif;
+  font-weight: 700;
+  color: var(--tc-teal);
+  font-size: 17px;
+}
+.tc-verdict.fail .tc-verdict-title { color: var(--tc-red); }
+.tc-verdict-body { font-size: 13px; color: #b9e5e0; }
+.tc-verdict.fail .tc-verdict-body { color: #f0b5a8; }
+
+.tc-timeline { display: flex; flex-direction: column; }
+.tc-step { display: flex; gap: 18px; }
+.tc-step-time { width: 92px; flex: none; text-align: right; padding-top: 14px; }
+.tc-step-hour { font-family: Cinzel, serif; font-weight: 700; }
+.tc-step-day { font-size: 12px; color: var(--tc-muted); }
+.tc-step-rail {
+  width: 14px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.tc-dot {
+  width: 12px;
+  height: 12px;
+  margin-top: 18px;
+  border-radius: 50%;
+  background: var(--tc-gold);
+  flex: none;
+}
+.tc-line { flex: 1; width: 2px; background: var(--tc-border); min-height: 16px; }
+.tc-step:last-child .tc-line { display: none; }
+.tc-step-card {
+  flex: 1;
+  margin-bottom: 12px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+}
+.tc-step-title { font-weight: 600; }
+.tc-step-meta { font-size: 13px; color: var(--tc-muted); }
+.tc-actions { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--tc-text); }
+.tc-step.last .tc-step-hour { color: var(--tc-red); }
+.tc-step.last .tc-dot { background: var(--tc-red); }
+.tc-step.last .tc-step-card { background: #2a1a24; border-color: var(--tc-red); }
+.tc-step.last .tc-step-meta { color: #f0b5a8; }
+
+@media (max-width: 700px) {
+  .tc-step-time { width: 64px; }
+}
+"""
+
+
+def _html_block(markup: str) -> None:
+    """Draw trusted HTML markup into the page."""
+    st.markdown(markup, unsafe_allow_html=True)
+
+
+def _inject_styles() -> None:
+    """Install the Majora's Mask theme once per script run."""
+    _html_block(f"<style>{_THEME_CSS}</style>")
+
+
+def _hours_left(day: int, internal_hour: int, minute: int) -> int:
+    """Return the whole hours left before the cycle ends (Day 3 29:59)."""
+    elapsed = (day - 1) * 1440 + (internal_hour - 6) * 60 + minute
+    return max(0, (3 * 1440 - elapsed) // 60)
+
+
+def _brand_html() -> str:
+    """Return the sidebar brand block."""
+    return (
+        '<div class="tc-brand">'
+        '<div class="tc-brand-name">TaIA</div>'
+        f'<div class="tc-brand-tag">{html.escape(t("brand_tagline"))}</div>'
+        "</div>"
+    )
+
+
+def _time_card_html(day: int, value: datetime.time) -> str:
+    """Return the sidebar "time left" card for the selected game time."""
+    hour = _internal_hour(value.hour)
+    suffix = " <small>(+1)</small>" if hour >= 24 else ""
+    display = f"{value.hour:02d}:{value.minute:02d}"
+    bars = "".join(f'<span class="{"on" if n == day else ""}"></span>' for n in (1, 2, 3))
+    labels = "".join(
+        f'<span class="{"on" if n == day else ""}">{html.escape(t("day_n", n=n))}</span>'
+        for n in (1, 2, 3)
+    )
+    return (
+        '<div class="tc-time-card">'
+        '<div class="tc-time-head">'
+        f'<span class="tc-time-label">{html.escape(t("time_left_label"))}</span>'
+        f'<span class="tc-time-value">{display}{suffix}</span>'
+        "</div>"
+        f'<div class="tc-daybar">{bars}</div>'
+        f'<div class="tc-daylabels">{labels}</div>'
+        f'<div class="tc-time-caption">{html.escape(t("time_left_caption", day=day))}</div>'
+        "</div>"
+    )
+
+
+def _fairy_html(day: int, value: datetime.time) -> str:
+    """Return TaIA's greeting bubble with the hours left in the cycle."""
+    hours = _hours_left(day, _internal_hour(value.hour), value.minute)
+    return (
+        '<section class="tc-fairy">'
+        '<div class="tc-fairy-orb" aria-hidden="true"></div>'
+        '<div class="tc-fairy-bubble">'
+        '<div class="tc-fairy-name">TaIA</div>'
+        f'<div class="tc-fairy-text">{html.escape(t("fairy_greeting", hours=hours))}</div>'
+        "</div></section>"
+    )
+
+
+_AGENT_CARDS = (
+    ("state", "agent_card_state"),
+    ("knowledge", "agent_card_knowledge"),
+    ("plan", "agent_card_plan"),
+    ("critic", "agent_card_critic"),
+)
+
+
+def _rag_badges_html(result: dict) -> str:
+    """Return the wiki-evidence badge row for a finished or running run."""
+    status = result.get("retrieval_status") or ""
+    if not status:
+        return ""
+    if status == "unavailable":
+        tone = "red"
+    elif status in {"wiki_ingested", "wiki_miss"}:
+        tone = "gold"
+    else:
+        tone = ""
+    badges = f'<span class="tc-badge {tone}">{html.escape(status)}</span>'
+    sources = result.get("retrieval_indexed_sources") or []
+    if sources:
+        badges += f"<span>{html.escape(t('indexed_pages_n', n=len(sources)))}</span>"
+    return (
+        '<div class="tc-badges">'
+        f'<span class="tc-badges-label">{html.escape(t("wiki_evidence"))}</span>'
+        f"{badges}</div>"
+    )
+
+
+def _agent_cards_html(task: _PlanningTask | None) -> str:
+    """Return the agent-card panel for the current (or last) run."""
+    started: set[str] = set()
+    done: set[str] = set()
+    if task is not None:
+        for entry in task.log:
+            if entry[0] == "start":
+                started.add(entry[1])
+            elif entry[0] == "update":
+                done.add(entry[1])
+    cards = []
+    for node, title_key in _AGENT_CARDS:
+        if node in done:
+            state, cls = t("agent_done"), "done"
+        elif node in started:
+            state, cls = t("agent_running"), "running"
+        else:
+            state, cls = t("agent_pending"), ""
+        cards.append(
+            f'<div class="tc-agent {cls}">'
+            f'<div class="tc-agent-title">{html.escape(t(title_key))}</div>'
+            f'<div class="tc-agent-status">{html.escape(t(_AGENT_LABEL_KEY[node]))}'
+            f" · {html.escape(state)}</div>"
+            "</div>"
+        )
+    result = task.result if task is not None else {}
+    return (
+        '<section class="tc-panel">'
+        f'<div class="tc-panel-title">{html.escape(t("agents_title"))}</div>'
+        f'<div class="tc-agents">{"".join(cards)}</div>'
+        f"{_rag_badges_html(result)}"
+        "</section>"
+    )
+
+
+def _verdict_html(valid: bool, title: str, body: str) -> str:
+    """Return the Critic's verdict banner."""
+    cls = "" if valid else " fail"
+    icon = "\u2713" if valid else "\u2717"
+    return (
+        f'<section class="tc-verdict{cls}">'
+        f'<div class="tc-verdict-icon" aria-hidden="true">{icon}</div>'
+        f'<div><div class="tc-verdict-title">{html.escape(title)}</div>'
+        f'<div class="tc-verdict-body">{html.escape(body)}</div></div>'
+        "</section>"
+    )
+
+
 def _render_configuration() -> None:
     """Show the read-only configuration loaded from the environment.
 
@@ -1698,9 +2188,11 @@ def render() -> None:
         page_icon="\U0001f319",
         layout="wide",
     )
+    _inject_styles()
+    kb = build_default_knowledge()
 
     with st.sidebar:
-        st.selectbox(t("language"), list(_LANGS), key="lang", format_func=lambda c: _LANGS[c])
+        editor = _render_sidebar_editor(kb)
         st.divider()
         _section(t("save_load"))
         col_s, col_l = st.columns(2)
@@ -1750,143 +2242,166 @@ def render() -> None:
         save_warning = st.session_state.pop("_save_warning", "")
         if save_warning:
             st.warning(save_warning)
-        st.divider()
         _render_configuration()
-
-    st.title(f"\U0001f319 {t('title')}")
-    st.caption(t("subtitle"))
+        st.selectbox(t("language"), list(_LANGS), key="lang", format_func=lambda c: _LANGS[c])
 
     tab_play, tab_evaluation = st.tabs([t("tab_play"), t("tab_evaluation")])
     with tab_play:
-        _render_play()
+        _render_play(editor, kb)
     with tab_evaluation:
         _render_evaluation()
 
 
-def _render_play() -> None:
-    """Render the play tab: state editor, planning action and result tabs.
+def _render_sidebar_editor(kb) -> dict:
+    """Render the Majora's Mask state editor in the sidebar.
+
+    Returns the values the Play tab needs to build a ``GameState``. The
+    widgets own their session-state keys, so the time card and the fairy
+    greeting can read the previous run's values before the widgets exist.
 
     args:
-        (none)
+        kb (KnowledgeBase): the knowledge base used for the location and item
+            options.
+
+    returns:
+        dict: the selected day, time, location, masks, inventory and quests.
+    """
+    _html_block(_brand_html())
+    day = int(st.session_state.get("save_day", 1))
+    when = st.session_state.get("save_time") or datetime.time(6, 0)
+    _html_block(_time_card_html(day, when))
+
+    locations = sorted({loc.name for loc in kb.locations})
+    default_loc = "South Clock Town"
+    current_loc = st.session_state.get("save_location", default_loc)
+    idx = locations.index(current_loc) if current_loc in locations else 0
+    location = st.selectbox(
+        t("sidebar_location"),
+        locations or ["Termina Field"],
+        index=idx,
+        format_func=tr,
+        key="save_location",
+    )
+
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        day = st.selectbox(t("day"), [1, 2, 3], index=0, key="save_day")
+    with c2:
+        when = st.time_input(t("time"), datetime.time(6, 0), step=60, key="save_time")
+    st.caption(_time_label(day, when))
+
+    masks = st.pills(
+        t("sidebar_masks"),
+        list(MASKS),
+        selection_mode="multi",
+        format_func=tr,
+        help=t("masks_help"),
+        wrap=True,
+        key="save_masks",
+    )
+    item_options = sorted(
+        {i for quest in kb.quests for o in quest.objectives for i in o.requires_items}
+    )
+    # Custom items enter through the input below the pills; the add is
+    # applied at the start of the next run, before the widgets exist, so
+    # save_inventory/save_inventory_new are only written pre-instantiation.
+    pending_add = st.session_state.pop("_inventory_add_pending", None)
+    if pending_add:
+        current = list(st.session_state.get("save_inventory") or [])
+        if pending_add not in current:
+            st.session_state["save_inventory"] = [*current, pending_add]
+        st.session_state["save_inventory_new"] = ""
+    # Pills render only options: merge the current selection so custom
+    # items (typed or loaded from a save) stay visible and deselectable.
+    owned_now = st.session_state.get("save_inventory") or []
+    inventory_options = sorted(set(item_options) | set(owned_now))
+    inventory = st.pills(
+        t("sidebar_items"),
+        inventory_options or ["Hookshot"],
+        selection_mode="multi",
+        format_func=tr,
+        help=t("inventory_help"),
+        wrap=True,
+        key="save_inventory",
+    )
+    add_col, button_col = st.columns([4, 1])
+    with add_col:
+        st.text_input(
+            t("inventory_add"),
+            key="save_inventory_new",
+            label_visibility="collapsed",
+            placeholder=t("inventory_add"),
+        )
+    with button_col:
+        if st.button(
+            t("inventory_add_button"),
+            use_container_width=True,
+            key="save_inventory_add",
+        ):
+            typed = (st.session_state.get("save_inventory_new") or "").strip()
+            if typed:
+                st.session_state["_inventory_add_pending"] = typed
+                st.rerun()
+    quest_names = {q.name: q.id for q in kb.quests}
+    done_q = st.pills(
+        t("quest_progress"),
+        list(quest_names),
+        selection_mode="multi",
+        format_func=tr,
+        help=t("quest_progress_help"),
+        wrap=True,
+        key="save_quests",
+    )
+    return {
+        "day": day,
+        "time": when,
+        "location": location,
+        "masks": list(masks or []),
+        "inventory": list(inventory or []),
+        "quests": list(done_q or []),
+        "quest_names": quest_names,
+    }
+
+
+def _render_play(editor: dict, kb) -> None:
+    """Render the play tab: TaIA greeting, goal, agent cards and plan.
+
+    args:
+        editor (dict): the sidebar state editor's values.
+        kb (KnowledgeBase): the knowledge base used to render sources.
 
     returns:
         None: renders the planning half of the app page.
     """
-    kb = build_default_knowledge()
-
-    left, right = st.columns(2)
-    with left:
-        _section(t("game_state"), t("game_state_caption"))
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            day = st.selectbox(t("day"), [1, 2, 3], index=0, key="save_day")
-        with c2:
-            tm = st.time_input(t("time"), datetime.time(6, 0), step=60, key="save_time")
-        st.caption(_time_label(day, tm))
-        st.caption(t("time_caption"))
-
-        locations = sorted({loc.name for loc in kb.locations})
-        default_loc = "South Clock Town"
-        idx = locations.index(default_loc) if default_loc in locations else 0
-        location = st.selectbox(
-            t("location"), locations or ["Termina Field"], index=idx, format_func=tr
+    _html_block(_fairy_html(editor["day"], editor["time"]))
+    goal_text = st.text_area(
+        t("goal_label"),
+        placeholder=t("goal_example"),
+        height=110,
+        key="save_goal",
+    )
+    task = st.session_state.get(_PLANNING_TASK_KEY)
+    generate_disabled, stop_disabled = _plan_controls_disabled(task)
+    if not (goal_text or "").strip():
+        generate_disabled = True
+    ask_col, stop_col = st.columns([4, 1])
+    with ask_col:
+        run = st.button(
+            t("ask_taia"),
+            type="primary",
+            use_container_width=True,
+            disabled=generate_disabled,
+            key="generate_plan_button",
         )
-
-        masks = st.pills(
-            t("masks"),
-            list(MASKS),
-            selection_mode="multi",
-            format_func=tr,
-            help=t("masks_help"),
-            wrap=True,
-            key="save_masks",
+    with stop_col:
+        stop = st.button(
+            t("stop_plan"),
+            use_container_width=True,
+            disabled=stop_disabled,
+            help=t("stop_plan_help"),
+            key="stop_plan_button",
         )
-        item_options = sorted(
-            {i for quest in kb.quests for o in quest.objectives for i in o.requires_items}
-        )
-        # Custom items enter through the input below the pills; the add is
-        # applied at the start of the next run, before the widgets exist, so
-        # save_inventory/save_inventory_new are only written pre-instantiation.
-        pending_add = st.session_state.pop("_inventory_add_pending", None)
-        if pending_add:
-            current = list(st.session_state.get("save_inventory") or [])
-            if pending_add not in current:
-                st.session_state["save_inventory"] = [*current, pending_add]
-            st.session_state["save_inventory_new"] = ""
-        # Pills render only options: merge the current selection so custom
-        # items (typed or loaded from a save) stay visible and deselectable.
-        owned_now = st.session_state.get("save_inventory") or []
-        inventory_options = sorted(set(item_options) | set(owned_now))
-        inventory = st.pills(
-            t("inventory"),
-            inventory_options or ["Hookshot"],
-            selection_mode="multi",
-            format_func=tr,
-            help=t("inventory_help"),
-            wrap=True,
-            key="save_inventory",
-        )
-        add_col, button_col = st.columns([4, 1])
-        with add_col:
-            st.text_input(
-                t("inventory_add"),
-                key="save_inventory_new",
-                label_visibility="collapsed",
-                placeholder=t("inventory_add"),
-            )
-        with button_col:
-            if st.button(
-                t("inventory_add_button"),
-                use_container_width=True,
-                key="save_inventory_add",
-            ):
-                typed = (st.session_state.get("save_inventory_new") or "").strip()
-                if typed:
-                    st.session_state["_inventory_add_pending"] = typed
-                    st.rerun()
-        quest_names = {q.name: q.id for q in kb.quests}
-        done_q = st.pills(
-            t("quest_progress"),
-            list(quest_names),
-            selection_mode="multi",
-            format_func=tr,
-            help=t("quest_progress_help"),
-            wrap=True,
-            key="save_quests",
-        )
-        st.caption(t("legend"))
-
-    with right:
-        _section(t("goal"), t("goal_caption"))
-        goal_text = st.text_area(
-            t("goal_placeholder"),
-            placeholder=t("goal_example"),
-            height=180,
-            label_visibility="collapsed",
-            key="save_goal",
-        )
-        st.markdown('<div style="padding:0.4rem;"></div>', unsafe_allow_html=True)
-        task = st.session_state.get(_PLANNING_TASK_KEY)
-        generate_disabled, stop_disabled = _plan_controls_disabled(task)
-        if not (goal_text or "").strip():
-            generate_disabled = True
-        run_col, stop_col = st.columns([4, 1])
-        with run_col:
-            run = st.button(
-                t("generate_plan"),
-                type="primary",
-                use_container_width=True,
-                disabled=generate_disabled,
-                key="generate_plan_button",
-            )
-        with stop_col:
-            stop = st.button(
-                t("stop_plan"),
-                use_container_width=True,
-                disabled=stop_disabled,
-                help=t("stop_plan_help"),
-                key="stop_plan_button",
-            )
+    _html_block(_agent_cards_html(task))
 
     if stop and _task_is_active(task):
         task.stop_event.set()
@@ -1895,11 +2410,15 @@ def _render_play() -> None:
 
     if run and not _task_is_active(task) and (goal_text or "").strip():
         game_state = GameState(
-            time=ClockTime(day=day, hour=_internal_hour(tm.hour), minute=tm.minute),
-            location=location,
-            inventory=list(inventory or []),
-            masks=list(masks or []),
-            quest_progress={quest_names[q]: "done" for q in (done_q or [])},
+            time=ClockTime(
+                day=editor["day"],
+                hour=_internal_hour(editor["time"].hour),
+                minute=editor["time"].minute,
+            ),
+            location=editor["location"],
+            inventory=list(editor["inventory"]),
+            masks=list(editor["masks"]),
+            quest_progress={editor["quest_names"][q]: "done" for q in editor["quests"]},
         )
         goal = Goal(description=goal_text)
 

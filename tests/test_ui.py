@@ -569,7 +569,7 @@ def test_failed_run_still_renders_the_last_completed_attempt(monkeypatch) -> Non
     rendered = "\n".join(value for _kind, value in stub.calls)
     assert ("subheader", "your_plan") in stub.calls
     assert "plan_last_attempt" in rendered
-    assert ("error", "plan_not_valid") in stub.calls
+    assert any(kind == "markdown" and "plan_not_valid" in value for kind, value in stub.calls)
     assert ("markdown", "**problems**") in stub.calls
     assert rendered_issues == [issue]
 
@@ -648,8 +648,8 @@ def test_app_renders_headless_without_error() -> None:
 
     labels = [button.label for button in at.button]
     assert not at.exception
-    assert any("Termina Companion" in title.value for title in at.title)
-    assert any("Pianifica" in label for label in labels)
+    assert any("TaIA" in block.value for block in at.markdown)
+    assert any("Chiedi a TaIA" in label for label in labels)
     assert any(label == "Stop" for label in labels)
 
 
@@ -1022,3 +1022,43 @@ def test_evaluation_tab_reports_a_missing_saved_report(tmp_path, monkeypatch) ->
     assert not at.exception
     assert any("No saved evaluation report yet." in info.value for info in at.info)
     assert not at.table
+
+
+def test_plan_timeline_escapes_text_and_marks_the_last_step(monkeypatch) -> None:
+    """The timeline never injects plan text as HTML and flags the final step."""
+    from app.domain import ClockTime, Plan, PlanStep, TimeWindow
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(ui, "st", stub)
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+
+    plan = Plan(
+        goal="g",
+        steps=[
+            PlanStep(
+                title="<b>First</b>",
+                location="Clock Town",
+                window=TimeWindow(
+                    start=ClockTime(day=1, hour=8),
+                    end=ClockTime(day=1, hour=9),
+                ),
+            ),
+            PlanStep(
+                title="Last",
+                location="Stockpot Inn",
+                window=TimeWindow(
+                    start=ClockTime(day=1, hour=9),
+                    end=ClockTime(day=1, hour=10),
+                ),
+            ),
+        ],
+    )
+
+    ui._render_plan(plan)
+
+    markup = "\n".join(value for kind, value in stub.calls if kind == "markdown")
+    assert "&lt;b&gt;First&lt;/b&gt;" in markup
+    assert "<b>First</b>" not in markup
+    assert markup.count('class="tc-step-card"') == 2
+    assert 'class="tc-step last"' in markup

@@ -717,6 +717,32 @@ _STRINGS: dict[str, dict[str, str]] = {
         # top-level tabs
         "tab_play": "Play",
         "tab_evaluation": "Evaluation",
+        # Majora's Mask redesign
+        "brand_tagline": "Your fairy in the three-day cycle",
+        "time_left_label": "TIME WE HAVE LEFT",
+        "time_left_caption": ("You are on Day {day}, Link. Every day runs from 06:00 to 05:59."),
+        "day_n": "Day {n}",
+        "sidebar_location": "Where are you, Link?",
+        "sidebar_masks": "Your masks",
+        "sidebar_items": "What you carry",
+        "goal_label": "What do you want to do?",
+        "ask_taia": "Ask TaIA",
+        "fairy_greeting": (
+            "Hey, Link! Listen: about {hours} hours are left before the Moon falls. "
+            "Tell me what you want to do and I will prepare a plan."
+        ),
+        "agents_title": "WHAT I AM DOING FOR YOU",
+        "agent_card_state": "I look at how you are",
+        "agent_card_knowledge": "I look up what I know",
+        "agent_card_plan": "I prepare the plan",
+        "agent_card_critic": "I double-check everything",
+        "agent_done": "completed",
+        "agent_running": "working",
+        "agent_pending": "waiting",
+        "wiki_evidence": "Wiki evidence:",
+        "indexed_pages_n": "{n} page(s) indexed",
+        "verdict_ok_body": ("I rechecked every step and found no problems. Attempt {n} of {max}."),
+        "verdict_fail_body": ("I found {n} issue(s) to fix. Attempt {n_attempt} of {max}."),
         # evaluation tab
         "eval_title": "Plan evaluation",
         "eval_caption": (
@@ -1047,6 +1073,38 @@ _STRINGS: dict[str, dict[str, str]] = {
         # top-level tabs
         "tab_play": "Gioca",
         "tab_evaluation": "Valutazione",
+        # Majora's Mask redesign
+        "brand_tagline": "La tua fata nel ciclo di tre giorni",
+        "time_left_label": "IL TEMPO CHE CI RESTA",
+        "time_left_caption": (
+            "Sei al Giorno {day}, Link. Ogni giorno dura dalle 06:00 alle 05:59."
+        ),
+        "day_n": "Giorno {n}",
+        "sidebar_location": "Dove sei, Link?",
+        "sidebar_masks": "Le tue maschere",
+        "sidebar_items": "Cosa hai con te",
+        "goal_label": "Cosa vuoi fare?",
+        "ask_taia": "Chiedi a TaIA",
+        "fairy_greeting": (
+            "Ehi, Link! Ascolta: ci restano circa {hours} ore prima che la Luna cada. "
+            "Dimmi cosa vuoi fare e ti preparo un piano."
+        ),
+        "agents_title": "COSA STO FACENDO PER TE",
+        "agent_card_state": "Guardo come stai",
+        "agent_card_knowledge": "Cerco cosa so",
+        "agent_card_plan": "Preparo il piano",
+        "agent_card_critic": "Ricontrollo tutto",
+        "agent_done": "completato",
+        "agent_running": "al lavoro",
+        "agent_pending": "in attesa",
+        "wiki_evidence": "Evidenze dal wiki:",
+        "indexed_pages_n": "{n} pagine indicizzate",
+        "verdict_ok_body": (
+            "Ho ricontrollato ogni passo e non ho trovato problemi. Tentativo {n} di {max}."
+        ),
+        "verdict_fail_body": (
+            "Ho trovato {n} problema/i da correggere. Tentativo {n_attempt} di {max}."
+        ),
         # evaluation tab
         "eval_title": "Valutazione dei piani",
         "eval_caption": (
