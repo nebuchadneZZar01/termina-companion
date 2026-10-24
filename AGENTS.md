@@ -117,17 +117,24 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   this directly — they go through the MCP tools in `app/mcp/tools.py`.
 * `app/agents/` — one module per agent (state, knowledge,
   planning, critic), each exposing a LangGraph node function `run(state) -> dict`.
-  State, Knowledge and Critic run deterministic rule-based logic. The Planning
+  State, Knowledge and Critic run deterministic rule-based logic. The State
+  Agent lists completed quests only and never infers an active quest from the
+  player's location. The Planning
   Agent always calls the configured LLM; missing configuration, invocation
   errors and empty output fail explicitly. LLM output is post-processed
   deterministically: refs, titles and locations are grounded to the knowledge
   objectives and each step's window is clamped inside its objective's slot
   (see `app/agents/planning_agent.py`). The final plan is then rebuilt against the
   authoritative objective chain: `search_quests` retrieves a whole quest when
-  any of its objectives matches, "obtain item" steps are pruned when the
-  player already owns what they provide (`provides_items`/`provides_masks` on
-  `Objective`), missing chain steps are re-inserted in prerequisite order and
-  `depends_on` is recomputed; a kept step keeps the LLM's window only when it
+  any of its objectives matches; objectives up to the furthest reward the
+  player already owns (`provides_items`/`provides_masks` on `Objective`) are
+  treated as done, so a trade chain never asks again for items traded away,
+  and "obtain item" steps beyond it are pruned when their reward is owned.
+  When the manually entered inventory contradicts that position (a later
+  reward owned but an earlier required mask missing) the planner falls back to
+  pruning only owned-provide steps. Missing chain steps are re-inserted in
+  prerequisite order and `depends_on` is recomputed; a kept step keeps the
+  LLM's window only when it
   fits the chain — after its dependencies, after the previous step, before the
   successor's slot — and is re-slotted onto a 1h window otherwise, while a
   re-plan re-slots every window, so the rebuilt plan is always chronological

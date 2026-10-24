@@ -47,7 +47,7 @@ def run(state: PlanningState) -> dict:
         f"Items: {', '.join(gs.inventory) or 'none'}. "
         f"Masks: {', '.join(gs.masks) or 'none'}."
     )
-    progress = _progress_summary(gs.quest_progress, _KB, gs.location)
+    progress = _progress_summary(gs.quest_progress, _KB)
     if progress:
         summary += f"\n{progress}"
     prefs = state.preferences.summary() if hasattr(state, "preferences") else "none"
@@ -62,38 +62,26 @@ def run(state: PlanningState) -> dict:
     return {"game_state": gs, "state_summary": summary, "state_engine": "rule-based"}
 
 
-def _progress_summary(quest_progress: dict[str, str], kb: KnowledgeBase, location: str) -> str:
-    """Describe quest progress from the player's status and position.
+def _progress_summary(quest_progress: dict[str, str], kb: KnowledgeBase) -> str:
+    """Describe the quests the player has completed.
 
-    Completed quests are listed, and each unfinished quest with a stage at the
-    player's current location is reported with the objectives that can be
-    advanced from here.
+    Only whole-quest completion is known, so the summary never guesses an
+    "active" quest from the player's location: a position only says where the
+    player is, not what they are doing.
 
     args:
         quest_progress (dict[str, str]): quest id to status map; "done" marks
         a whole quest completed.
-        kb (KnowledgeBase): the game knowledge, for quest objectives.
-        location (str): the player's canonical location.
+        kb (KnowledgeBase): the game knowledge, for quest names.
 
     returns:
-        str: the progress summary, or "" when no progress is detectable.
+        str: the completed-quest line, or "" when nothing is completed.
     """
     done = {qid for qid, status in quest_progress.items() if status == "done"}
-    lines: list[str] = []
     completed = [q.name for q in kb.quests if q.id in done]
-    if completed:
-        lines.append(f"Completed quests: {', '.join(completed)}.")
-    # ponytail: the status map only knows whole-quest done, so "in progress"
-    # is inferred from the player's location. Ceiling: per-objective completion
-    # tracking; upgrade when GameState starts recording finished objectives.
-    active = [
-        (q.name, [o.title for o in q.objectives if o.location == location])
-        for q in kb.quests
-        if q.id not in done and any(o.location == location for o in q.objectives)
-    ]
-    for name, titles in active:
-        lines.append(f"Active: {name} — {', '.join(titles)}.")
-    return "\n".join(lines)
+    if not completed:
+        return ""
+    return f"Completed quests: {', '.join(completed)}."
 
 
 def _canonical_location(location: str) -> str:

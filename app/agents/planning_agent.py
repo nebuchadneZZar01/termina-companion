@@ -25,7 +25,7 @@ import time
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from app.data.mock_knowledge import Objective
+from app.data.mock_knowledge import Objective, build_default_knowledge
 from app.domain import ClockTime, Plan, PlanStep, TimeWindow
 from app.llm import get_chat_model, llm_error_hint
 from app.progress import report
@@ -33,6 +33,12 @@ from app.state import PlanningState
 from app.trace import TraceCallback
 
 _SLOT = 1  # hours per step
+
+_KB = build_default_knowledge()
+# objective id -> (quest id, position in the quest's chain)
+_OBJECTIVE_POSITION = {
+    obj.id: (quest.id, idx) for quest in _KB.quests for idx, obj in enumerate(quest.objectives)
+}
 
 logger = logging.getLogger(__name__)
 
@@ -466,18 +472,23 @@ def _dedupe_steps(plan: Plan) -> Plan:
 # keep an "obtain item" step for something the player already owns, or schedule
 # steps as whole objective slots that overlap their prerequisites. The
 # relevant-objective chain (prerequisites first) is authoritative, so the final
-# plan is rebuilt around it: fully-owned provide steps are pruned, missing chain
-# steps are re-inserted with deterministic slots, and a kept step keeps the
-# LLM's window only when it fits the chain — after its dependencies, after the
-# previous step, before the successor's slot — and is re-slotted onto a 1h
-# window otherwise. Ceiling: no per-objective "done" tracking in GameState;
-# upgrade path: model completed objectives so chains can start mid-quest.
+# plan is rebuilt around it: objectives up to the furthest reward the player
+# already owns are treated as done, fully-owned provide steps beyond it are
+# pruned, missing chain steps are re-inserted with deterministic slots, and a
+# kept step keeps the LLM's window only when it fits the chain — after its
+# dependencies, after the previous step, before the successor's slot — and is
+# re-slotted onto a 1h window otherwise. Ceiling: chain position is inferred
+# from owned rewards only, so a finished objective that provides nothing and
+# has no owned successor yet is planned again; upgrade path: model completed
+# objectives explicitly so chains can start mid-quest even then.
 def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
     """Rebuild the plan around the authoritative objective chain.
 
-    Every chain objective becomes a step, in prerequisite order. On the first
-    attempt the LLM's window is kept when it fits the chain — it starts after
-    the dependencies and after the previous step, and ends before the
+    Every chain objective becomes a step, in prerequisite order. The chain
+    starts after the furthest objective whose reward the player already owns,
+    so a trade chain never asks for items that were already traded away. On the
+    first attempt the LLM's window is kept when it fits the chain — it starts
+    after the dependencies and after the previous step, and ends before the
     successor's slot opens — and is re-slotted onto a one-hour slot otherwise.
     On a re-plan every window is re-slotted deterministically. The rebuilt
     plan therefore never overlaps itself and never starts a step before its
@@ -489,18 +500,26 @@ def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
         retrieved objectives.
 
     returns:
-        Plan: the same plan, pruned of owned-provide steps and with every
-        remaining chain objective present, ordered by prerequisites and
+        Plan: the same plan, pruned of done and owned-provide steps and with
+        every remaining chain objective present, ordered by prerequisites and
         timed after its dependencies.
     """
     owned_items = set(state.game_state.inventory)
     owned_masks = set(state.game_state.masks)
     by_ref = {s.objective_ref: s for s in plan.steps}
+    floor = _owned_chain_floor(state.relevant_objectives, owned_items, owned_masks)
+    ordered = _order_by_prerequisites(state.relevant_objectives)
     chain = [
         obj
-        for obj in _order_by_prerequisites(state.relevant_objectives)
-        if not _already_owned(obj, owned_items, owned_masks)
+        for obj in ordered
+        if not _already_done(obj, floor) and not _already_owned(obj, owned_items, owned_masks)
     ]
+    if not _requirements_covered(chain, owned_items, owned_masks):
+        # The inventory contradicts the inferred chain position (e.g. a later
+        # reward is owned but an earlier mask is not). Fall back to pruning
+        # only objectives whose own reward is already owned, so the missing
+        # requirements can still be acquired by the plan.
+        chain = [obj for obj in ordered if not _already_owned(obj, owned_items, owned_masks)]
     steps: list[PlanStep] = []
     prev_end: ClockTime | None = None
     for idx, obj in enumerate(chain):
@@ -598,6 +617,77 @@ def _successor_cap(
         if obj.id in later.prerequisites
     ]
     return min(caps, key=_clock) if caps else None
+
+
+def _requirements_covered(
+    chain: list[Objective], owned_items: set[str], owned_masks: set[str]
+) -> bool:
+    """Whether every step's requirements are owned or provided earlier in the chain.
+
+    args:
+        chain (list[Objective]): the candidate chain, in plan order.
+        owned_items (set[str]): the player's items.
+        owned_masks (set[str]): the player's masks.
+
+    returns:
+        bool: True when no step needs an item or mask the plan cannot supply.
+    """
+    available_items = set(owned_items)
+    available_masks = set(owned_masks)
+    for obj in chain:
+        if not set(obj.requires_items) <= available_items:
+            return False
+        if not set(obj.requires_masks) <= available_masks:
+            return False
+        available_items.update(obj.provides_items)
+        available_masks.update(obj.provides_masks)
+    return True
+
+
+def _owned_chain_floor(
+    objectives: list[Objective], owned_items: set[str], owned_masks: set[str]
+) -> dict[str, int]:
+    """The furthest objective position per quest whose reward the player owns.
+
+    A linear quest chain hands out its rewards in order, so owning the reward
+    of objective N means every objective up to N is done — even the ones that
+    provide nothing and the ones whose reward was traded away afterwards.
+
+    args:
+        objectives (list[Objective]): objectives to inspect.
+        owned_items (set[str]): the player's items.
+        owned_masks (set[str]): the player's masks.
+
+    returns:
+        dict[str, int]: quest id → highest done objective index, absent when
+        the player owns no reward from that quest.
+    """
+    floor: dict[str, int] = {}
+    for obj in objectives:
+        position = _OBJECTIVE_POSITION.get(obj.id)
+        if position is None or not _already_owned(obj, owned_items, owned_masks):
+            continue
+        quest_id, idx = position
+        floor[quest_id] = max(floor.get(quest_id, -1), idx)
+    return floor
+
+
+def _already_done(obj: Objective, floor: dict[str, int]) -> bool:
+    """Whether the objective sits at or before its quest's owned-reward floor.
+
+    args:
+        obj (Objective): the objective to test.
+        floor (dict[str, int]): quest id → furthest done objective index.
+
+    returns:
+        bool: True when the objective is already done, False when it is not or
+        its quest is unknown.
+    """
+    position = _OBJECTIVE_POSITION.get(obj.id)
+    if position is None:
+        return False
+    quest_id, idx = position
+    return idx <= floor.get(quest_id, -1)
 
 
 def _already_owned(obj: Objective, owned_items: set[str], owned_masks: set[str]) -> bool:
