@@ -441,6 +441,15 @@ def test_step_label_carries_the_engine_badge_not_the_card(monkeypatch) -> None:
     assert label == "agent_knowledge (rule-based)"
 
 
+def test_plan_step_label_uppercases_llm_and_code_formats_the_model(monkeypatch) -> None:
+    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
+    label = ui._PlanStepper._step_label(
+        "plan",
+        {"plan_engine": "llm", "plan_model": "llama3.2", "replan_attempts": 1},
+    )
+    assert label == "agent_planning (LLM \u00b7 `llama3.2`) \u2014 step_attempt"
+
+
 def test_step_critic_valid_does_not_add_a_second_check(monkeypatch) -> None:
     from app.domain import ValidationResult
 

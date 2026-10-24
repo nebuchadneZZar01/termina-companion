@@ -648,20 +648,26 @@ def _append_step(status, node: str, result: dict) -> None:
         _step_critic(status, result)
 
 
+# Engines whose badge is an acronym, not a lowercase identifier.
+_ENGINE_LABELS = {"llm": "LLM"}
+
+
 def _engine_badge(engine: str | None, model: str = "") -> str:
     """Format an engine name as a parenthesised badge suffix.
 
     args:
         engine (str | None): the engine label, e.g. "llm".
-        model (str, default ""): the model name, shown when present.
+        model (str, default ""): the model name, shown as inline code when
+            present.
 
     returns:
-        str: " (engine)" or " (engine · model)" or "" when empty.
+        str: " (engine)", " (engine \u00b7 `model`)" or "" when empty.
     """
     if not engine:
         return ""
-    suffix = f" \u00b7 {model}" if model else ""
-    return f" ({engine}{suffix})"
+    label = _ENGINE_LABELS.get(engine, engine)
+    suffix = f" \u00b7 `{model}`" if model else ""
+    return f" ({label}{suffix})"
 
 
 def _engine_for(node: str, result: dict) -> tuple[str | None, str]:
