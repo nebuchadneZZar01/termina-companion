@@ -5,9 +5,11 @@ backgroundColor = "#0e1126"
 secondaryBackgroundColor = "#141836"
 textColor = "#e8e6f2"
 font = "sans serif"
+showSidebarBorder = false
 
-[theme.light]
-primaryColor = "#e0b252"
-backgroundColor = "#0e1126"
-secondaryBackgroundColor = "#141836"
+[theme.sidebar]
+backgroundColor = "#141836"
+secondaryBackgroundColor = "#1b2046"
 textColor = "#e8e6f2"
+primaryColor = "#e0b252"
+borderColor = "#2a2f5c"

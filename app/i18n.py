@@ -539,7 +539,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "generate_plan_caption": "Builds the plan from your state and goal.",
         "stop_plan": "Stop",
         "stop_plan_help": "Stop after the current agent or LLM call finishes.",
-        "info_edit_state": ("Set your state and goal, then press **Plan My Quest**."),
+        "info_edit_state": ("Set your state and goal, then press **Ask TaIA**."),
         "llm_settings": "LLM Settings",
         "runtime_config": "Runtime configuration",
         "rag_retrieval": "Wiki retrieval",
@@ -725,6 +725,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sidebar_location": "Where are you, Link?",
         "sidebar_masks": "Your masks",
         "sidebar_items": "What you carry",
+        "select_placeholder": "Choose...",
         "goal_label": "What do you want to do?",
         "ask_taia": "Ask TaIA",
         "fairy_greeting": (
@@ -887,7 +888,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "stop_plan_help": (
             "Interrompe dopo il completamento dell'agente o della chiamata LLM in corso."
         ),
-        "info_edit_state": ("Imposta stato e obiettivo, poi premi **Pianifica la mia missione**."),
+        "info_edit_state": ("Imposta stato e obiettivo, poi premi **Chiedi a TaIA**."),
         "llm_settings": "Impostazioni LLM",
         "runtime_config": "Configurazione runtime",
         "rag_retrieval": "Retrieval wiki",
@@ -1083,6 +1084,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sidebar_location": "Dove sei, Link?",
         "sidebar_masks": "Le tue maschere",
         "sidebar_items": "Cosa hai con te",
+        "select_placeholder": "Scegli...",
         "goal_label": "Cosa vuoi fare?",
         "ask_taia": "Chiedi a TaIA",
         "fairy_greeting": (

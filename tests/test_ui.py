@@ -653,8 +653,8 @@ def test_app_renders_headless_without_error() -> None:
     assert any(label == "Stop" for label in labels)
 
 
-def test_inventory_pills_add_custom_item_and_keep_it_selected() -> None:
-    """A typed custom item becomes a selected pill and clears the input.
+def test_inventory_multiselect_add_custom_item_and_keep_it_selected() -> None:
+    """A typed custom item becomes a selected tag and clears the input.
 
     Runs the real entry point in English: with translated labels AppTest
     cannot match the selectbox options (pre-existing formatter mismatch).
@@ -676,9 +676,9 @@ def test_inventory_pills_add_custom_item_and_keep_it_selected() -> None:
     at.run()
 
     assert not at.exception
-    pills = at.get_by_key("save_inventory")
-    assert "Deku Leaf" in pills.options
-    assert pills.value == ["Deku Leaf"]
+    inventory = at.get_by_key("save_inventory")
+    assert "Deku Leaf" in inventory.options
+    assert inventory.value == ["Deku Leaf"]
     assert at.get_by_key("save_inventory_new").value == ""
 
 

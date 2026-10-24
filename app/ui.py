@@ -1695,8 +1695,12 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
   background: radial-gradient(circle at 20% 0%, #171c3a 0%, #0e1126 45%, #0b0e1f 100%);
   color: var(--tc-text);
 }
+[data-testid="stMainBlockContainer"] {
+  padding-top: 1.25rem !important;
+}
 [data-testid="stHeader"] { background: transparent; }
 #MainMenu, footer, [data-testid="stToolbar"] { visibility: hidden; }
+[data-testid="stExpandSidebarButton"] { visibility: visible !important; }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: Cinzel, serif !important;
@@ -1706,14 +1710,26 @@ h1, h2, h3, h4, h5, h6 {
 [data-testid="stCaptionContainer"], .stCaption { color: var(--tc-muted); }
 
 [data-testid="stSidebar"] {
+  width: 320px !important;
+  min-width: 320px !important;
+  max-width: 320px !important;
   background: var(--tc-surface);
   border-right: 1px solid var(--tc-border);
+}
+[data-testid="stSidebarContent"] {
+  width: 320px !important;
+  background: transparent;
+}
+[data-testid="stSidebarUserContent"] {
+  padding: 1.25rem 1.1rem 2rem;
+}
+[data-testid="stSidebarHeader"] {
+  display: none;
 }
 [data-testid="stSidebar"] label,
 [data-testid="stSidebar"] .stMarkdown p { color: var(--tc-muted); }
 
-.stButton > button,
-[data-testid="stBaseButton-secondary"] {
+[data-testid="stButton"] button {
   border-radius: 10px;
   border: 1px solid var(--tc-border-strong);
   background: transparent;
@@ -1721,17 +1737,18 @@ h1, h2, h3, h4, h5, h6 {
   font-family: Inter, sans-serif;
   font-weight: 500;
 }
-.stButton > button:hover { border-color: var(--tc-gold); color: var(--tc-gold); }
-.stButton > button[kind="primary"],
-[data-testid="stBaseButton-primary"] {
+[data-testid="stButton"] button:hover {
+  border-color: var(--tc-gold);
+  color: var(--tc-gold);
+}
+[data-testid="stButton"] button[kind="primary"] {
   background: var(--tc-gold);
   border-color: var(--tc-gold);
   color: #1a1630;
   font-family: Cinzel, serif;
   font-weight: 700;
 }
-.stButton > button[kind="primary"]:hover,
-[data-testid="stBaseButton-primary"]:hover {
+[data-testid="stButton"] button[kind="primary"]:hover {
   background: #efc46e;
   border-color: #efc46e;
   color: #1a1630;
@@ -1753,45 +1770,68 @@ h1, h2, h3, h4, h5, h6 {
   padding: 14px 16px;
   font-size: 16px;
 }
-[data-baseweb="select"] > div {
+[data-testid="stSelectbox"] input,
+[data-testid="stSelectbox"] [role="combobox"] {
   background: var(--tc-bg);
-  border-color: var(--tc-border);
+  border: 1px solid var(--tc-border);
+  border-radius: 8px;
+  color: var(--tc-text);
 }
+[data-testid="stMultiSelectTagsContainer"] {
+  background: var(--tc-bg);
+  border: 1px solid var(--tc-border);
+  border-radius: 8px;
+  padding: 4px 6px;
+}
+[data-testid="stMultiSelectTagsContainer"] [data-tag] {
+  background: #2b2540;
+  border: 1px solid var(--tc-gold);
+  border-radius: 999px;
+  color: var(--tc-gold);
+  font-size: 13px;
+}
+[data-testid="stMultiSelect"] input { color: var(--tc-text); }
 
-[data-testid="stTabs"] [data-baseweb="tab-list"] {
+[data-testid="stTabs"] [role="tablist"] {
   gap: 28px;
   border-bottom: 1px solid var(--tc-border);
   background: transparent;
 }
-[data-testid="stTabs"] [data-baseweb="tab"] {
+[data-testid="stTabs"] [data-testid="stTab"],
+[data-testid="stTabs"] [role="tab"] {
   font-family: Cinzel, serif;
   font-weight: 700;
   color: var(--tc-muted);
   background: transparent;
   padding: 8px 2px;
 }
-[data-testid="stTabs"] [aria-selected="true"] {
+[data-testid="stTabs"] [data-testid="stTab"][aria-selected="true"],
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
   color: var(--tc-gold);
   border-bottom: 2px solid var(--tc-gold);
 }
-[data-testid="stTabs"] [data-baseweb="tab-highlight"] { background: var(--tc-gold); }
-[data-testid="stTabs"] [data-baseweb="tab-border"] { background: var(--tc-border); }
 
-[data-testid="stPills"] button,
-[data-testid="stPills"] [role="button"] {
+[data-testid="stButtonGroup"] [data-variant="pills"] {
   border-radius: 999px;
   border: 1px solid var(--tc-border-strong);
   background: transparent;
   color: var(--tc-muted);
   font-size: 13px;
+  padding: 4px 12px;
 }
-[data-testid="stPills"] button[aria-checked="true"],
-[data-testid="stPills"] [aria-selected="true"] {
+[data-testid="stButtonGroup"] [data-variant="pills"]:hover {
+  border-color: var(--tc-gold);
+  color: var(--tc-gold);
+}
+[data-testid="stButtonGroup"] [data-variant="pills"][data-selected],
+[data-testid="stButtonGroup"] [data-variant="pills"][aria-selected="true"],
+[data-testid="stButtonGroup"] [data-variant="pills"][aria-pressed="true"] {
   background: #2b2540;
   border-color: var(--tc-gold);
   color: var(--tc-gold);
 }
 
+[data-testid="stExpander"],
 [data-testid="stExpander"] details {
   background: var(--tc-surface);
   border: 1px solid var(--tc-border);
@@ -1812,6 +1852,11 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 12px;
   border: 1px solid var(--tc-border);
   background: var(--tc-card);
+}
+[data-testid="stAlertContainer"] {
+  background: var(--tc-card) !important;
+  border: 1px solid var(--tc-border) !important;
+  border-radius: 12px;
 }
 
 .tc-brand-name {
@@ -1836,7 +1881,7 @@ h1, h2, h3, h4, h5, h6 {
 .tc-time-label {
   font-family: Cinzel, serif;
   font-size: 12px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
   color: var(--tc-muted);
 }
 .tc-time-value { font-family: Cinzel, serif; font-size: 26px; color: var(--tc-gold); }
@@ -2187,6 +2232,7 @@ def render() -> None:
         page_title="Termina Companion",
         page_icon="\U0001f319",
         layout="wide",
+        initial_sidebar_state="expanded",
     )
     _inject_styles()
     kb = build_default_knowledge()
@@ -2290,13 +2336,13 @@ def _render_sidebar_editor(kb) -> dict:
         when = st.time_input(t("time"), datetime.time(6, 0), step=60, key="save_time")
     st.caption(_time_label(day, when))
 
-    masks = st.pills(
+    masks = st.multiselect(
         t("sidebar_masks"),
         list(MASKS),
-        selection_mode="multi",
+        default=list(st.session_state.get("save_masks") or []),
         format_func=tr,
         help=t("masks_help"),
-        wrap=True,
+        placeholder=t("select_placeholder"),
         key="save_masks",
     )
     item_options = sorted(
@@ -2311,45 +2357,37 @@ def _render_sidebar_editor(kb) -> dict:
         if pending_add not in current:
             st.session_state["save_inventory"] = [*current, pending_add]
         st.session_state["save_inventory_new"] = ""
-    # Pills render only options: merge the current selection so custom
-    # items (typed or loaded from a save) stay visible and deselectable.
+    # The multiselect renders only options: merge the current selection so
+    # custom items (typed or loaded from a save) stay visible and removable.
     owned_now = st.session_state.get("save_inventory") or []
     inventory_options = sorted(set(item_options) | set(owned_now))
-    inventory = st.pills(
+    inventory = st.multiselect(
         t("sidebar_items"),
         inventory_options or ["Hookshot"],
-        selection_mode="multi",
+        default=list(owned_now),
         format_func=tr,
         help=t("inventory_help"),
-        wrap=True,
+        placeholder=t("select_placeholder"),
         key="save_inventory",
     )
-    add_col, button_col = st.columns([4, 1])
-    with add_col:
-        st.text_input(
-            t("inventory_add"),
-            key="save_inventory_new",
-            label_visibility="collapsed",
-            placeholder=t("inventory_add"),
-        )
-    with button_col:
-        if st.button(
-            t("inventory_add_button"),
-            use_container_width=True,
-            key="save_inventory_add",
-        ):
-            typed = (st.session_state.get("save_inventory_new") or "").strip()
-            if typed:
-                st.session_state["_inventory_add_pending"] = typed
-                st.rerun()
+    st.text_input(t("inventory_add"), key="save_inventory_new")
+    if st.button(
+        t("inventory_add_button"),
+        use_container_width=True,
+        key="save_inventory_add",
+    ):
+        typed = (st.session_state.get("save_inventory_new") or "").strip()
+        if typed:
+            st.session_state["_inventory_add_pending"] = typed
+            st.rerun()
     quest_names = {q.name: q.id for q in kb.quests}
-    done_q = st.pills(
+    done_q = st.multiselect(
         t("quest_progress"),
         list(quest_names),
-        selection_mode="multi",
+        default=list(st.session_state.get("save_quests") or []),
         format_func=tr,
         help=t("quest_progress_help"),
-        wrap=True,
+        placeholder=t("select_placeholder"),
         key="save_quests",
     )
     return {
