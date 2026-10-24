@@ -450,6 +450,51 @@ def test_plan_step_label_uppercases_llm_and_code_formats_the_model(monkeypatch) 
     assert label == "agent_planning (LLM \u00b7 `llama3.2`) \u2014 step_attempt"
 
 
+class _StepStatus:
+    """Status stub that fails if opened as a context manager."""
+
+    def __init__(self) -> None:
+        self.updates: list[dict] = []
+
+    def __enter__(self):
+        raise AssertionError("a running step must not be opened as a context manager")
+
+    def empty(self):
+        return self
+
+    def update(self, **kwargs) -> None:
+        self.updates.append(kwargs)
+
+
+class _OuterStatus:
+    def __init__(self) -> None:
+        self.created: list[tuple[str, _StepStatus]] = []
+
+    def status(self, label: str, **_kwargs) -> _StepStatus:
+        status = _StepStatus()
+        self.created.append((label, status))
+        return status
+
+
+def test_start_keeps_the_step_running_until_it_finishes(monkeypatch) -> None:
+    """A step created with ``with`` is auto-completed at once by Streamlit."""
+    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
+    stepper = ui._PlanStepper.__new__(ui._PlanStepper)
+    stepper.outer = _OuterStatus()
+    stepper._open = {}
+
+    stepper.start("state")
+
+    label, status = stepper.outer.created[0]
+    assert label == "agent_state"
+    assert stepper._open["state"].status is status
+    assert status.updates == []
+
+    stepper.close_open()
+    assert status.updates == [{"state": "complete"}]
+    assert stepper._open == {}
+
+
 def test_step_critic_valid_does_not_add_a_second_check(monkeypatch) -> None:
     from app.domain import ValidationResult
 

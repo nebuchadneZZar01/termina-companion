@@ -422,15 +422,20 @@ class _PlanStepper:
         self._open: dict[str, _Step] = {}
 
     def start(self, node: str) -> None:
-        """Append a running step for an agent as soon as it starts."""
-        with (
-            self.outer,
-            st.status(
-                f"\u23f3 {t(_AGENT_LABEL_KEY[node])}", state="running", expanded=True
-            ) as status,
-        ):
-            pass
+        """Append a running step for an agent as soon as it starts.
+
+        The status is created directly instead of through a ``with`` block:
+        leaving that block marks a status complete, which would swap the
+        spinner for a check mark while the agent is still working.
+        """
+        status = self.outer.status(t(_AGENT_LABEL_KEY[node]), state="running", expanded=True)
         self._open[node] = _Step(node=node, status=status, live=status.empty())
+
+    def close_open(self, state: str = "complete") -> None:
+        """Close any step still running, so no spinner survives a finished run."""
+        for step in self._open.values():
+            step.status.update(state=state)
+        self._open.clear()
 
     def progress(self, payload: dict) -> None:
         """Append a progress line to the agent's open step, if any."""
@@ -494,6 +499,7 @@ def _render_planning_progress(task: _PlanningTask) -> None:
     stepper = _PlanStepper()
     _apply_log(stepper, task, 0)
     stepper.set_outer(*_outer_status(task, 0))
+    stepper.close_open("error" if task.status in {"error", "stopped"} else "complete")
     if task.status == "error":
         st.error(t("planning_error", error=task.error or "unknown error"))
     elif task.status == "stopped":
