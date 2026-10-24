@@ -31,19 +31,6 @@ logger = logging.getLogger(__name__)
 RAG_ENV_VAR = "RAG_ENABLED"
 
 
-def rag_enabled() -> bool:
-    """Whether the supplemental wiki retrieval is currently enabled.
-
-    args:
-        (none)
-
-    returns:
-        bool: True when retrieval may run.
-    """
-    raw = os.getenv(RAG_ENV_VAR, "").strip().casefold()
-    return raw not in {"0", "false", "off", "no"}
-
-
 def run_scenario(scenario: PlanScenario) -> ScenarioResult:
     """Run the pipeline for one scenario and evaluate the produced plan.
 

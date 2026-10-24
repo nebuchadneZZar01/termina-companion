@@ -14,7 +14,8 @@ and the MCP server.
 from __future__ import annotations
 
 import logging
-import os
+
+from app.settings import get_settings
 
 _FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 _DATEFMT = "%Y-%m-%d %H:%M:%S"
@@ -59,7 +60,7 @@ def configure_logging() -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter(_FORMAT, _DATEFMT))
     root.addHandler(handler)
-    level = os.getenv("LOG_LEVEL", "INFO").upper()
+    level = get_settings().log_level
     root.setLevel(level)
     # At DEBUG the caller asked for everything, so the noisy watchers are
     # reset to NOTSET (inheriting DEBUG); above it they are muted.

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 import uuid
 from contextlib import contextmanager
@@ -32,6 +31,8 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import Span, Status, StatusCode
+
+from app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +135,7 @@ def setup_tracing() -> None:
     _setup_done = True
 
     provider = TracerProvider(resource=Resource.create({"service.name": SERVICE_NAME}))
-    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
+    endpoint = get_settings().otel_exporter_otlp_endpoint
     if endpoint:
         traces_url = _otlp_traces_url(endpoint)
         provider.add_span_processor(

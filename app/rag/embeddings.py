@@ -11,9 +11,10 @@ from typing import Any, Protocol
 
 from fastembed import TextEmbedding
 
+from app.settings import DEFAULT_FASTEMBED_MODEL
+
 _TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 
-DEFAULT_FASTEMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 _KNOWN_DIMENSIONS = {DEFAULT_FASTEMBED_MODEL: 384}
 
 

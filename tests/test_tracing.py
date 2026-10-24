@@ -193,25 +193,6 @@ def test_otlp_traces_url_resolution():
     )
 
 
-def test_phoenix_ui_url_derivation(monkeypatch):
-    """The Phoenix UI link is scheme + host of the endpoint, port 6006."""
-    # exercised through the UI helper, which reads the same env
-    from app.ui import _phoenix_ui_url
-
-    # Canonical Phoenix endpoint: UI and OTLP/HTTP share :6006.
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:6006")
-    assert _phoenix_ui_url() == "http://localhost:6006"
-    # Another host, trailing slash: port is still forced to the UI port.
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://phoenix:6006/")
-    assert _phoenix_ui_url() == "http://phoenix:6006"
-    # Any other port (e.g. a hypothetical gRPC base) still maps to the UI port.
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://phoenix:4317")
-    assert _phoenix_ui_url() == "http://phoenix:6006"
-    # Unset -> default local UI.
-    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
-    assert _phoenix_ui_url() == "http://localhost:6006"
-
-
 def test_exported_spans_carry_kind_status_and_io(memory_tracing):
     """Spans end with OpenInference kind, explicit OK status and input/output."""
     exporter, _tracer = memory_tracing

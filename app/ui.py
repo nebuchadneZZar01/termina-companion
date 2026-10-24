@@ -9,7 +9,6 @@ from __future__ import annotations
 import datetime
 import datetime as _datetime
 import logging
-import os
 import queue
 import re
 import threading
@@ -35,8 +34,10 @@ from app.evaluation.storage import (
 )
 from app.graph import MAX_PLANNING_ATTEMPTS, build_graph
 from app.i18n import DEFAULT_LANG, spinner_lines, t, tr, tr_msg
+from app.llm import default_model_for
 from app.phoenix import publish_plan_validation
 from app.save import load_state, save_state
+from app.settings import get_settings
 from app.state import PlanningState
 from app.trace import current_run, pipeline_span
 
@@ -65,32 +66,6 @@ _ACTIVE_STATUSES = frozenset({"running", "stopping"})
 _STOP_SENTINEL = object()
 _NO_MESSAGE = object()
 
-
-def _phoenix_ui_url() -> str:
-    """Derive the Phoenix UI URL from the OTLP endpoint.
-
-    Phoenix serves the web UI and the OTLP/HTTP trace receiver on the same
-    port (``:6006``), so the UI origin is scheme + host of the configured
-    endpoint with the port forced to 6006 — no extra configuration.
-
-    args:
-        (none)
-
-    returns:
-        str: the Phoenix UI base URL, e.g. ``http://localhost:6006``.
-    """
-    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
-    if not endpoint:
-        return "http://localhost:6006"
-    parsed = urlsplit(endpoint)
-    if not parsed.scheme or not parsed.hostname:
-        return "http://localhost:6006"
-    return f"{parsed.scheme}://{parsed.hostname}:6006"
-
-
-PHOENIX_UI_URL = _phoenix_ui_url()
-# The Phoenix link is shown only when tracing actually exports somewhere.
-PHOENIX_ENABLED = bool(os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip())
 # Idle wait used by the live progress loop. It only bounds how long we block on
 # the worker queue before emitting an invisible yield point, so a queued Stop
 # click is handled promptly. It never triggers a redraw on its own.
@@ -621,8 +596,8 @@ def _render_run_audit(result: dict) -> None:
         max=MAX_PLANNING_ATTEMPTS,
         outcome=outcome,
     )
-    if PHOENIX_ENABLED:
-        header = f"{header} \u00b7 [Open Phoenix \u2197]({PHOENIX_UI_URL})"
+    if get_settings().tracing_enabled:
+        header = f"{header} \u00b7 [Open Phoenix \u2197]({get_settings().phoenix_ui_url})"
     st.markdown(header)
     if run.nodes:
         st.markdown(f"**{t('audit_timeline')}**")
@@ -1662,6 +1637,50 @@ def _time_label(day: int, value: datetime.time) -> str:
     return t(key, day=day, time=display)
 
 
+def _render_configuration() -> None:
+    """Show the read-only configuration loaded from the environment.
+
+    Display only: the key settings come from environment variables (and
+    ``.env``), never from the sidebar. Only the essentials are shown; the full
+    contract lives in ``app/settings.py``.
+
+    args:
+        (none)
+
+    returns:
+        None: renders the configuration half of the sidebar.
+    """
+    settings = get_settings()
+    provider = settings.llm_provider or ""
+    base_url = settings.llm_base_url or ""
+
+    _section(t("llm_settings"))
+    if provider:
+        model = settings.llm_model or default_model_for(provider)
+        st.markdown(f"- **{t('llm_provider')}**: `{provider}`")
+        if model:
+            st.markdown(f"- **{t('llm_model')}**: `{model}`")
+        if base_url:
+            st.markdown(f"- **LLM_BASE_URL**: `{base_url}`")
+        if provider in {"ollama", "lmstudio"} and base_url and urlsplit(base_url).path in {"", "/"}:
+            st.warning(t("llm_base_url_hint"))
+    else:
+        st.warning(
+            "LLM not configured. Set LLM_PROVIDER (and credentials) in .env (see .env.example)."
+        )
+
+    st.divider()
+    _section(t("runtime_config"))
+    rag = settings.rag
+    retrieval = t("state_on") if rag.enabled else t("state_off")
+    st.markdown(f"- **{t('rag_retrieval')}**: `{retrieval}`")
+    st.markdown(f"- **{t('rag_embedding_model')}**: `{rag.embedding_model}`")
+    if settings.tracing_enabled:
+        st.markdown(f"- **{t('phoenix_url')}**: [Open \u2197]({settings.phoenix_ui_url})")
+    else:
+        st.markdown(f"- **{t('phoenix_url')}**: `None`")
+
+
 def render() -> None:
     """Main Streamlit UI: state editor, planning action and result tabs.
 
@@ -1732,26 +1751,7 @@ def render() -> None:
         if save_warning:
             st.warning(save_warning)
         st.divider()
-        _section(t("llm_settings"))
-        provider = os.getenv("LLM_PROVIDER", "").strip()
-        model = os.getenv("LLM_MODEL", "").strip()
-        base_url = os.getenv("LLM_BASE_URL", "").strip()
-        if provider:
-            st.markdown(f"- **LLM Provider**: `{provider}`")
-            if model:
-                st.markdown(f"- **Modello**: `{model}`")
-            if base_url:
-                st.markdown(f"- **LLM_BASE_URL**: `{base_url}`")
-            if (
-                provider in {"ollama", "lmstudio"}
-                and base_url
-                and urlsplit(base_url).path in {"", "/"}
-            ):
-                st.warning(t("llm_base_url_hint"))
-        else:
-            st.warning(
-                "LLM not configured. Set LLM_PROVIDER (and credentials) in .env (see .env.example)."
-            )
+        _render_configuration()
 
     st.title(f"\U0001f319 {t('title')}")
     st.caption(t("subtitle"))
@@ -1942,7 +1942,7 @@ def _render_evaluation() -> None:
         None: renders the evaluation half of the app page.
     """
     _section(t("eval_title"), t("eval_caption"))
-    if not os.getenv("LLM_PROVIDER", "").strip():
+    if not get_settings().llm_provider:
         st.warning(t("eval_need_llm"))
 
     task = st.session_state.get(_EVALUATION_TASK_KEY)

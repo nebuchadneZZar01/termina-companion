@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import atexit
-import hashlib
 import logging
-import os
 import re
 import time
 import unicodedata
@@ -17,11 +15,9 @@ from typing import Protocol
 
 from filelock import FileLock
 from filelock import Timeout as FileLockTimeout
-from pydantic import BaseModel, Field, model_validator
 
 from app.rag.chunking import chunk_document
 from app.rag.embeddings import (
-    DEFAULT_FASTEMBED_MODEL,
     EmbeddingError,
     EmbeddingProvider,
     get_embedding_provider,
@@ -34,11 +30,10 @@ from app.rag.wiki import (
     WikiPageReference,
     WikiUnavailableError,
 )
+from app.settings import RAGSettings, get_settings
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_QDRANT_PATH = Path(".cache/termina-companion/qdrant")
-DEFAULT_EMBEDDING_MODEL = DEFAULT_FASTEMBED_MODEL
 # Pull a wider candidate pool from the store before applying diversity rules,
 # so a per-source cap can still fill the requested top-k from other pages.
 _CANDIDATE_MULTIPLIER = 4
@@ -130,82 +125,6 @@ class WikiSource(Protocol):
         self, page_ids: list[int], deadline: float | None = None
     ) -> dict[int, int]:
         """Return the current revision ID for each page that still exists."""
-
-
-class RAGSettings(BaseModel):
-    """Runtime settings for persistent adaptive RAG."""
-
-    qdrant_path: Path = DEFAULT_QDRANT_PATH
-    embedding_model: str = DEFAULT_EMBEDDING_MODEL
-    # Provisional 2026-10-10: 0.60 best on 14 live scenarios
-    # (0.60: 7/14, 0.72: 3/14, 0.80: 1/14, top_k=4); see
-    # app/rag/scenarios.py (CALIBRATED_*) and scripts/calibrate_rag.py.
-    # Override via RAG_SIMILARITY_THRESHOLD.
-    similarity_threshold: float = Field(default=0.60, ge=-1.0, le=1.0)
-    top_k: int = Field(default=4, gt=0, le=50)
-    max_pages_per_miss: int = Field(default=3, gt=0, le=20)
-    max_chunks_per_source: int = Field(default=2, gt=0, le=50)
-    request_timeout_seconds: float = Field(default=20.0, gt=0, le=300)
-    wiki_budget_seconds: float = Field(default=60.0, ge=0.0, le=3600)
-    wiki_failure_threshold: int = Field(default=3, ge=0, le=100)
-    wiki_cooldown_seconds: float = Field(default=60.0, ge=0.0, le=3600)
-    cache_ttl_seconds: float = Field(default=604800.0, ge=0.0)
-    min_term_coverage: float = Field(default=0.15, ge=0.0, le=1.0)
-    chunk_max_chars: int = Field(default=1200, gt=0)
-    chunk_overlap: int = Field(default=120, ge=0)
-
-    @model_validator(mode="after")
-    def validate_chunking(self) -> "RAGSettings":
-        if self.chunk_overlap >= self.chunk_max_chars:
-            raise ValueError("chunk overlap must be smaller than chunk size")
-        return self
-
-    @classmethod
-    def from_env(cls) -> RAGSettings:
-        """Build settings from the documented environment variables."""
-        values: dict[str, object] = {}
-        mapping = {
-            "qdrant_path": "RAG_QDRANT_PATH",
-            "embedding_model": "RAG_EMBEDDING_MODEL",
-            "similarity_threshold": "RAG_SIMILARITY_THRESHOLD",
-            "top_k": "RAG_TOP_K",
-            "max_pages_per_miss": "RAG_MAX_PAGES_PER_MISS",
-            "max_chunks_per_source": "RAG_MAX_CHUNKS_PER_SOURCE",
-            "request_timeout_seconds": "RAG_REQUEST_TIMEOUT_SECONDS",
-            "wiki_budget_seconds": "RAG_WIKI_BUDGET_SECONDS",
-            "wiki_failure_threshold": "RAG_WIKI_FAILURE_THRESHOLD",
-            "wiki_cooldown_seconds": "RAG_WIKI_COOLDOWN_SECONDS",
-            "cache_ttl_seconds": "RAG_CACHE_TTL_SECONDS",
-        }
-        for field_name, env_name in mapping.items():
-            raw = os.getenv(env_name)
-            if raw is None or not raw.strip():
-                continue
-            if field_name in {
-                "top_k",
-                "max_pages_per_miss",
-                "max_chunks_per_source",
-                "wiki_failure_threshold",
-            }:
-                values[field_name] = int(raw)
-            elif field_name in {
-                "similarity_threshold",
-                "request_timeout_seconds",
-                "wiki_budget_seconds",
-                "wiki_cooldown_seconds",
-                "cache_ttl_seconds",
-            }:
-                values[field_name] = float(raw)
-            else:
-                values[field_name] = raw
-        return cls(**values)
-
-    @property
-    def collection_name(self) -> str:
-        """Return a stable, model-specific Qdrant collection name."""
-        digest = hashlib.sha256(self.embedding_model.encode("utf-8")).hexdigest()[:12]
-        slug = re.sub(r"[^a-z0-9]+", "_", self.embedding_model.casefold()).strip("_")
-        return f"termina_wiki_{slug[:32]}_{digest}"
 
 
 class AdaptiveRetriever:
@@ -680,7 +599,7 @@ def _close_at_exit(retriever: AdaptiveRetriever) -> None:
 def build_default_retriever() -> AdaptiveRetriever:
     """Build the process-wide persistent adaptive retriever once."""
     try:
-        settings = RAGSettings.from_env()
+        settings = get_settings().rag
         embedding = get_embedding_provider(
             "fastembed",
             model_name=settings.embedding_model,
@@ -743,8 +662,7 @@ def rag_enabled() -> bool:
     returns:
         bool: True when retrieval may run.
     """
-    raw = os.getenv("RAG_ENABLED", "").strip().casefold()
-    return raw not in {"0", "false", "off", "no"}
+    return get_settings().rag.enabled
 
 
 def safe_retrieve(

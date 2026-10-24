@@ -8,16 +8,14 @@ required by the Planning Agent; invalid or incomplete configuration raises
 from __future__ import annotations
 
 import logging
-import os
 from urllib.parse import urlsplit
 
-from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
-load_dotenv()
+from app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +39,24 @@ _LOCAL_OPENAI_COMPATIBLE = frozenset({"ollama", "lmstudio"})
 # tokens, so the cap is generous for a real answer but stops a runaway
 # generation (a local model looping) from blocking the pipeline forever.
 MAX_OUTPUT_TOKENS = 1536
+
+
+def default_model_for(provider: str) -> str | None:
+    """Return the model a provider uses when ``LLM_MODEL`` is unset.
+
+    args:
+        provider (str): the normalized provider name.
+
+    returns:
+        str | None: the built-in default model, or None for an unknown provider.
+    """
+    if provider in _OPENAI_COMPATIBLE:
+        return _OPENAI_COMPATIBLE[provider][1]
+    if provider == "anthropic":
+        return _ANTHROPIC_DEFAULT_MODEL
+    if provider == "google":
+        return _GOOGLE_DEFAULT_MODEL
+    return None
 
 
 def normalize_base_url(provider: str, base_url: str) -> str:
@@ -109,20 +125,23 @@ def get_chat_model(
 ) -> BaseChatModel:
     """Return a configured chat model.
 
-    All parameters override the corresponding ``LLM_*`` env vars when
+    All parameters override the corresponding ``LLM_*`` settings when
     provided (non-empty string).
 
     raises:
         LLMConfigurationError: if the provider is missing, unsupported or lacks
             required credentials.
     """
-    provider = (provider or os.getenv("LLM_PROVIDER", "")).strip().lower()
+    settings = get_settings()
+    provider = (provider or settings.llm_provider or "").strip().lower()
     if not provider:
         raise LLMConfigurationError(
             "No LLM provider configured. Set LLM_PROVIDER to a supported provider."
         )
-    model = (model or os.getenv("LLM_MODEL", "")).strip() or None
-    api_key = (api_key or os.getenv("LLM_API_KEY", "")).strip() or None
+    model = (model or settings.llm_model or "").strip() or None
+    stored_key = settings.llm_api_key.get_secret_value() if settings.llm_api_key else ""
+    api_key = (api_key or stored_key).strip() or None
+    base_url = (base_url or settings.llm_base_url or "").strip()
 
     if provider in _OPENAI_COMPATIBLE:
         default_url, default_model = _OPENAI_COMPATIBLE[provider]
@@ -131,9 +150,7 @@ def get_chat_model(
         chat = ChatOpenAI(
             model=model or default_model,
             api_key=api_key or "not-needed",
-            base_url=normalize_base_url(
-                provider, (base_url or os.getenv("LLM_BASE_URL", "")).strip() or default_url
-            ),
+            base_url=normalize_base_url(provider, base_url or default_url),
             max_tokens=MAX_OUTPUT_TOKENS,
         )
         logger.info(

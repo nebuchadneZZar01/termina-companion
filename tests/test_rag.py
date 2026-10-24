@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 from app.agents import knowledge_agent
 from app.domain import ClockTime, GameState, Goal
@@ -640,9 +641,9 @@ def test_build_default_retriever_registers_atexit_closer(monkeypatch, tmp_path):
         lambda fn, *args: registered.append((fn, args)),
     )
     monkeypatch.setattr(
-        retriever_module.RAGSettings,
-        "from_env",
-        classmethod(lambda cls: _settings(tmp_path)),
+        retriever_module,
+        "get_settings",
+        lambda: SimpleNamespace(rag=_settings(tmp_path)),
     )
     monkeypatch.setattr(
         retriever_module,
