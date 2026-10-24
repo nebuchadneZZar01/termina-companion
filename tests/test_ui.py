@@ -438,7 +438,7 @@ def test_step_plan_card_starts_with_result_label_without_agent_name(monkeypatch)
 def test_step_label_carries_the_engine_badge_not_the_card(monkeypatch) -> None:
     monkeypatch.setattr(ui, "t", lambda key, **kw: key)
     label = ui._PlanStepper._step_label("knowledge", {"knowledge_engine": "rule-based"})
-    assert label == "\u2713 agent_knowledge (rule-based)"
+    assert label == "agent_knowledge (rule-based)"
 
 
 def test_step_critic_valid_does_not_add_a_second_check(monkeypatch) -> None:

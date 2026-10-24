@@ -462,7 +462,7 @@ class _PlanStepper:
         if node == "plan":
             attempt = result.get("replan_attempts", 1)
             name += f" \u2014 {t('step_attempt', n=attempt, max=MAX_PLANNING_ATTEMPTS)}"
-        return f"\u2713 {name}"
+        return name
 
     def set_outer(self, state: str, label: str) -> None:
         """Update the outer status box label and state in place."""
