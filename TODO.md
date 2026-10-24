@@ -43,8 +43,9 @@ Status map:
   spans exported to a local Phoenix container via OTLP when configured, a
   cheap no-op otherwise; full LLM prompts go to spans, the Trace tab shows a
   run header, node timeline and errors only).
-* Phase 11 — Evaluation: complete for plan and trajectory evaluation (9
-  evaluation scenarios spanning every game area, a deterministic evaluator
+* Phase 11 — Evaluation: complete for plan and trajectory evaluation (11
+  evaluation scenarios: one per quest plus a Zora-Mask-owned Mikau variant,
+  spanning every game area, a deterministic evaluator
   with nine checks — plan shape, objective achievement, temporal ordering,
   prerequisites, tool usage, critic, agent order, re-plan bound, LLM proposal
   fidelity — an explicit PASS/FAIL per scenario, an aggregate pass rate, sweep
@@ -270,7 +271,8 @@ best-effort through the shared client in `app/phoenix.py`.
 # Phase 11 — Evaluation
 
 * [x] Define evaluation scenarios
-* [x] Start with a small scenario set (9 scenarios, one per quest, all areas)
+* [x] Start with a small scenario set (11 scenarios: one per quest plus a
+  Zora-Mask-owned Mikau variant, all areas)
 * [x] Define expected constraints for each scenario
 * [x] Implement the plan evaluator
 * [x] Check plan shape
@@ -279,6 +281,8 @@ best-effort through the shared client in `app/phoenix.py`.
 * [x] Check prerequisites
 * [x] Check objective achievement
 * [x] Check critic acceptance
+* [x] Model cross-quest prerequisites as critic gates (transitive chain named
+  in the issue, never expanded into the plan)
 * [x] Produce explicit PASS/FAIL
 * [x] Calculate aggregate pass rate
 * [x] Add regression scenarios
@@ -320,7 +324,8 @@ step set. A kept step keeps the LLM's window only when it fits the chain
 slot) and is re-slotted on a 1h slot otherwise, so the rebuilt plan is always
 chronological and non-overlapping. The threshold revisit is resolved below.
 
-Live sweep (llama3.2 on a local Ollama, 2026-10-21): 8 of 9 scenarios pass in
+Live sweep (llama3.2 on a local Ollama, 2026-10-21, before the scenario set grew
+to ten quests): 8 of 9 scenarios pass in
 a single attempt, `deed-chain` failed with an empty LLM plan (reported as a
 run error, not as a scenario without issues). The first live sweep exposed
 three defects, now fixed: the local OpenAI-compatible base URL needed its

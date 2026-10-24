@@ -133,6 +133,12 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   re-plan re-slots every window, so the rebuilt plan is always chronological
   and non-overlapping and the LLM's windows are only advisory. All timing
   arithmetic uses the 06:00-29:59 game-day cycle, not a midnight rollover.
+  Cross-quest prerequisites are gates, not planned steps: an objective's
+  `requires_quests` (and its transitive closure) must be marked `done` in
+  `quest_progress`, planned as the prerequisite quest's terminal step, or
+  already owned through that step's reward. Otherwise the Critic reports a
+  `quest_prerequisite` issue naming the missing chain, and the graph stops
+  re-planning instead of expanding the prerequisite quests into the plan.
   The planner also
   returns its untouched proposal as `plan_proposal` (the input the
   `proposal_fidelity` check compares), and the Critic appends one
@@ -220,9 +226,11 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   Pydantic contracts (`PlanScenario`, `EvaluationIssue`, `ScenarioResult`,
   `EvaluationReport`); a crashed run counts as one error and a `run_error`
   failure kind, never as a scenario without issues; `scenarios.py` holds the
-  nine shipped scenarios (one
-  per quest, spanning every game area, including the game-accurate nine-step
-  Anju & Kafei chain); `evaluator.py` is the deterministic
+  eleven shipped scenarios (one per quest plus a Zora-Mask-owned Mikau
+  variant, spanning every game area, including the game-accurate nine-step
+  Anju & Kafei chain). Scenarios that depend on a gate seed the prerequisite
+  quests as `done` and use `forbidden_objective_refs` to prove those quests
+  are not planned; `evaluator.py` is the deterministic
   evaluator with nine checks — plan shape, objective achievement, temporal
   ordering, prerequisites, tool usage, critic, plus the three trajectory checks
   (agent order, re-plan bound, LLM proposal fidelity) that only fire on a
@@ -273,7 +281,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
 * `app/agents/memory_agent.py` — `retrieve_run` (before `state`) and `store_run`
   (after `critic`, one episode per finished run, planner context only).
 * `app/graph.py` — graph wiring and the bounded re-planning
-  loop (max `MAX_PLANNING_ATTEMPTS = 3`) driven by the Critic Agent.
+  loop (max `MAX_PLANNING_ATTEMPTS = 3`) driven by the Critic Agent. The loop
+  gives up immediately when every error issue is a `quest_prerequisite` gate:
+  re-planning cannot satisfy a quest the player has not completed, and the
+  prerequisite quests are never expanded into the plan.
   `run_pipeline` also posts the run's Critic verdict to Phoenix as a
   `plan/validation` span annotation (best-effort, via `app/phoenix.py`).
   Each node is
