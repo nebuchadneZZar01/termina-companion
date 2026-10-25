@@ -771,6 +771,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "verdict_fail_body": ("I found {n} issue(s) to fix. Attempt {n_attempt} of {max}."),
         # evaluation tab
         "eval_title": "Plan evaluation",
+        "eval_fairy": (
+            "Link, let's do a dress rehearsal: I'll rerun every plan and check that "
+            "they really reach the goal."
+        ),
         "eval_caption": (
             "Run the shipped scenarios against the live pipeline and check the "
             "plans it produces: goal reached, timing, prerequisites, tool usage."
@@ -805,7 +809,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_need_llm": "An LLM provider must be configured to run the evaluation.",
         "eval_load_last": "Load last report",
         "eval_no_saved_report": "No saved evaluation report yet.",
-        "eval_saved_report": "Every sweep is saved to {path}.",
+        "eval_saved_report": "Every run is saved to {path}.",
         "eval_report_meta": "Model: {model} · wiki retrieval: {rag} · repeats: {repeats}",
         "eval_rag_on": "on",
         "eval_rag_off": "off",
@@ -1159,6 +1163,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         # evaluation tab
         "eval_title": "Valutazione dei piani",
+        "eval_fairy": (
+            "Link, facciamo una prova generale: rifaccio tutti i piani e controllo "
+            "che arrivino davvero al traguardo."
+        ),
         "eval_caption": (
             "Esegui gli scenari forniti sul pipeline reale e verifica i piani che "
             "produce: obiettivo raggiunto, tempi, prerequisiti, uso degli strumenti."
@@ -1193,7 +1201,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_need_llm": "Serve un provider LLM configurato per eseguire la valutazione.",
         "eval_load_last": "Carica ultimo report",
         "eval_no_saved_report": "Nessun report di valutazione salvato.",
-        "eval_saved_report": "Ogni sweep viene salvato in {path}.",
+        "eval_saved_report": "Ogni prova viene salvata in {path}.",
         "eval_report_meta": "Modello: {model} · retrieval wiki: {rag} · ripetizioni: {repeats}",
         "eval_rag_on": "attivo",
         "eval_rag_off": "disattivo",

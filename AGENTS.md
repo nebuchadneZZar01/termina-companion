@@ -325,15 +325,17 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   two top-level tabs: *Play* (`_render_play()`, TaIA's greeting, the inline
   goal input with the Ask TaIA/Stop controls, the empty-plan card, the live or
   finished agent registry, and the timeline plan) and
-  *Evaluation* (`_render_evaluation()`, the evaluation
-  sweep: scenario picker, RAG toggle, Run/Stop, the per-scenario report, the
-  comparison card against the newest stored sweep, and
+  *Evaluation* (`_render_evaluation(editor)`, TaIA's greeting and the sweep:
+  scenario picker, RAG toggle, Run/Stop, native metrics, an HTML per-scenario
+  table, the comparison card against the newest stored sweep, and
   *Load last report* for the sweep persisted by the worker).
   The plan renders as a vertical HTML timeline (`_render_plan()`; the last step
   and every step with an error are red, while step actions live in the *Why*
   tab) and the Critic's verdict as a teal/red banner (`_verdict_html()`). An
   invalid plan also shows the missing-requirement chips, the full problems
   table and the full *last plan* with the first failing step highlighted.
+  Below it, *Behind the scenes* reuses three tabs with HTML detail cards for
+  the step explanations, the game/RAG sources and the trace.
   Planning runs
   as a session-scoped background task: Generate is disabled while active and
   Stop requests cooperative cancellation between agent/LLM calls. The same HTML

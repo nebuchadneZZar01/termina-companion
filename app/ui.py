@@ -1449,19 +1449,40 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
 
     _render_comparison(report)
 
-    st.table(
-        [
-            {
-                t("eval_scenario"): result.scenario_id,
-                t("eval_status"): t("eval_pass") if result.passed else t("eval_fail"),
-                t("eval_steps"): result.step_count,
-                t("eval_duration"): f"{result.duration_s:.1f}s",
-                t("eval_errors"): result.error_count,
-                t("eval_warnings"): result.warning_count,
-                t("eval_run_error"): _short_error(result.error),
-            }
-            for result in report.results
-        ]
+    rows = []
+    for result in report.results:
+        status = t("eval_pass") if result.passed else t("eval_fail")
+        status_class = "tc-cell-pass" if result.passed else "tc-cell-fail"
+        warnings = (
+            f'<span class="tc-cell-warn">{result.warning_count}</span>'
+            if result.warning_count
+            else "0"
+        )
+        rows.append(
+            [
+                html.escape(result.scenario_id),
+                f'<span class="{status_class}">{html.escape(status)}</span>',
+                str(result.step_count),
+                f'<span class="tc-cell-muted">{result.duration_s:.1f}s</span>',
+                str(result.error_count),
+                warnings,
+                f'<span class="tc-cell-muted">{html.escape(_short_error(result.error))}</span>',
+            ]
+        )
+    _html_block(
+        _table_html(
+            [
+                t("eval_scenario"),
+                t("eval_status"),
+                t("eval_steps"),
+                t("eval_duration"),
+                t("eval_errors"),
+                t("eval_warnings"),
+                t("eval_run_error"),
+            ],
+            rows,
+            numeric={2, 4, 5},
+        )
     )
 
     for result in report.results:
@@ -1544,7 +1565,12 @@ def _render_comparison(report: EvaluationReport) -> None:
     elif rows:
         st.caption(t("eval_compare_summary", when=when, before=before, after=after))
     else:
-        st.caption(t("eval_compare_clean", when=when, before=before, after=after))
+        text = t("eval_compare_clean", when=when, before=before, after=after)
+        _html_block(
+            '<div class="tc-banner">'
+            f'<span class="tc-banner-icon">\u2713</span>'
+            f"<span>{html.escape(text)}</span></div>"
+        )
 
     if comparison.model_changed:
         st.caption(
@@ -2881,7 +2907,7 @@ def render() -> None:
     with tab_play:
         _render_play(editor, kb)
     with tab_evaluation:
-        _render_evaluation()
+        _render_evaluation(editor)
 
 
 def _render_sidebar_editor(kb) -> dict:
@@ -3073,18 +3099,20 @@ def _render_play(editor: dict, kb) -> None:
     _html_block(_empty_plan_html())
 
 
-def _render_evaluation() -> None:
+def _render_evaluation(editor: dict) -> None:
     """Render the evaluation tab: scenario picker, run control and results.
 
     The sweep runs the whole pipeline once per scenario, so it happens in a
     background thread and reports every finished scenario live.
 
     args:
-        (none)
+        editor (dict): the sidebar state editor's values, used for the TaIA
+            greeting.
 
     returns:
         None: renders the evaluation half of the app page.
     """
+    _html_block(_fairy_html(editor["day"], editor["time"], text=t("eval_fairy")))
     _section(t("eval_title"), t("eval_caption"))
     if not get_settings().llm_provider:
         st.warning(t("eval_need_llm"))
@@ -3102,22 +3130,23 @@ def _render_evaluation() -> None:
     )
     rag_on = st.toggle(t("eval_rag"), value=True, help=t("eval_rag_help"), key="eval_rag")
 
-    run_col, stop_col = st.columns([4, 1])
-    with run_col:
-        run = st.button(
-            t("eval_run"),
-            type="primary",
-            use_container_width=True,
-            disabled=running or not scenario_ids,
-            key="eval_run_button",
-        )
-    with stop_col:
-        stop = st.button(
-            t("eval_stop"),
-            use_container_width=True,
-            disabled=not running,
-            key="eval_stop_button",
-        )
+    with st.container(key="eval_actions"):
+        run_col, stop_col = st.columns([3, 2])
+        with run_col:
+            run = st.button(
+                t("eval_run"),
+                type="primary",
+                use_container_width=True,
+                disabled=running or not scenario_ids,
+                key="eval_run_button",
+            )
+        with stop_col:
+            stop = st.button(
+                t("eval_stop"),
+                use_container_width=True,
+                disabled=not running,
+                key="eval_stop_button",
+            )
 
     if stop and running:
         task.stop_event.set()

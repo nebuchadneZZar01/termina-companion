@@ -836,7 +836,11 @@ def test_evaluation_tab_renders_the_report_of_a_finished_sweep(tmp_path, monkeyp
     assert metrics["Pass rate"] == "50%"
     assert metrics["Passed"] == "1/2"
     assert metrics["Failed"] == "1"
-    assert len(at.table) == 1
+    rendered = "\n".join(markdown.value for markdown in at.markdown)
+    assert "anju-kafei" in rendered
+    assert "deed-chain" in rendered
+    assert "tc-cell-pass" in rendered
+    assert "tc-cell-fail" in rendered
     assert [expander.label for expander in at.expander] == [
         "anju-kafei — PASS",
         "deed-chain — FAIL",
@@ -900,8 +904,11 @@ def test_evaluation_tab_flags_a_regression_against_the_stored_history(
         and "1/2" in warning
         for warning in warnings
     )
-    # The scenario table plus the comparison table.
-    assert len(at.table) == 2
+    # The scenario table is HTML; only the comparison table stays native.
+    assert len(at.table) == 1
+    rendered = "\n".join(markdown.value for markdown in at.markdown)
+    assert "anju-kafei" in rendered
+    assert "deed-chain" in rendered
 
 
 def test_evaluation_run_error_never_shows_the_success_message(tmp_path, monkeypatch) -> None:
@@ -1036,7 +1043,9 @@ def test_evaluation_tab_loads_the_saved_report(tmp_path, monkeypatch) -> None:
     metrics = {metric.label: metric.value for metric in at.metric}
     assert metrics["Pass rate"] == "50%"
     assert metrics["Passed"] == "1/2"
-    assert len(at.table) == 1
+    rendered = "\n".join(markdown.value for markdown in at.markdown)
+    assert "anju-kafei" in rendered
+    assert "deed-chain" in rendered
     assert [expander.label for expander in at.expander] == [
         "anju-kafei — PASS",
         "deed-chain — FAIL",
