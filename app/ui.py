@@ -481,6 +481,7 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
     if validation.valid:
         _render_plan(plan)
 
+    _section(t("behind_the_scenes"))
     tab_why, tab_sources, tab_trace = st.tabs([t("tab_why"), t("tab_sources"), t("tab_trace")])
 
     with tab_why:
@@ -534,20 +535,24 @@ def _render_run_audit(result: dict) -> None:
         header = f"{header} \u00b7 [Open Phoenix \u2197]({get_settings().phoenix_ui_url})"
     st.markdown(header)
     if run.nodes:
-        st.markdown(f"**{t('audit_timeline')}**")
-        st.table(
+        _html_block(f'<div class="tc-subhead">{html.escape(t("audit_timeline"))}</div>')
+        rows = [
             [
-                {
-                    t("audit_step"): node["name"],
-                    t("audit_duration"): f"{node['duration_s'] * 1000:.0f} ms",
-                    t("audit_status"): "\u2705" if node["status"] == "ok" else "\u274c",
-                    t("audit_detail"): node["detail"],
-                }
-                for node in run.nodes
+                html.escape(node["name"]),
+                f'<span class="tc-cell-muted">{node["duration_s"] * 1000:.0f} ms</span>',
+                "\u2705" if node["status"] == "ok" else "\u274c",
+                html.escape(node["detail"]),
             ]
+            for node in run.nodes
+        ]
+        _html_block(
+            _table_html(
+                [t("audit_step"), t("audit_duration"), t("audit_status"), t("audit_detail")],
+                rows,
+            )
         )
     if run.errors:
-        st.markdown(f"**{t('audit_errors')}**")
+        _html_block(f'<div class="tc-subhead">{html.escape(t("audit_errors"))}</div>')
         for error in run.errors:
             block = f"[{error['source']}] {error['message']}"
             if error["detail"]:
@@ -581,31 +586,21 @@ def _markdown_windows(s: str) -> str:
     return _WINDOW_RE.sub(lambda m: f"`[{m.group(1)}]`", s)
 
 
-def _state_fields(scope, gs) -> None:
-    """Render the game state as one bulleted markdown block.
-
-    A single markdown list keeps the four fields tight and indented exactly
-    like the other trace lists.
-
-    args:
-        scope: the container to draw into.
-        gs: the canonicalised game state.
-
-    returns:
-        None: draws into the scope container.
-    """
+def _state_fields_html(gs) -> str:
+    """Return the canonical game state as the trace card's rows."""
     items = ", ".join(tr(item) for item in gs.inventory) or t("trace_none")
     masks = ", ".join(tr(mask) for mask in gs.masks) or t("trace_none")
-    scope.markdown(
-        "\n".join(
-            [
-                f"- **{t('trace_where')}** {tr(gs.location)}",
-                f"- **{t('trace_when')}** {tr(_fmt_clock(gs.time))}",
-                f"- **{t('trace_items')}** {items}",
-                f"- **{t('trace_masks')}** {masks}",
-            ]
-        )
+    rows = [
+        (t("trace_where"), html.escape(tr(gs.location))),
+        (t("trace_when"), _html_clock(gs.time)),
+        (t("trace_items"), html.escape(items)),
+        (t("trace_masks"), html.escape(masks)),
+    ]
+    body = "".join(
+        f'<div class="tc-detail-line"><b>{html.escape(label)}</b> {value}</div>'
+        for label, value in rows
     )
+    return f'<div class="tc-detail-card">{body}</div>'
 
 
 def _render_issue(scope, issue, fallback: str = "plan") -> None:
@@ -708,6 +703,27 @@ def _problems_panel_html(issues) -> str:
         f'<div class="tc-panel-title">{html.escape(t("problems"))}</div>'
         f"{_issues_table_html(issues)}"
         "</section>"
+    )
+
+
+def _table_html(headers, rows, numeric=()) -> str:
+    """Return a compact dark table; cells and headers must already be escaped."""
+    numeric = set(numeric)
+    head = "".join(
+        f'<th class="{"num" if i in numeric else ""}">{html.escape(label)}</th>'
+        for i, label in enumerate(headers)
+    )
+    body = "".join(
+        "<tr>"
+        + "".join(
+            f'<td class="{"num" if i in numeric else ""}">{cell}</td>' for i, cell in enumerate(row)
+        )
+        + "</tr>"
+        for row in rows
+    )
+    return (
+        '<div class="tc-table-wrap"><table class="tc-table">'
+        f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>"
     )
 
 
@@ -898,26 +914,36 @@ def _render_why(plan) -> None:
     if not plan or not plan.steps:
         st.write(t("no_plan"))
         return
+    cards = []
     for i, step in enumerate(plan.steps, 1):
-        with st.container(border=True):
-            st.markdown(f"**{t('step_n', n=i)} \u2014 {tr(step.title)}**")
-            st.write(
-                f"{t('window_label')}: {_fmt_clock(step.window.start)} "
-                f"\u2192 {_fmt_clock(step.window.end)}"
+        lines = [
+            f"{html.escape(t('window_label'))}: "
+            f"{_html_clock(step.window.start)} \u2192 {_html_clock(step.window.end)}"
+        ]
+        if step.requires_items:
+            needs = ", ".join(tr(x) for x in step.requires_items)
+            lines.append(f"{html.escape(t('needs'))}: {html.escape(needs)}")
+        if step.requires_masks:
+            masks = ", ".join(tr(x) for x in step.requires_masks)
+            lines.append(f"{html.escape(t('source_masks'))} {html.escape(masks)}")
+        if step.depends_on:
+            deps = ", ".join(str(d + 1) for d in step.depends_on)
+            lines.append(html.escape(t("depends_on", deps=deps)))
+        body = "".join(f'<div class="tc-detail-line">{line}</div>' for line in lines)
+        if step.actions:
+            actions = "".join(f"<li>{html.escape(tr(action))}</li>" for action in step.actions)
+            body += (
+                f'<div class="tc-detail-muted">{html.escape(t("actions_label"))}</div>'
+                f"<ul>{actions}</ul>"
             )
-            if step.requires_items:
-                needs = ", ".join(tr(x) for x in step.requires_items)
-                st.write(f"{t('needs')}: {needs}")
-            if step.requires_masks:
-                needs = ", ".join(tr(x) for x in step.requires_masks)
-                st.write(f"{t('source_masks')} {needs}")
-            if step.depends_on:
-                deps = ", ".join(str(d + 1) for d in step.depends_on)
-                st.write(t("depends_on", deps=deps))
-            if step.actions:
-                st.markdown(f"**{t('actions_label')}**")
-                for action in step.actions:
-                    st.markdown(f"- {tr(action)}")
+        cards.append(
+            '<div class="tc-detail-card">'
+            f'<div class="tc-detail-title">'
+            f"{html.escape(t('step_n', n=i))} \u2014 {html.escape(tr(step.title))}"
+            "</div>"
+            f"{body}</div>"
+        )
+    _html_block(f'<div class="tc-detail-list">{"".join(cards)}</div>')
 
 
 def _window_range(w: TimeWindow) -> str:
@@ -949,36 +975,47 @@ def _render_sources(objectives, kb) -> None:
     if not objectives:
         st.write(t("no_sources"))
         return
+    cards = []
     for obj in objectives:
-        with st.container(border=True):
-            st.markdown(f"\U0001f50d **{tr(obj.title)}**")
-            st.write(
-                f"{t('source_when')} {tr(_fmt_clock(obj.window.start))} "
-                f"\u2192 {tr(_fmt_clock(obj.window.end))}"
+        lines = [
+            f"{html.escape(t('source_when'))} {_html_clock(obj.window.start)} "
+            f"\u2192 {_html_clock(obj.window.end)}",
+            f"{html.escape(t('source_where'))} {html.escape(tr(obj.location))}",
+        ]
+        if obj.npc_id:
+            npc = kb.npc(obj.npc_id)
+            if npc:
+                slots = " \u00b7 ".join(_window_range(w) for w in npc.schedule)
+                lines.append(
+                    f"{html.escape(t('source_npc'))} {html.escape(tr(npc.name))} "
+                    f"\u00b7 {html.escape(t('source_active'))} {html.escape(slots)}"
+                )
+        if obj.event_ref:
+            event = kb.event(obj.event_ref)
+            if event:
+                lines.append(
+                    f"{html.escape(t('source_event'))} {html.escape(tr(event.name))} "
+                    f"\u00b7 {html.escape(_window_range(event.window))}"
+                )
+        if obj.requires_items:
+            items = ", ".join(tr(x) for x in obj.requires_items)
+            lines.append(f"{html.escape(t('source_needs'))} {html.escape(items)}")
+        if obj.requires_masks:
+            masks = ", ".join(tr(x) for x in obj.requires_masks)
+            lines.append(f"{html.escape(t('source_masks'))} {html.escape(masks)}")
+        prereq_titles = [o.title for o in kb.all_objectives if o.id in obj.prerequisites]
+        if prereq_titles:
+            lines.append(
+                f"{html.escape(t('source_after'))} "
+                f"{html.escape(', '.join(tr(x) for x in prereq_titles))}"
             )
-            st.write(f"{t('source_where')} {tr(obj.location)}")
-            if obj.npc_id:
-                npc = kb.npc(obj.npc_id)
-                if npc:
-                    slots = " \u00b7 ".join(_window_range(w) for w in npc.schedule)
-                    st.write(
-                        f"{t('source_npc')} {tr(npc.name)} \u00b7 {t('source_active')} {slots}"
-                    )
-            if obj.event_ref:
-                event = kb.event(obj.event_ref)
-                if event:
-                    st.write(
-                        f"{t('source_event')} {tr(event.name)} \u00b7 {_window_range(event.window)}"
-                    )
-            if obj.requires_items:
-                items = ", ".join(tr(x) for x in obj.requires_items)
-                st.write(f"{t('source_needs')} {items}")
-            if obj.requires_masks:
-                masks = ", ".join(tr(x) for x in obj.requires_masks)
-                st.write(f"{t('source_masks')} {masks}")
-            prereq_titles = [o.title for o in kb.all_objectives if o.id in obj.prerequisites]
-            if prereq_titles:
-                st.write(f"{t('source_after')} {', '.join(tr(x) for x in prereq_titles)}")
+        body = "".join(f'<div class="tc-detail-line">{line}</div>' for line in lines)
+        cards.append(
+            '<div class="tc-detail-card">'
+            f'<div class="tc-detail-title">\U0001f50d {html.escape(tr(obj.title))}</div>'
+            f"{body}</div>"
+        )
+    _html_block(f'<div class="tc-detail-list">{"".join(cards)}</div>')
 
 
 def _render_rag_source(source) -> None:
@@ -1031,7 +1068,7 @@ def _render_rag_evidence(
     intended for planner context, so source pages remain visible even when a
     second vector query returns no passage.
     """
-    st.markdown(f"**{t('rag_sources')}**")
+    _html_block(f'<div class="tc-subhead">{html.escape(t("rag_sources"))}</div>')
     st.caption(t("rag_sources_caption"))
     if engine:
         st.caption(f"{t('rag_engine')}: `{engine}`")
@@ -1051,7 +1088,7 @@ def _render_rag_evidence(
             if key not in seen:
                 seen.add(key)
                 sources.append(source)
-    st.markdown(f"*{t('rag_indexed_sources')}*")
+    _html_block(f'<div class="tc-detail-title">{html.escape(t("rag_indexed_sources"))}</div>')
     if sources:
         st.caption(t("rag_indexed_sources_caption", n=len(sources)))
         for source in sources:
@@ -1063,25 +1100,36 @@ def _render_rag_evidence(
     else:
         st.caption(t("rag_no_indexed_sources"))
 
-    st.markdown(f"**{t('rag_evidence')}**")
+    _html_block(f'<div class="tc-subhead">{html.escape(t("rag_evidence"))}</div>')
     if not evidence:
         st.caption(t("rag_no_evidence"))
         return
+    cards = []
     for item in evidence:
         metadata = item.chunk.metadata
         source = metadata.source_url or metadata.canonical_url or "Zelda Wiki"
         excerpt = " ".join(item.chunk.text.split())
         if len(excerpt) > 600:
             excerpt = excerpt[:597].rstrip() + "..."
-        with st.container(border=True):
-            st.markdown(f"**{tr(metadata.title)}** · {t('rag_score')}: {item.score:.3f}")
-            st.write(excerpt)
-            st.caption(f"{t('rag_source')}: {source}")
-            if metadata.source_revision_id is not None:
-                st.caption(
-                    f"{t('rag_revision')}: {metadata.source_revision_id} "
-                    f"({_fmt_timestamp(metadata.source_revision_timestamp)})"
-                )
+        revision = ""
+        if metadata.source_revision_id is not None:
+            revision = (
+                f'<div class="tc-detail-muted">'
+                f"{html.escape(t('rag_revision'))}: {metadata.source_revision_id} "
+                f"({html.escape(_fmt_timestamp(metadata.source_revision_timestamp))})"
+                "</div>"
+            )
+        cards.append(
+            '<div class="tc-detail-card">'
+            f'<div class="tc-detail-title">{html.escape(tr(metadata.title))} '
+            f'<span class="tc-detail-muted">\u00b7 {html.escape(t("rag_score"))}: '
+            f"{item.score:.3f}</span></div>"
+            f'<div class="tc-detail-line">{html.escape(excerpt)}</div>'
+            f'<div class="tc-detail-muted">{html.escape(t("rag_source"))}: '
+            f"{html.escape(source)}</div>"
+            f"{revision}</div>"
+        )
+    _html_block(f'<div class="tc-detail-list">{"".join(cards)}</div>')
 
 
 def _render_trace_state(gs) -> None:
@@ -1094,8 +1142,7 @@ def _render_trace_state(gs) -> None:
         None: draws into the app.
     """
     _section(t("understood"), t("understood_caption"))
-    with st.container(border=True):
-        _state_fields(st, gs)
+    _html_block(_state_fields_html(gs))
 
 
 def _render_memory(episodes) -> None:
@@ -1104,11 +1151,22 @@ def _render_memory(episodes) -> None:
     if not episodes:
         st.caption(t("memory_none"))
         return
+    cards = []
     for ep in episodes[:3]:
-        with st.container(border=True):
-            st.markdown(f"**{ep.goal}** ({'valid' if ep.valid else 'invalid'})")
-            if ep.plan_summary:
-                st.caption(" ".join(str(ep.plan_summary).split())[:300])
+        status = "valid" if ep.valid else "invalid"
+        summary = ""
+        if ep.plan_summary:
+            summary = (
+                f'<div class="tc-detail-muted">'
+                f"{html.escape(' '.join(str(ep.plan_summary).split())[:300])}</div>"
+            )
+        cards.append(
+            '<div class="tc-detail-card">'
+            f'<div class="tc-detail-title">{html.escape(str(ep.goal))} '
+            f'<span class="tc-detail-muted">({html.escape(status)})</span></div>'
+            f"{summary}</div>"
+        )
+    _html_block(f'<div class="tc-detail-list">{"".join(cards)}</div>')
 
 
 def _render_trace_attempts(n: int) -> None:
@@ -1122,11 +1180,15 @@ def _render_trace_attempts(n: int) -> None:
     """
     _section(t("trace_attempts"), t("trace_attempts_caption"))
     if n == 0:
-        st.success(t("no_replan"))
+        body = t("no_replan")
+        tone = "tc-cell-pass"
     elif n >= MAX_PLANNING_ATTEMPTS:
-        st.warning(t("replan_gave_up", max=MAX_PLANNING_ATTEMPTS))
+        body = t("replan_gave_up", max=MAX_PLANNING_ATTEMPTS)
+        tone = "tc-cell-fail"
     else:
-        st.info(t("attempts", n=n, max=MAX_PLANNING_ATTEMPTS))
+        body = t("attempts", n=n, max=MAX_PLANNING_ATTEMPTS)
+        tone = "tc-cell-warn"
+    _html_block(f'<div class="tc-detail-card"><div class="{tone}">{html.escape(body)}</div></div>')
 
 
 def _render_trace_issues(validation) -> None:
@@ -1141,24 +1203,29 @@ def _render_trace_issues(validation) -> None:
     _section(t("validation_details"), t("validation_caption"))
     col_problems, col_legend = st.columns([2, 1], vertical_alignment="top", gap="large")
     with col_problems:
-        _section(t("problems"))
+        _html_block(f'<div class="tc-subhead">{html.escape(t("problems"))}</div>')
         if not validation.issues:
-            st.success(t("no_issues"))
-        for issue in validation.issues:
-            with st.container(border=True):
-                _render_issue(st, issue)
+            _html_block(
+                '<div class="tc-detail-card">'
+                f'<div class="tc-cell-pass">{html.escape(t("no_issues"))}</div>'
+                "</div>"
+            )
+        else:
+            _html_block(
+                f'<div class="tc-detail-card">{_issues_table_html(validation.issues)}</div>'
+            )
     with col_legend:
-        _section(t("legend_severity"))
-        r1a, r1b = st.columns([1, 3])
-        with r1a:
-            st.badge(t("sev_error").upper(), color="red")
-        with r1b:
-            st.write(t("sev_legend_error"))
-        r2a, r2b = st.columns([1, 3])
-        with r2a:
-            st.badge(t("sev_warning").upper(), color="orange")
-        with r2b:
-            st.write(t("sev_legend_warning"))
+        _html_block(f'<div class="tc-subhead">{html.escape(t("legend_severity"))}</div>')
+        _html_block(
+            '<div class="tc-detail-card">'
+            '<div class="tc-detail-line">'
+            f'<span class="tc-sev-tag error">{html.escape(t("sev_error").upper())}</span> '
+            f"{html.escape(t('sev_legend_error'))}</div>"
+            '<div class="tc-detail-line">'
+            f'<span class="tc-sev-tag warning">{html.escape(t("sev_warning").upper())}</span> '
+            f"{html.escape(t('sev_legend_warning'))}</div>"
+            "</div>"
+        )
 
 
 def _save_evaluation_report(results: list[ScenarioResult], rag_on: bool) -> None:
@@ -1685,7 +1752,7 @@ h1, h2, h3, h4, h5, h6 {
 [data-testid="stMultiSelect"] input { color: var(--tc-text); }
 
 [data-testid="stTabs"] [role="tablist"] {
-  gap: 28px;
+  gap: 26px;
   border-bottom: 1px solid var(--tc-border);
   background: transparent;
 }
@@ -1698,7 +1765,8 @@ h1, h2, h3, h4, h5, h6 {
 [data-testid="stTabs"] [data-baseweb="tab"] *,
 [data-testid="stTabs"] [role="tablist"] button * {
   font-family: Cinzel, serif !important;
-  font-weight: 700;
+  font-weight: 500;
+  font-size: 14px;
   letter-spacing: 0.02em;
 }
 [data-testid="stTabs"] [data-testid="stTab"],
@@ -1710,9 +1778,20 @@ h1, h2, h3, h4, h5, h6 {
   padding: 8px 2px;
 }
 [data-testid="stTabs"] [data-testid="stTab"][aria-selected="true"],
-[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+[data-testid="stTabs"] [role="tab"][aria-selected="true"],
+[data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"],
+[data-testid="stTabs"] [role="tablist"] button[aria-selected="true"] {
   color: var(--tc-gold);
   border-bottom: 2px solid var(--tc-gold);
+  font-weight: 700;
+}
+[data-testid="stTabs"] [data-testid="stTab"][aria-selected="true"] *,
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] *,
+[data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"] *,
+[data-testid="stTabs"] [role="tablist"] button[aria-selected="true"] * {
+  color: var(--tc-gold);
+  border-bottom: 0;
+  font-weight: 700;
 }
 
 [data-testid="stButtonGroup"] [data-variant="pills"] {
@@ -1737,7 +1816,7 @@ h1, h2, h3, h4, h5, h6 {
 
 [data-testid="stExpander"],
 [data-testid="stExpander"] details {
-  background: var(--tc-surface);
+  background: var(--tc-card);
   border: 1px solid var(--tc-border);
   border-radius: 12px;
 }
@@ -1749,9 +1828,44 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--tc-surface);
   border: 1px solid var(--tc-border);
   border-radius: 12px;
-  padding: 14px 16px;
+  padding: 16px 18px;
 }
-[data-testid="stMetricValue"] { font-family: Cinzel, serif; color: var(--tc-gold); }
+[data-testid="stMetricLabel"] { color: var(--tc-muted); font-size: 13px; }
+[data-testid="stMetricValue"] {
+  font-family: Cinzel, serif;
+  font-weight: 700;
+  font-size: 34px;
+  line-height: 1.2;
+  color: var(--tc-gold);
+}
+[data-testid="stTable"] table {
+  border-collapse: collapse;
+  background: var(--tc-card);
+}
+[data-testid="stTable"] thead th {
+  padding: 12px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--tc-border);
+  color: var(--tc-muted);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+}
+[data-testid="stTable"] tbody td {
+  padding: 12px 18px;
+  border-top: 1px solid var(--tc-border);
+}
+[data-testid="stMarkdownContainer"] code {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  color: var(--tc-teal);
+  background: var(--tc-bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.st-key-eval_actions [data-testid="stButton"] button[kind="secondary"] {
+  color: var(--tc-muted);
+}
 [data-testid="stAlert"] {
   border-radius: 12px;
   border: 1px solid var(--tc-border);
@@ -2116,6 +2230,70 @@ h1, h2, h3, h4, h5, h6 {
 .tc-step.bad .tc-step-card { background: #2a1a24; border-color: var(--tc-red); }
 .tc-step.bad .tc-step-meta { color: #f0b5a8; }
 
+.tc-subhead {
+  font-family: Cinzel, serif;
+  font-size: 18px;
+  color: var(--tc-gold);
+  margin: 6px 0 2px;
+}
+.tc-detail-list { display: flex; flex-direction: column; gap: 12px; }
+.tc-detail-card {
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tc-detail-title { font-weight: 600; }
+.tc-detail-line { font-size: 14px; }
+.tc-detail-muted { color: var(--tc-muted); font-size: 13px; }
+.tc-code {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  color: var(--tc-teal);
+  background: var(--tc-bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.tc-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--tc-border);
+  border-radius: 14px;
+  background: var(--tc-card);
+}
+.tc-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tc-table th {
+  padding: 12px 18px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--tc-muted);
+  white-space: nowrap;
+}
+.tc-table td { padding: 12px 18px; border-top: 1px solid var(--tc-border); }
+.tc-table th.num, .tc-table td.num { text-align: right; }
+.tc-cell-pass { color: var(--tc-teal); font-weight: 600; }
+.tc-cell-fail { color: var(--tc-red); font-weight: 600; }
+.tc-cell-warn { color: var(--tc-gold); }
+.tc-cell-muted { color: var(--tc-muted); }
+.tc-eval-error { color: var(--tc-red); }
+.tc-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #12302f;
+  border: 1px solid var(--tc-teal);
+  color: #b9e5e0;
+  font-size: 14px;
+}
+.tc-banner-icon { color: var(--tc-teal); font-weight: 700; }
+
 @media (max-width: 700px) {
   .tc-step-time { width: 64px; }
 }
@@ -2186,9 +2364,14 @@ def _empty_plan_html() -> str:
     )
 
 
-def _fairy_html(day: int, value: datetime.time) -> str:
-    """Return TaIA's greeting bubble with the hours left in the cycle."""
+def _fairy_html(day: int, value: datetime.time, text: str | None = None) -> str:
+    """Return TaIA's greeting bubble with the hours left in the cycle.
+
+    ``text`` overrides the play greeting, so the evaluation tab can reuse the
+    same figure and bubble without inventing a second layout.
+    """
     hours = _hours_left(day, _internal_hour(value.hour), value.minute)
+    message = text if text is not None else t("fairy_greeting", hours=hours)
     wings = (
         '<svg class="tc-fairy-wings" viewBox="0 0 96 72" aria-hidden="true">'
         '<defs><linearGradient id="taiaw" x1="0" y1="0" x2="0" y2="1">'
@@ -2225,7 +2408,7 @@ def _fairy_html(day: int, value: datetime.time) -> str:
         "</div>"
         '<div class="tc-fairy-bubble">'
         '<div class="tc-fairy-name">TaIA</div>'
-        f'<div class="tc-fairy-text">{html.escape(t("fairy_greeting", hours=hours))}</div>'
+        f'<div class="tc-fairy-text">{html.escape(message)}</div>'
         "</div></section>"
     )
 
@@ -2264,6 +2447,16 @@ def _plain_clock(clock) -> str:
     """Format a clock for HTML text without markdown code spans."""
     suffix = " (+1)" if clock.next_morning else ""
     return f"{t('day_n', n=clock.day)}, {clock.display_hour:02d}:{clock.minute:02d}{suffix}"
+
+
+def _html_clock(clock) -> str:
+    """Format a clock as an inline code span for HTML detail cards."""
+    suffix = " (+1)" if clock.next_morning else ""
+    day = html.escape(t("day_n", n=clock.day))
+    return (
+        f'<span class="tc-code">{day} \u2013 '
+        f"{clock.display_hour:02d}:{clock.minute:02d}{suffix}</span>"
+    )
 
 
 def _registry_rows(task: _PlanningTask) -> list[dict]:

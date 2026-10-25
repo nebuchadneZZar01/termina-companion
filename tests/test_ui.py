@@ -600,6 +600,54 @@ def test_invalid_plan_renders_every_step(monkeypatch) -> None:
         assert f"Step {index}" in markup
 
 
+def test_plan_details_keep_every_step_field(monkeypatch) -> None:
+    from app.domain import ClockTime, Plan, PlanStep, TimeWindow
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(ui, "st", stub)
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: f"{key}:{kwargs}")
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+
+    plan = Plan(
+        goal="goal",
+        steps=[
+            PlanStep(
+                title="Ottieni la Maschera di Kafei",
+                location="Stockpot Inn",
+                window=TimeWindow(
+                    start=ClockTime(day=1, hour=10),
+                    end=ClockTime(day=1, hour=11),
+                ),
+                requires_items=["Room Key"],
+                requires_masks=["Kafei's Mask"],
+                depends_on=[0],
+                actions=["Parla con Anju", "Apri la porta"],
+            )
+        ],
+    )
+
+    ui._render_why(plan)
+
+    markup = next(value for kind, value in stub.calls if kind == "markdown")
+    for expected in (
+        "Ottieni la Maschera di Kafei",
+        "Room Key",
+        "Kafei",
+        "depends_on",
+        "Parla con Anju",
+        "Apri la porta",
+    ):
+        assert expected in markup
+
+
+def test_fairy_greeting_accepts_a_custom_message() -> None:
+    import datetime
+
+    markup = ui._fairy_html(1, datetime.time(6, 0), text="Prova generale")
+
+    assert "Prova generale" in markup
+
+
 def test_failed_run_without_a_completed_attempt_renders_no_plan(monkeypatch) -> None:
     stub = _StreamlitStub()
     monkeypatch.setattr(ui, "st", stub)

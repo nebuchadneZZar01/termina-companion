@@ -712,6 +712,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "rag_wiki_unreachable": "Wiki unreachable \u2014 using structured MCP data only.",
         "rag_no_evidence": "No supplemental wiki passage matched this goal.",
         # tabs
+        "behind_the_scenes": "Behind the scenes",
         "tab_why": "Why this plan?",
         "tab_why_caption": (
             "Why the plan looks like this: for each step, its time window, "
@@ -1093,6 +1094,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "rag_wiki_unreachable": ("Wiki non raggiungibile \u2014 uso solo i dati MCP strutturati."),
         "rag_no_evidence": "Nessun passaggio wiki supplementare corrisponde all'obiettivo.",
         # tabs
+        "behind_the_scenes": "Dietro le quinte",
         "tab_why": "Perch\u00e9 questo piano?",
         "tab_why_caption": (
             "Perch\u00e9 il piano \u00e8 fatto cos\u00ec: per ogni passo, "
