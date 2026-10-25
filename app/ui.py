@@ -430,6 +430,7 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
             st.warning(t("planning_incomplete"))
         return
 
+    entities = _entity_index(kb)
     attempt = result.get("replan_attempts", 0)
     plan = result.get("plan")
     if validation.valid:
@@ -470,7 +471,7 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
             )
         )
         if validation.issues:
-            _html_block(_problems_panel_html(validation.issues))
+            _html_block(_problems_panel_html(validation.issues, entities))
         _render_last_plan(plan, validation.issues, kb=kb)
         if failed:
             st.caption(
@@ -512,7 +513,7 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
         _render_trace_state(result["game_state"])
         _render_memory(result.get("relevant_episodes", []))
         _render_trace_attempts(result["replan_attempts"])
-        _render_trace_issues(validation)
+        _render_trace_issues(validation, entities)
 
 
 def _render_run_audit(result: dict) -> None:
@@ -713,46 +714,52 @@ def _render_issue(scope, issue, fallback: str = "plan") -> None:
 _MISSING_RE = re.compile(r"^Missing (item|mask)\(s\): (.+)\.$")
 
 
-def _missing_requirements(issues) -> list[str]:
-    """Extract missing item/mask names from the Critic's English issue text."""
-    names: list[str] = []
+def _missing_requirements(issues) -> list[tuple[str, str]]:
+    """Extract missing item/mask names and their kind from the Critic's text."""
+    names: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for issue in issues:
         match = _MISSING_RE.match(issue.message.strip())
         if match is None:
             continue
+        kind = match.group(1)
         for name in match.group(2).split(","):
             name = name.strip()
-            if name and name not in names:
-                names.append(name)
+            if name and name not in seen:
+                seen.add(name)
+                names.append((kind, name))
     return names
 
 
 def _missing_chips_html(issues, prefix: bool = False) -> str:
     """Return requirement chips for the issues, optionally prefixed with 'missing'."""
-    names = _missing_requirements(issues)
-    if not names:
+    missing = _missing_requirements(issues)
+    if not missing:
         return ""
     chips = []
-    for name in names:
-        label = t("missing_requirement", name=tr(name)) if prefix else tr(name)
-        chips.append(f'<span class="tc-missing-chip">{html.escape(label)}</span>')
+    for kind, name in missing:
+        entity = _entity_span(tr(name), kind)
+        label = t("missing_requirement", name=entity) if prefix else entity
+        chips.append(f'<span class="tc-missing-chip">{label}</span>')
     return f'<div class="tc-missing-chips">{"".join(chips)}</div>'
 
 
-def _issues_table_html(issues, fallback: str = "plan") -> str:
+def _issues_table_html(issues, fallback: str = "plan", entities=None) -> str:
     """Return the Critic issue table shared by the registry and problems panels."""
+    index = entities if entities is not None else _entity_index(None)
     rows = []
     for issue in issues:
         severity = t("sev_error") if issue.severity == "error" else t("sev_warning")
         tone = "error" if issue.severity == "error" else "warning"
         kind = t(f"kind_{issue.kind}")
         where = t("step_n", n=issue.step_idx + 1) if issue.step_idx is not None else t(fallback)
+        message = _highlight_entities(tr_msg(issue.message), index)
         rows.append(
             '<div class="tc-issue-row">'
             f'<span><span class="tc-sev-tag {tone}">{html.escape(severity.upper())}</span></span>'
             f'<span><span class="tc-kind-tag">{html.escape(kind.upper())}</span></span>'
             f'<span class="tc-issue-step">{html.escape(where)}</span>'
-            f"<span>{html.escape(tr_msg(issue.message))}</span>"
+            f"<span>{message}</span>"
             "</div>"
         )
     return (
@@ -767,12 +774,12 @@ def _issues_table_html(issues, fallback: str = "plan") -> str:
     )
 
 
-def _problems_panel_html(issues) -> str:
+def _problems_panel_html(issues, entities=None) -> str:
     """Return the full-width problems table shown under an invalid plan."""
     return (
         '<section class="tc-problems-panel">'
         f'<div class="tc-panel-title">{html.escape(t("problems"))}</div>'
-        f"{_issues_table_html(issues)}"
+        f"{_issues_table_html(issues, entities=entities)}"
         "</section>"
     )
 
@@ -1300,11 +1307,12 @@ def _render_trace_attempts(n: int) -> None:
     _html_block(f'<div class="tc-detail-card"><div class="{tone}">{html.escape(body)}</div></div>')
 
 
-def _render_trace_issues(validation) -> None:
+def _render_trace_issues(validation, entities=None) -> None:
     """Render validation details and legend in the trace tab.
 
     args:
         validation (ValidationResult): the validation outcome to display.
+        entities: optional entity matcher for item/mask/place styling.
 
     returns:
         None: draws into the app.
@@ -1321,7 +1329,8 @@ def _render_trace_issues(validation) -> None:
             )
         else:
             _html_block(
-                f'<div class="tc-detail-card">{_issues_table_html(validation.issues)}</div>'
+                f'<div class="tc-detail-card">'
+                f"{_issues_table_html(validation.issues, entities=entities)}</div>"
             )
     with col_legend:
         _html_block(f'<div class="tc-subhead">{html.escape(t("legend_severity"))}</div>')
@@ -3025,7 +3034,7 @@ def _registry_plan_body(data: dict, entities=None) -> str:
     return f"<ul>{items}</ul>"
 
 
-def _registry_critic_body(data: dict) -> str:
+def _registry_critic_body(data: dict, entities=None) -> str:
     """Return the expanded Critic body with its issues."""
     validation = data.get("validation")
     if validation is None:
@@ -3041,7 +3050,7 @@ def _registry_critic_body(data: dict) -> str:
     return (
         '<div class="tc-reg-issues-box">'
         f'<div class="tc-reg-issue-head">{html.escape(head)}{stop}</div>'
-        f"{_issues_table_html(validation.issues)}"
+        f"{_issues_table_html(validation.issues, entities=entities)}"
         f"{_missing_chips_html(validation.issues, prefix=True)}"
         "</div>"
     )
@@ -3064,7 +3073,7 @@ def _registry_body(
         if node == "plan":
             return _registry_plan_body(data, entities)
         if node == "critic":
-            return _registry_critic_body(data)
+            return _registry_critic_body(data, entities)
         return ""
     return _registry_activity_html(events or [], running=live, entities=entities)
 

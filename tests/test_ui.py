@@ -613,8 +613,44 @@ def test_invalid_plan_marks_the_failing_step_and_missing_items(monkeypatch) -> N
     assert markup.count("tc-step bad") == 1
     assert "plan_step_title" in markup
     assert "missing_requirement" in markup
-    assert "Rampino" in markup
-    assert "Garo" in markup
+    assert 'class="tc-item">Rampino' in markup
+    assert 'class="tc-mask">Garo' in markup
+
+
+def test_critic_tables_and_missing_chips_style_entities(monkeypatch) -> None:
+    from app.data.mock_knowledge import build_default_knowledge
+    from app.domain import ValidationIssue, ValidationResult
+
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: f"{key}:{kwargs}" if kwargs else key)
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(ui, "tr_msg", lambda value: value)
+
+    issues = [
+        ValidationIssue(
+            severity="error", step_idx=0, kind="item", message="Missing item(s): Room Key."
+        ),
+        ValidationIssue(
+            severity="error",
+            step_idx=1,
+            kind="mask",
+            message="Missing mask(s): Kafei's Mask.",
+        ),
+    ]
+    entities = ui._entity_index(build_default_knowledge())
+
+    table = ui._issues_table_html(issues, entities=entities)
+    assert 'class="tc-item">Room Key' in table
+    assert 'class="tc-mask">Kafei' in table
+
+    body = ui._registry_critic_body(
+        {"validation": ValidationResult(valid=False, issues=issues)}, entities
+    )
+    assert 'class="tc-item">Room Key' in body
+    assert 'class="tc-mask">Kafei' in body
+
+    chips = ui._missing_chips_html(issues, prefix=True)
+    assert 'class="tc-item">Room Key' in chips
+    assert 'class="tc-mask">Kafei' in chips
 
 
 def test_invalid_plan_renders_every_step(monkeypatch) -> None:
