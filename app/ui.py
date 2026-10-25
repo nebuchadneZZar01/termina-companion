@@ -3162,14 +3162,14 @@ def render() -> None:
                 }
                 try:
                     _ = save_state(data)
-                    st.success(t("save_ok"))
+                    st.toast(t("save_ok"), icon="✅", duration=4)
                 except Exception as exc:
-                    st.error(str(exc))
+                    st.toast(str(exc), icon="❌", duration=6)
         with col_l:
             if st.button(t("load_button"), use_container_width=True):
                 snapshot = load_state()
                 if not snapshot:
-                    st.warning(t("load_none"))
+                    st.toast(t("load_none"), icon="⚠️", duration=4)
                 else:
                     try:
                         st.session_state["save_day"] = int(snapshot.time.day)
@@ -3184,12 +3184,13 @@ def render() -> None:
                         st.session_state["save_inventory"] = list(snapshot.inventory)
                         st.session_state["save_quests"] = list(snapshot.quest_progress)
                         st.session_state["save_goal"] = snapshot.goal or ""
+                        st.toast(t("load_ok"), icon="✅", duration=4)
                         st.rerun()
                     except Exception as exc:
-                        st.error(str(exc))
+                        st.toast(str(exc), icon="❌", duration=6)
         save_warning = st.session_state.pop("_save_warning", "")
         if save_warning:
-            st.warning(save_warning)
+            st.toast(save_warning, icon="⚠️", duration=8)
         _render_configuration()
 
     tab_play, tab_evaluation = st.tabs([t("tab_play"), t("tab_evaluation")])
