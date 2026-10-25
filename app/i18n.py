@@ -602,13 +602,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "prog_llm": "Calling `{model}` (attempt {attempt})",
         "prog_llm_done": "{steps} step(s) in {seconds}s",
         "prog_running": "working...",
-        # step sections
+        # live activity and memory
         "activity": "Activity",
-        "result_state": "Detected state",
-        "result_knowledge": "Retrieved knowledge",
-        "result_memory": "Memory",
-        "result_plan": "Proposed plan",
-        "result_critic": "Validation outcome",
         "memory_episodes": "Past episodes reused",
         "memory_episodes_caption": "What memory recalled for this goal.",
         "memory_none": "No past episodes.",
@@ -758,6 +753,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "agent_card_plan": "I prepare the plan",
         "agent_card_critic": "I double-check everything",
         "agent_registry_hint": "Open an agent to read what it did.",
+        "agent_registry_live_hint": (
+            "Live: the current agent stays open; durations fill in when it finishes."
+        ),
+        "agent_starting": "Starting...",
         "registry_state_summary": (
             "{when} \u00b7 {where} \u00b7 {masks} mask(s) \u00b7 {items} item(s)"
         ),
@@ -976,13 +975,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "prog_llm": "Chiamo `{model}` (tentativo {attempt})",
         "prog_llm_done": "{steps} passi in {seconds}s",
         "prog_running": "in corso...",
-        # step sections
+        # live activity and memory
         "activity": "Attivit\u00e0",
-        "result_state": "Stato rilevato",
-        "result_knowledge": "Conoscenza recuperata",
-        "result_memory": "Memoria",
-        "result_plan": "Piano proposto",
-        "result_critic": "Esito della validazione",
         "memory_episodes": "Episodi passati riusati",
         "memory_episodes_caption": "Cosa la memoria ha richiamato per questo obiettivo.",
         "memory_none": "Nessun episodio passato.",
@@ -1142,6 +1136,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "agent_card_plan": "Preparo il piano",
         "agent_card_critic": "Ricontrollo tutto",
         "agent_registry_hint": "Apri un agente per leggere cosa ha fatto.",
+        "agent_registry_live_hint": (
+            "In corso: l'agente attuale resta aperto; le durate compaiono al termine."
+        ),
+        "agent_starting": "Avvio...",
         "registry_state_summary": (
             "{when} \u00b7 {where} \u00b7 {masks} maschere \u00b7 {items} oggetti"
         ),

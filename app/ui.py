@@ -75,21 +75,11 @@ _IDLE_WAIT = 0.25
 # updates, so a long LLM call still shows fresh activity.
 _TICK_SECONDS = 2.0
 
-# Agent nodes in execution order; the stepper shows a step only once it starts.
-_AGENT_NODES = ("state", "knowledge", "plan", "critic")
 _AGENT_LABEL_KEY = {
     "state": "agent_state",
     "knowledge": "agent_knowledge",
     "plan": "agent_planning",
     "critic": "agent_critic",
-}
-# Section caption drawn above each agent's detail card, so the card content is
-# not confused with the activity log above it.
-_RESULT_LABEL_KEY = {
-    "state": "result_state",
-    "knowledge": "result_knowledge",
-    "plan": "result_plan",
-    "critic": "result_critic",
 }
 # Progress phases the UI knows how to render; anything else is ignored so a
 # future agent event never renders a raw i18n key.
@@ -131,7 +121,7 @@ class _PlanningTask:
     status: str = "running"
     result: dict = field(default_factory=dict)
     updates: list[tuple[str, dict]] = field(default_factory=list)
-    # Ordered streaming log the stepper replays: ("start", node),
+    # Ordered streaming log the agent registry replays: ("start", node),
     # ("progress", payload) and ("update", node, data) entries.
     log: list[tuple] = field(default_factory=list)
     # Wall-clock start per node and the duration of each finished update,
@@ -323,7 +313,7 @@ def _progress_label(tick: int) -> str:
 
 
 def _outer_status(task: _PlanningTask, tick: int) -> tuple[str, str]:
-    """Return the ``(state, label)`` for the outer stepper container."""
+    """Return the live title state and label for the current task status."""
     validation = task.result.get("validation")
     if task.status == "done":
         valid = bool(getattr(validation, "valid", False))
@@ -357,126 +347,9 @@ def _progress_line(payload: dict) -> str:
     return t(f"prog_{phase}", **params)
 
 
-def _activity_md(events: list[str], running: bool) -> str:
-    """Render an agent's activity log: a labelled, bulleted, dimmed timeline.
-
-    Completed events are dimmed with grayscale markdown; while the step is
-    still running its last event is highlighted as the current phase. Bullets
-    are markdown list items, so Streamlit indents them slightly under the label
-    and they line up with the detail card below the divider.
-
-    args:
-        events (list[str]): already-formatted event lines, oldest first.
-        running (bool): True while the agent is still working.
-
-    returns:
-        str: the markdown body for the step's activity block.
-    """
-    parts = [f"**{t('activity')}**", ""]
-    for index, event in enumerate(events):
-        current = running and index == len(events) - 1
-        marker = "\u23f3" if current else "\u2713"
-        item = f"{marker} {event}"
-        parts.append(f"- {item}" if current else f"- :gray[{item}]")
-    if not running:
-        parts.extend(["", "---"])
-    return "\n".join(parts)
-
-
-@dataclass
-class _Step:
-    """One agent step in the live stepper: its status box and event lines."""
-
-    node: str
-    status: object
-    live: object
-    events: list[str] = field(default_factory=list)
-
-
-class _PlanStepper:
-    """Progressive live stepper: one step per agent, shown when it starts.
-
-    The outer status box is created once and its title rotates on a timer; a
-    child step is appended only when its agent starts, so the tree never shows
-    future agents. This keeps the widget tree stable (no stacked re-renders) and
-    preserves the user's expand/collapse state.
-    """
-
-    def __init__(self, tick: int = 0) -> None:
-        self.outer = st.status(_progress_label(tick), state="running", expanded=True)
-        self._open: dict[str, _Step] = {}
-
-    def start(self, node: str) -> None:
-        """Append a running step for an agent as soon as it starts.
-
-        The status is created directly instead of through a ``with`` block:
-        leaving that block marks a status complete, which would swap the
-        spinner for a check mark while the agent is still working.
-        """
-        status = self.outer.status(t(_AGENT_LABEL_KEY[node]), state="running", expanded=True)
-        self._open[node] = _Step(node=node, status=status, live=status.empty())
-
-    def close_open(self, state: str = "complete") -> None:
-        """Close any step still running, so no spinner survives a finished run."""
-        for step in self._open.values():
-            step.status.update(state=state)
-        self._open.clear()
-
-    def progress(self, payload: dict) -> None:
-        """Append a progress line to the agent's open step, if any."""
-        step = self._open.get(payload.get("node", ""))
-        if step is None:
-            return
-        line = _progress_line(payload)
-        if not line:
-            return
-        step.events.append(line)
-        step.live.markdown(_activity_md(step.events, running=True))
-
-    def finish(self, node: str, result: dict) -> None:
-        """Close an agent's step and draw its full detail card from merged state."""
-        step = self._open.pop(node, None)
-        if step is None:
-            self.start(node)
-            step = self._open.pop(node)
-        if step.events:
-            step.live.markdown(_activity_md(step.events, running=False))
-        step.status.update(label=self._step_label(node, result), state="complete", expanded=True)
-        _append_step(step.status, node, result)
-
-    @staticmethod
-    def _step_label(node: str, result: dict) -> str:
-        name = t(_AGENT_LABEL_KEY[node])
-        engine, model = _engine_for(node, result)
-        name += _engine_badge(engine, model)
-        if node == "plan":
-            attempt = result.get("replan_attempts", 1)
-            name += f" \u2014 {t('step_attempt', n=attempt, max=MAX_PLANNING_ATTEMPTS)}"
-        return name
-
-    def set_outer(self, state: str, label: str) -> None:
-        """Update the outer status box label and state in place."""
-        self.outer.update(label=label, state=state, expanded=True)
-
-
-def _apply_log(stepper: _PlanStepper, task: _PlanningTask, cursor: int) -> int:
-    """Replay streamed log entries from ``cursor``; return the new cursor."""
-    for entry in task.log[cursor:]:
-        kind = entry[0]
-        if kind == "start":
-            if entry[1] not in _AGENT_LABEL_KEY or entry[1] in {"memory", "memory_store"}:
-                continue
-            stepper.start(entry[1])
-        elif kind == "progress":
-            payload = entry[1]
-            if isinstance(payload, dict) and payload.get("node") in {"memory", "memory_store"}:
-                continue
-            stepper.progress(entry[1])
-        elif kind == "update":
-            if entry[1] in {"memory", "memory_store"}:
-                continue
-            stepper.finish(entry[1], task.result)
-    return len(task.log)
+def _plain_progress(line: str) -> str:
+    """Drop inline markdown markers now that progress lines render as HTML."""
+    return line.replace("`", "").replace("*", "")
 
 
 def _render_planning_progress(task: _PlanningTask) -> None:
@@ -488,28 +361,48 @@ def _render_planning_progress(task: _PlanningTask) -> None:
         st.warning(t("planning_stopped"))
 
 
-def _planning_live(task: _PlanningTask) -> None:
-    """Drive the live stepper until the run reaches a terminal state.
+def _live_title_html(label: str) -> str:
+    """Return the pulsing reasoning title drawn above the live registry."""
+    return (
+        '<div class="tc-live-title">'
+        '<span class="tc-live-dot" aria-hidden="true"></span>'
+        f"<span>{html.escape(label)}</span></div>"
+    )
 
-    The loop blocks on the worker queue (no busy timer), repainting only when an
-    agent update arrives or the 2s reasoning-title tick rolls over. The single
-    empty placeholder is an invisible yield point, which is what lets Streamlit
-    process a queued Stop click while this script is still running.
+
+def _planning_live(task: _PlanningTask) -> None:
+    """Drive the live HTML registry until the run reaches a terminal state.
+
+    The registry is redrawn only when a streamed event arrives, while the
+    reasoning title rotates on the 2s wall-clock tick. Keeping the registry out
+    of the tick redraw preserves any row the user opened between events. The
+    single empty placeholder is an invisible yield point, which is what lets
+    Streamlit process a queued Stop click while this script is still running.
     """
-    stepper = _PlanStepper()
+    title = st.empty()
+    registry = st.empty()
     yield_point = st.empty()
     started = time.monotonic()
-    cursor = _apply_log(stepper, task, 0)
+    last_tick = -1
+
+    def draw_title(tick: int) -> None:
+        _state, label = _outer_status(task, tick)
+        title.markdown(_live_title_html(label), unsafe_allow_html=True)
+
+    def draw_registry() -> None:
+        registry.markdown(_agent_registry_html(task, live=True), unsafe_allow_html=True)
+
+    draw_title(0)
+    draw_registry()
     last_tick = 0
-    stepper.set_outer(*_outer_status(task, last_tick))
     while _task_is_active(task):
         progressed = _drain_planning_task(task, wait=_IDLE_WAIT)
         if progressed:
-            cursor = _apply_log(stepper, task, cursor)
+            draw_registry()
         tick = int((time.monotonic() - started) // _TICK_SECONDS)
         if progressed or tick != last_tick:
+            draw_title(tick)
             last_tick = tick
-            stepper.set_outer(*_outer_status(task, tick))
         yield_point.empty()
 
 
@@ -662,49 +555,8 @@ def _render_run_audit(result: dict) -> None:
             st.code(block, language="text")
 
 
-def _append_step(status, node: str, result: dict) -> None:
-    """Render the trace line for one streamed agent update.
-
-    args:
-        status (streamlit.delta_generator.DeltaGenerator): the status
-        container to write step details into.
-        node (str): the agent node name ("state", "knowledge", "plan",
-        "critic").
-        result (dict): the node's output dict.
-
-    returns:
-        None: draws into the status container.
-    """
-    if node == "state":
-        _step_state(status, result)
-    elif node == "knowledge":
-        _step_knowledge(status, result)
-    elif node == "plan":
-        _step_plan(status, result)
-    elif node == "critic":
-        _step_critic(status, result)
-
-
 # Engines whose badge is an acronym, not a lowercase identifier.
 _ENGINE_LABELS = {"llm": "LLM"}
-
-
-def _engine_badge(engine: str | None, model: str = "") -> str:
-    """Format an engine name as a parenthesised badge suffix.
-
-    args:
-        engine (str | None): the engine label, e.g. "llm".
-        model (str, default ""): the model name, shown as inline code when
-            present.
-
-    returns:
-        str: " (engine)", " (engine \u00b7 `model`)" or "" when empty.
-    """
-    if not engine:
-        return ""
-    label = _ENGINE_LABELS.get(engine, engine)
-    suffix = f" \u00b7 `{model}`" if model else ""
-    return f" ({label}{suffix})"
 
 
 def _engine_for(node: str, result: dict) -> tuple[str | None, str]:
@@ -719,11 +571,6 @@ def _fmt_model(model: str | None) -> str:
     return f"`{model}`" if model else t("eval_unknown")
 
 
-def _result_label(node: str) -> str:
-    """Return the bold section caption shown above an agent's detail card."""
-    return t(_RESULT_LABEL_KEY[node])
-
-
 _WINDOW_RE = re.compile(
     r"\[(Day \d, \d{2}:\d{2}(?: \(\+1\))? \u2192 Day \d, \d{2}:\d{2}(?: \(\+1\))?)\]"
 )
@@ -734,32 +581,11 @@ def _markdown_windows(s: str) -> str:
     return _WINDOW_RE.sub(lambda m: f"`[{m.group(1)}]`", s)
 
 
-def _step_state(status, result: dict) -> None:
-    """Render the State Agent's trace card.
-
-    args:
-        status (DeltaGenerator): the trace container.
-        result (dict): the state node output with location and summary.
-
-    returns:
-        None: draws into the status container.
-    """
-    c = status.container()
-    c.markdown(f"**{_result_label('state')}**")
-    gs = result["game_state"]
-    _state_fields(c, gs)
-    # The summary's field line is now redundant; keep the quest-progress tail.
-    progress = str(result.get("state_summary", "")).partition("\n")[2]
-    if progress:
-        c.caption(progress)
-
-
 def _state_fields(scope, gs) -> None:
     """Render the game state as one bulleted markdown block.
 
     A single markdown list keeps the four fields tight and indented exactly
-    like the agent activity timelines and the other detail-card lists. Shared
-    by the live State Agent card and the trace tab.
+    like the other trace lists.
 
     args:
         scope: the container to draw into.
@@ -780,94 +606,6 @@ def _state_fields(scope, gs) -> None:
             ]
         )
     )
-
-
-def _step_memory(status, result: dict) -> None:
-    """Render the Memory Agent's trace card."""
-    c = status.container()
-    c.markdown(f"**{_result_label('memory')}**")
-    episodes = result.get("relevant_episodes", [])
-    c.write(t("memory_episodes_caption"))
-    if not episodes:
-        c.caption(t("memory_none"))
-        return
-    for ep in episodes[:3]:
-        c.markdown(f"- {ep.goal} ({'valid' if ep.valid else 'invalid'})")
-
-
-def _step_knowledge(status, result: dict) -> None:
-    """Render the Knowledge Agent's trace card.
-
-    args:
-        status (DeltaGenerator): the trace container.
-        result (dict): the knowledge node output with retrieved objectives.
-
-    returns:
-        None: draws into the status container.
-    """
-    c = status.container()
-    c.markdown(f"**{_result_label('knowledge')}**")
-    objectives = result["relevant_objectives"]
-    c.write(t("knowledge_objectives", n=len(objectives)))
-    for obj in objectives:
-        c.markdown(f"- {tr(obj.title)}")
-    if not objectives:
-        c.caption(t("knowledge_empty_hint"))
-    retrieval_engine = result.get("retrieval_engine")
-    if retrieval_engine:
-        c.caption(f"{t('rag_engine')}: `{retrieval_engine}`")
-    retrieval_status = result.get("retrieval_status")
-    if retrieval_status:
-        c.caption(f"{t('rag_status')}: `{retrieval_status}`")
-    if result.get("retrieval_wiki_unreachable"):
-        c.warning(t("rag_wiki_unreachable"))
-    if result.get("retrieval_warning"):
-        c.warning(result["retrieval_warning"])
-
-
-def _step_plan(status, result: dict) -> None:
-    """Render the Planning Agent's trace card.
-
-    args:
-        status (DeltaGenerator): the trace container.
-        result (dict): the plan node output with plan and attempt number.
-
-    returns:
-        None: draws into the status container.
-    """
-    c = status.container()
-    c.markdown(f"**{_result_label('plan')}**")
-    plan = result["plan"]
-    if not plan or not plan.steps:
-        c.write(t("no_plan"))
-        return
-    lines = []
-    for i, step in enumerate(plan.steps, 1):
-        window = _fmt_window(step.window)
-        lines.append(f"{i}. {tr(step.title)} @ {tr(step.location)} (`{window}`)")
-    c.markdown("\n".join(lines))
-
-
-def _step_critic(status, result: dict) -> None:
-    """Render the Critic Agent's trace card.
-
-    args:
-        status (DeltaGenerator): the trace container.
-        result (dict): the critic node output with the validation result.
-
-    returns:
-        None: draws into the status container.
-    """
-    c = status.container()
-    c.markdown(f"**{_result_label('critic')}**")
-    validation = result["validation"]
-    if validation.valid:
-        # No manual "✓" prefix: t("plan_valid") already carries its own check.
-        c.write(t("plan_valid"))
-        return
-    c.write(t("replan_line", n=len(validation.issues), max=MAX_PLANNING_ATTEMPTS))
-    for issue in validation.issues:
-        _render_issue(c, issue)
 
 
 def _render_issue(scope, issue, fallback: str = "plan") -> None:
@@ -2097,6 +1835,28 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: 0.1em;
   color: var(--tc-muted);
 }
+.tc-live-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 12px;
+  color: var(--tc-gold);
+  font-family: Cinzel, serif;
+  font-size: 15px;
+}
+.tc-live-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--tc-gold);
+  animation: tc-pulse 1.6s ease-out infinite;
+}
+@keyframes tc-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(245, 209, 66, 0.5); }
+  70% { box-shadow: 0 0 0 8px rgba(245, 209, 66, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 209, 66, 0); }
+}
 .tc-registry-head {
   display: flex;
   justify-content: space-between;
@@ -2113,6 +1873,7 @@ h1, h2, h3, h4, h5, h6 {
   overflow: hidden;
 }
 .tc-reg.bad { border-color: rgba(224, 90, 90, 0.55); }
+.tc-reg.running { border-color: rgba(245, 209, 66, 0.55); }
 .tc-reg > summary {
   display: flex;
   align-items: center;
@@ -2131,6 +1892,10 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--tc-teal);
 }
 .tc-reg.bad .tc-reg-dot { background: var(--tc-red); }
+.tc-reg.running .tc-reg-dot {
+  background: var(--tc-gold);
+  animation: tc-pulse 1.6s ease-out infinite;
+}
 .tc-reg-main { flex: 1; min-width: 0; }
 .tc-reg-name {
   display: flex;
@@ -2150,14 +1915,33 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 500;
 }
 .tc-reg-attempt { border-color: var(--tc-gold); color: var(--tc-gold); }
-.tc-reg-right { flex: none; text-align: right; }
-.tc-reg-result { font-size: 12px; color: var(--tc-text); }
+.tc-reg-right { flex: none; max-width: 52%; text-align: right; }
+.tc-reg-result {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--tc-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tc-reg.running .tc-reg-result { color: var(--tc-gold); }
 .tc-reg-time { font-size: 11px; color: var(--tc-muted); }
 .tc-chev { color: var(--tc-muted); transition: transform 0.15s; }
 .tc-reg[open] .tc-chev { transform: rotate(180deg); }
 .tc-reg-body { padding: 12px 14px 14px; font-size: 13px; }
 .tc-reg-body ul { margin: 0; padding-left: 18px; }
 .tc-reg-body li { margin: 3px 0; }
+.tc-reg-activity { color: var(--tc-muted); }
+.tc-reg-activity ul {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.tc-reg-activity li { color: var(--tc-muted); }
+.tc-reg-activity li.current { color: var(--tc-gold); }
+.tc-reg-activity .tc-ev { display: inline-block; width: 16px; }
 .tc-reg-kv { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--tc-muted); }
 .tc-reg-issues-box {
   padding: 12px 14px;
@@ -2469,17 +2253,28 @@ def _plain_clock(clock) -> str:
 
 
 def _registry_rows(task: _PlanningTask) -> list[dict]:
-    """Pair each streamed agent start with its update and measured duration."""
+    """Pair each streamed agent start with its progress, update and duration."""
     rows: list[dict] = []
     for index, entry in enumerate(task.log):
         kind = entry[0]
-        if kind not in {"start", "update"}:
+        if kind not in {"start", "update", "progress"}:
+            continue
+        if kind == "progress":
+            payload = entry[1]
+            if not isinstance(payload, dict):
+                continue
+            node = payload.get("node", "")
+            if node not in _AGENT_LABEL_KEY:
+                continue
+            target = next((row for row in reversed(rows) if row["node"] == node), None)
+            if target is not None:
+                target["events"].append(payload)
             continue
         node = entry[1]
-        if node not in _AGENT_LABEL_KEY or node in {"memory", "memory_store"}:
+        if node not in _AGENT_LABEL_KEY:
             continue
         if kind == "start":
-            rows.append({"node": node, "data": None, "seconds": None})
+            rows.append({"node": node, "data": None, "seconds": None, "events": []})
             continue
         data = entry[2] if len(entry) > 2 else None
         if not isinstance(data, dict):
@@ -2489,11 +2284,40 @@ def _registry_rows(task: _PlanningTask) -> list[dict]:
             None,
         )
         if target is None:
-            target = {"node": node, "data": None, "seconds": None}
+            target = {"node": node, "data": None, "seconds": None, "events": []}
             rows.append(target)
         target["data"] = data
         target["seconds"] = task.timings.get(index)
     return rows
+
+
+def _registry_activity_html(events: list[dict], running: bool) -> str:
+    """Return the live activity timeline for one agent row."""
+    lines = [line for line in (_plain_progress(_progress_line(event)) for event in events) if line]
+    if not lines:
+        return ""
+    items = []
+    for index, line in enumerate(lines):
+        current = running and index == len(lines) - 1
+        marker = "\u23f3" if current else "\u2713"
+        tone = "current" if current else "done"
+        items.append(
+            f'<li class="{tone}"><span class="tc-ev">{marker}</span> {html.escape(line)}</li>'
+        )
+    return (
+        '<div class="tc-reg-activity">'
+        f'<div class="tc-panel-title">{html.escape(t("activity"))}</div>'
+        f"<ul>{''.join(items)}</ul></div>"
+    )
+
+
+def _registry_live_summary(events: list[dict]) -> str:
+    """Return the current progress line (or a starting hint) for a live row."""
+    for event in reversed(events):
+        line = _progress_line(event)
+        if line:
+            return _plain_progress(line)
+    return t("agent_starting")
 
 
 def _registry_engine_html(node: str, data: dict) -> str:
@@ -2600,21 +2424,32 @@ def _registry_critic_body(data: dict) -> str:
     )
 
 
-def _registry_body(node: str, data: dict) -> str:
+def _registry_body(
+    node: str, data: dict, *, events: list[dict] | None = None, live: bool = False
+) -> str:
     """Dispatch the expanded body for one registry row."""
-    if node == "state":
-        return _registry_state_body(data)
-    if node == "knowledge":
-        return _registry_knowledge_body(data)
-    if node == "plan":
-        return _registry_plan_body(data)
-    if node == "critic":
-        return _registry_critic_body(data)
-    return ""
+    if data:
+        if node == "state":
+            return _registry_state_body(data)
+        if node == "knowledge":
+            return _registry_knowledge_body(data)
+        if node == "plan":
+            return _registry_plan_body(data)
+        if node == "critic":
+            return _registry_critic_body(data)
+        return ""
+    return _registry_activity_html(events or [], running=live)
 
 
-def _registry_summary(node: str, data: dict) -> str:
+def _registry_summary(
+    node: str, data: dict, *, events: list[dict] | None = None, live: bool = False
+) -> str:
     """Dispatch the one-line result for one registry row."""
+    if not data:
+        if live:
+            return _registry_live_summary(events or [])
+        lines = [line for line in (_progress_line(event) for event in events or []) if line]
+        return _plain_progress(lines[-1]) if lines else ""
     if node == "state":
         return _registry_state_summary(data)
     if node == "knowledge":
@@ -2626,8 +2461,8 @@ def _registry_summary(node: str, data: dict) -> str:
     return ""
 
 
-def _agent_registry_html(task: _PlanningTask) -> str:
-    """Return the finished-run agent registry with attempts and durations."""
+def _agent_registry_html(task: _PlanningTask, live: bool = False) -> str:
+    """Return the agent registry, shared by live and finished runs."""
     rows = _registry_rows(task)
     if not rows:
         return ""
@@ -2649,6 +2484,7 @@ def _agent_registry_html(task: _PlanningTask) -> str:
     for index, row in enumerate(rows):
         node = row["node"]
         data = row["data"] or {}
+        running = live and row["data"] is None
         attempt = None
         if node == "plan":
             plan_attempt = int(data.get("replan_attempts") or plan_attempt + 1)
@@ -2667,8 +2503,15 @@ def _agent_registry_html(task: _PlanningTask) -> str:
             )
         seconds = row["seconds"]
         duration = f'<div class="tc-reg-time">{seconds:.1f}s</div>' if seconds is not None else ""
+        classes = "tc-reg"
+        if bad:
+            classes += " bad"
+        if running:
+            classes += " running"
+        summary = _registry_summary(node, data, events=row["events"], live=live)
+        body = _registry_body(node, data, events=row["events"], live=running)
         cards.append(
-            f'<details class="tc-reg{" bad" if bad else ""}"{" open" if index == last else ""}>'
+            f'<details class="{classes}"{" open" if index == last else ""}>'
             "<summary>"
             '<span class="tc-reg-dot"></span>'
             '<div class="tc-reg-main">'
@@ -2677,19 +2520,20 @@ def _agent_registry_html(task: _PlanningTask) -> str:
             f'<div class="tc-reg-sub">{html.escape(t(_AGENT_SUBTITLE_KEY[node]))}</div>'
             "</div>"
             '<div class="tc-reg-right">'
-            f'<div class="tc-reg-result">{html.escape(_registry_summary(node, data))}</div>'
+            f'<div class="tc-reg-result">{html.escape(summary)}</div>'
             f"{duration}</div>"
             '<span class="tc-chev" aria-hidden="true">⌄</span>'
             "</summary>"
-            f'<div class="tc-reg-body">{_registry_body(node, data)}</div>'
+            f'<div class="tc-reg-body">{body}</div>'
             "</details>"
         )
+    hint = t("agent_registry_live_hint") if live else t("agent_registry_hint")
     return (
         '<section class="tc-panel">'
         '<div class="tc-registry-head">'
         f'<div class="tc-panel-title">{html.escape(t("agents_title"))}</div>'
         f"{pill}</div>"
-        f'<div class="tc-registry-hint">{html.escape(t("agent_registry_hint"))}</div>'
+        f'<div class="tc-registry-hint">{html.escape(hint)}</div>'
         f'<div class="tc-registry">{"".join(cards)}</div>'
         "</section>"
     )
@@ -3008,7 +2852,7 @@ def _render_play(editor: dict, kb) -> None:
 
     task = st.session_state.get(_PLANNING_TASK_KEY)
     if _task_is_active(task):
-        # Block here, redrawing the stepper only on agent updates. The final
+        # Block here, redrawing the registry only on agent updates. The final
         # rerun re-enables Generate/Stop and renders the result below.
         _planning_live(task)
         st.rerun()

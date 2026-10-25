@@ -20,7 +20,7 @@ class _Container:
 
 
 class _Placeholder:
-    """Stand-in for the invisible yield placeholder of the live loop."""
+    """Stand-in for the empty placeholders of the live loop."""
 
     def __init__(self, stub: _StreamlitStub) -> None:
         self.stub = stub
@@ -29,11 +29,15 @@ class _Placeholder:
         self.stub.emptied += 1
         return self
 
+    def markdown(self, value: str, **_kwargs) -> None:
+        self.stub.live_markdowns.append(value)
+
 
 class _StreamlitStub:
     def __init__(self) -> None:
         self.session_state: dict[str, str] = {}
         self.calls: list[tuple[str, str]] = []
+        self.live_markdowns: list[str] = []
         self.emptied = 0
 
     def container(self, **_kwargs):
@@ -350,57 +354,56 @@ def test_drain_keeps_the_message_it_waited_for() -> None:
     assert task.updates == [("state", {"state_summary": "ready"})]
 
 
-def test_planning_live_applies_streamed_events_until_done(monkeypatch) -> None:
-    """The live loop drains the queue, replays events, and ticks the title."""
+def test_planning_live_draws_the_html_registry_with_progress(monkeypatch) -> None:
+    """The live loop paints the same registry markup used after the run."""
     stub = _StreamlitStub()
     events: queue.Queue[object] = queue.Queue()
     task = ui._PlanningTask(events=events, status="running")
-    applied: list[tuple] = []
-    outer_labels: list[str] = []
     drain = ui._drain_planning_task
-
-    class _FakeStepper:
-        def __init__(self, tick: int = 0) -> None:
-            pass
-
-        def start(self, node):
-            pass
-
-        def progress(self, payload):
-            pass
-
-        def finish(self, node, data):
-            pass
-
-        def set_outer(self, state, label):
-            outer_labels.append(label)
-
-    def _apply(_stepper, _task, cursor):
-        applied.extend(_task.log[cursor:])
-        return len(_task.log)
+    calls = {"n": 0}
 
     def _wait(_task, wait=0.0):
-        events.put(ui._Progress({"node": "state", "phase": "start"}))
-        events.put(ui._Progress({"node": "state", "phase": "objectives", "n": 3}))
-        events.put({"state": {"state_summary": "ready"}})
-        events.put(None)  # the run finishes right after this update
+        calls["n"] += 1
+        if calls["n"] == 1:
+            events.put(ui._Progress({"node": "state", "phase": "start"}))
+            events.put(ui._Progress({"node": "state", "phase": "objectives", "n": 3}))
+        else:
+            events.put({"state": {"state_summary": "ready"}})
+            events.put(None)
         return drain(_task, wait=wait)
 
     monkeypatch.setattr(ui, "st", stub)
-    monkeypatch.setattr(ui, "_PlanStepper", _FakeStepper)
-    monkeypatch.setattr(ui, "_apply_log", _apply)
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
     monkeypatch.setattr(ui, "_drain_planning_task", _wait)
     monkeypatch.setattr(ui, "_IDLE_WAIT", 0.001)
 
     ui._planning_live(task)
 
-    assert ("start", "state") in applied
-    assert ("progress", {"node": "state", "phase": "objectives", "n": 3}) in applied
-    assert ("update", "state", {"state_summary": "ready"}) in applied
-    # Initial label plus the terminal (done) label were pushed to the box.
-    assert outer_labels[0].endswith("...")
-    assert len(outer_labels) >= 2
-    assert stub.emptied >= 1
+    assert ("start", "state") in task.log
+    assert any("tc-live-title" in value for value in stub.live_markdowns)
+    running = next(value for value in stub.live_markdowns if "tc-reg-activity" in value)
+    assert 'class="tc-reg running"' in running
+    assert " open>" in running
+    assert any("prog_objectives" in value for value in stub.live_markdowns)
+    assert any("agent_registry_live_hint" in value for value in stub.live_markdowns)
+    assert stub.emptied >= 2
+
+
+def test_registry_activity_highlights_the_current_event(monkeypatch) -> None:
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
+
+    markup = ui._registry_activity_html(
+        [
+            {"node": "knowledge", "phase": "objectives", "n": 2},
+            {"node": "plan", "phase": "llm", "model": "gpt"},
+        ],
+        running=True,
+    )
+
+    assert 'class="current"' in markup
+    assert "prog_objectives" in markup
+    assert "prog_llm" in markup
+    assert markup.count("\u23f3") == 1
 
 
 @pytest.mark.parametrize(
@@ -459,142 +462,6 @@ def test_graph_streams_custom_start_and_agent_progress(monkeypatch) -> None:
     }
     assert {"node": "knowledge", "phase": "objectives", "n": 0} in custom
     assert any(mode == "updates" for mode, _chunk in emitted)
-
-
-def test_activity_md_highlights_the_current_event_and_dims_the_rest(monkeypatch) -> None:
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
-
-    running = ui._activity_md(["one", "two"], running=True)
-    assert running.startswith("**activity**")
-    assert "- :gray[\u2713 one]" in running
-    assert "- \u23f3 two" in running
-    assert "---" not in running
-
-    done = ui._activity_md(["one", "two"], running=False)
-    assert "- :gray[\u2713 two]" in done
-    assert done.rstrip().endswith("---")
-
-
-class _Card:
-    """Records the calls _step_* make on a status container."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    def markdown(self, value: str, **_kwargs) -> None:
-        self.calls.append(("markdown", value))
-
-    def write(self, value: str, **_kwargs) -> None:
-        self.calls.append(("write", value))
-
-    def caption(self, value: str, **_kwargs) -> None:
-        self.calls.append(("caption", value))
-
-    def warning(self, value: str, **_kwargs) -> None:
-        self.calls.append(("warning", value))
-
-    def container(self, **_kwargs) -> _Card:
-        return self
-
-
-def test_step_plan_card_starts_with_result_label_without_agent_name(monkeypatch) -> None:
-    from app.domain import ClockTime, Plan, PlanStep, TimeWindow
-
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
-    monkeypatch.setattr(ui, "tr", lambda value: value)
-    step = PlanStep(
-        title="Talk to Anju",
-        objective_ref="anju_talk",
-        location="Stockpot Inn",
-        window=TimeWindow(start=ClockTime(day=2, hour=9), end=ClockTime(day=2, hour=10)),
-    )
-    result = {
-        "plan": Plan(goal="g", steps=[step]),
-        "replan_attempts": 1,
-        "plan_engine": "llm",
-        "plan_model": "gpt-4o-mini",
-    }
-    card = _Card()
-
-    ui._step_plan(card, result)
-
-    assert card.calls[0] == ("markdown", "**result_plan**")
-    rendered = "\n".join(value for _kind, value in card.calls)
-    assert "agent_planning" not in rendered
-    assert "1. Talk to Anju @ Stockpot Inn (`Day 2 - 09:00\u201310:00`)" in rendered
-
-
-def test_step_label_carries_the_engine_badge_not_the_card(monkeypatch) -> None:
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
-    label = ui._PlanStepper._step_label("knowledge", {"knowledge_engine": "rule-based"})
-    assert label == "agent_knowledge (rule-based)"
-
-
-def test_plan_step_label_uppercases_llm_and_code_formats_the_model(monkeypatch) -> None:
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
-    label = ui._PlanStepper._step_label(
-        "plan",
-        {"plan_engine": "llm", "plan_model": "llama3.2", "replan_attempts": 1},
-    )
-    assert label == "agent_planning (LLM \u00b7 `llama3.2`) \u2014 step_attempt"
-
-
-class _StepStatus:
-    """Status stub that fails if opened as a context manager."""
-
-    def __init__(self) -> None:
-        self.updates: list[dict] = []
-
-    def __enter__(self):
-        raise AssertionError("a running step must not be opened as a context manager")
-
-    def empty(self):
-        return self
-
-    def update(self, **kwargs) -> None:
-        self.updates.append(kwargs)
-
-
-class _OuterStatus:
-    def __init__(self) -> None:
-        self.created: list[tuple[str, _StepStatus]] = []
-
-    def status(self, label: str, **_kwargs) -> _StepStatus:
-        status = _StepStatus()
-        self.created.append((label, status))
-        return status
-
-
-def test_start_keeps_the_step_running_until_it_finishes(monkeypatch) -> None:
-    """A step created with ``with`` is auto-completed at once by Streamlit."""
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
-    stepper = ui._PlanStepper.__new__(ui._PlanStepper)
-    stepper.outer = _OuterStatus()
-    stepper._open = {}
-
-    stepper.start("state")
-
-    label, status = stepper.outer.created[0]
-    assert label == "agent_state"
-    assert stepper._open["state"].status is status
-    assert status.updates == []
-
-    stepper.close_open()
-    assert status.updates == [{"state": "complete"}]
-    assert stepper._open == {}
-
-
-def test_step_critic_valid_does_not_add_a_second_check(monkeypatch) -> None:
-    from app.domain import ValidationResult
-
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
-    monkeypatch.setattr(ui, "tr", lambda value: value)
-    card = _Card()
-
-    ui._step_critic(card, {"validation": ValidationResult(valid=True)})
-
-    assert ("markdown", "**result_critic**") in card.calls
-    assert ("write", "plan_valid") in card.calls
 
 
 def _patch_result_renderers(monkeypatch) -> list:
@@ -707,39 +574,6 @@ def test_failed_run_without_a_completed_attempt_renders_no_plan(monkeypatch) -> 
     ui._render_planning_result(ui._PlanningTask(status="error"), kb=None)
 
     assert stub.calls == []
-
-
-def test_step_state_card_formats_fields_and_keeps_quest_progress(monkeypatch) -> None:
-    from app.domain import ClockTime, GameState
-
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
-    monkeypatch.setattr(ui, "tr", lambda value: value)
-    gs = GameState(
-        time=ClockTime(day=2, hour=8),
-        location="Stockpot Inn",
-        inventory=["Deku Leaf"],
-        masks=["Kafei's Mask"],
-    )
-    card = _Card()
-
-    ui._step_state(
-        card,
-        {
-            "game_state": gs,
-            "state_summary": "Stockpot Inn at Day 2 08:00.\nActive: Anju & Kafei.",
-        },
-    )
-
-    assert card.calls[0] == ("markdown", "**result_state**")
-    fields = card.calls[1]
-    assert fields[0] == "markdown"
-    assert fields[1].splitlines() == [
-        "- **trace_where** Stockpot Inn",
-        "- **trace_when** `Day 2 - 08:00`",
-        "- **trace_items** Deku Leaf",
-        "- **trace_masks** Kafei's Mask",
-    ]
-    assert ("caption", "Active: Anju & Kafei.") in card.calls
 
 
 def test_progress_templates_style_model_query_and_titles(monkeypatch) -> None:

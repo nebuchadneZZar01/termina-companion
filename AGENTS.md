@@ -323,8 +323,8 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   widgets and returns the values the Play tab turns into a `GameState`.
   The page has
   two top-level tabs: *Play* (`_render_play()`, TaIA's greeting, the inline
-  goal input with the Ask TaIA/Stop controls, the empty-plan card, the
-  finished-run agent registry or the live stepper, and the timeline plan) and
+  goal input with the Ask TaIA/Stop controls, the empty-plan card, the live or
+  finished agent registry, and the timeline plan) and
   *Evaluation* (`_render_evaluation()`, the evaluation
   sweep: scenario picker, RAG toggle, Run/Stop, the per-scenario report, the
   comparison card against the newest stored sweep, and
@@ -336,21 +336,22 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   table and a focused *last plan* slice around the first failing step.
   Planning runs
   as a session-scoped background task: Generate is disabled while active and
-  Stop requests cooperative cancellation between agent/LLM calls. The progress
-  stepper grows with the run instead of redrawing itself: the outer status title
-  rotates on a wall-clock timer (`_TICK_SECONDS`), and a child step is appended
-  only when its agent starts, so future agents are never shown. Each step has a
-  bold "Activity" timeline (completed events dimmed, the current one highlighted)
-  separated from a labelled result card, so what the agent did and what it
-  produced stay distinct; the agent name and engine badge live in the step header
-  only. `_planning_live` blocks on the worker queue and repaints only on a
-  new event or a timer tick, so nothing flickers; the single empty placeholder is
-  an invisible yield point that lets Streamlit process a queued Stop click during
-  a long agent call (`_IDLE_WAIT`). The task keeps an ordered replayable log
-  plus per-node timings, so the finished run is rebuilt as an expandable agent
-  registry with engine badges, durations, result summaries and every
-  planning/critic attempt; invalid runs add a red problem-count pill and the
-  per-attempt issue table. The worker run is wrapped in `pipeline_span`, and the
+  Stop requests cooperative cancellation between agent/LLM calls. The same HTML
+  agent registry is used live and after the run: a row appears only when its
+  agent starts, the last row stays open, a live row shows its Activity timeline
+  (completed events dimmed, the current one highlighted) and swaps to the result
+  body when the node finishes; future agents are never shown. The reasoning title
+  rotates on a wall-clock timer (`_TICK_SECONDS`), while `_planning_live` blocks
+  on the worker queue, repaints the registry only on a new event and the title on
+  a tick, so nothing flickers. The single empty placeholder is an invisible yield
+  point that lets Streamlit process a queued Stop click during a long agent call
+  (`_IDLE_WAIT`). HTML `<details>` state is client-side, so a registry repaint
+  resets an opened past row to its default; the current row stays open. The task
+  keeps an ordered replayable log plus per-node timings, so the same registry
+  gains engine badges, real durations, result summaries and every
+  planning/critic attempt as the run completes; invalid runs add a red
+  problem-count pill and the per-attempt issue table. The worker run is wrapped
+  in `pipeline_span`, and the
   Trace tab's audit section
   shows the run id, a Phoenix link, the node timeline and errors only (in
   `st.code`); full LLM prompts are deliberately not shown in the UI. The
