@@ -38,7 +38,7 @@ from app.i18n import DEFAULT_LANG, spinner_lines, t, tr, tr_msg
 from app.llm import default_model_for
 from app.phoenix import publish_plan_validation
 from app.save import load_state, save_state
-from app.settings import get_settings
+from app.settings import Settings, get_settings
 from app.state import PlanningState
 from app.trace import current_run, pipeline_span
 
@@ -1713,7 +1713,17 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
 }
 [data-testid="stHeader"] { background: transparent; }
 #MainMenu, footer, [data-testid="stToolbar"] { visibility: hidden; }
-[data-testid="stExpandSidebarButton"] { visibility: visible !important; }
+[data-testid="stExpandSidebarButton"] {
+  visibility: visible !important;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--tc-border-strong);
+  border-radius: 8px;
+  background-color: transparent;
+  color: var(--tc-muted);
+}
+[data-testid="stExpandSidebarButton"]:hover { color: var(--tc-gold); }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: Cinzel, serif !important;
@@ -1729,18 +1739,54 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--tc-surface);
   border-right: 1px solid var(--tc-border);
 }
+[data-testid="stSidebar"][aria-expanded="false"] {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  transform: translateX(-360px) !important;
+  overflow: hidden !important;
+}
 [data-testid="stSidebarContent"] {
   width: 360px !important;
   background: transparent;
-}
-@media (min-width: 768px) {
-  [data-testid="stSidebar"] { transform: none !important; }
 }
 [data-testid="stSidebarUserContent"] {
   padding: 1.25rem 1.1rem 2rem;
 }
 [data-testid="stSidebarHeader"] {
-  display: none;
+  display: flex;
+  justify-content: flex-end;
+  position: absolute;
+  top: 18px;
+  right: 12px;
+  padding: 0;
+  z-index: 3;
+}
+[data-testid="stSidebarCollapseButton"] {
+  display: inline-flex !important;
+  visibility: visible !important;
+}
+[data-testid="stSidebarCollapseButton"] button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  visibility: visible !important;
+  border: 1px solid var(--tc-border-strong);
+  border-radius: 8px;
+  background-color: transparent;
+  color: var(--tc-muted);
+}
+[data-testid="stSidebarCollapseButton"] button:hover,
+[data-testid="stExpandSidebarButton"]:hover {
+  border-color: var(--tc-gold);
+}
+[data-testid="stSidebarCollapseButton"] button:focus-visible,
+[data-testid="stExpandSidebarButton"]:focus-visible {
+  outline: 2px solid var(--tc-gold);
+  outline-offset: 2px;
 }
 [data-testid="stSidebar"] label,
 [data-testid="stSidebar"] .stMarkdown p { color: var(--tc-muted); }
@@ -1943,6 +1989,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 12px;
 }
 
+.tc-brand { padding-right: 44px; }
 .tc-brand-name {
   font-family: Cinzel, serif;
   font-weight: 700;
@@ -1951,6 +1998,61 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--tc-gold);
 }
 .tc-brand-tag { color: var(--tc-muted); font-size: 13px; }
+
+.tc-side-card {
+  background: var(--tc-card);
+  border: 1px solid var(--tc-border);
+  border-radius: 14px;
+  padding: 14px 16px 6px;
+}
+.tc-side-card + .tc-side-card { margin-top: 20px; }
+.tc-side-card-title {
+  font-family: Cinzel, serif;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--tc-muted);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.tc-side-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--tc-border);
+}
+.tc-side-row-label { font-size: 13px; color: var(--tc-muted); }
+.tc-side-code {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  color: var(--tc-teal);
+  background: var(--tc-bg);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+.tc-side-code-prefix { color: #6f6c91; }
+.tc-side-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--tc-teal);
+  color: var(--tc-teal);
+  font-size: 12px;
+}
+.tc-side-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tc-teal);
+}
+.tc-side-pill-off { border-color: var(--tc-muted); color: var(--tc-muted); }
+.tc-side-pill-off .tc-side-pill-dot { background: var(--tc-muted); }
+.tc-side-link { color: #6db3ff; font-size: 13px; text-decoration: none; }
+.tc-side-row-stack { display: block; }
+.tc-side-row-stack .tc-side-code { display: block; margin-top: 4px; overflow-wrap: anywhere; }
 
 .tc-time-card {
   background: var(--tc-card);
@@ -2892,6 +2994,90 @@ def _verdict_html(valid: bool, title: str, body: str, extra_html: str = "") -> s
     )
 
 
+def _side_code_html(value: str) -> str:
+    """Return the monospace value chip used inside a sidebar card."""
+    return f'<span class="tc-side-code">{html.escape(value)}</span>'
+
+
+def _side_row_html(label: str, value_html: str) -> str:
+    """Return one label/value row of a sidebar configuration card."""
+    return (
+        '<div class="tc-side-row">'
+        f'<span class="tc-side-row-label">{html.escape(label)}</span>'
+        f"{value_html}</div>"
+    )
+
+
+def _side_stack_row_html(label: str, value_html: str) -> str:
+    """Return a stacked label/value row, for values too long to sit beside."""
+    return (
+        '<div class="tc-side-row tc-side-row-stack">'
+        f'<span class="tc-side-row-label">{html.escape(label)}</span>'
+        f"{value_html}</div>"
+    )
+
+
+def _side_config_card_html(title: str, rows: list[str]) -> str:
+    """Return one read-only configuration card of the sidebar."""
+    return (
+        '<section class="tc-side-card">'
+        f'<div class="tc-side-card-title">{html.escape(title)}</div>'
+        f"{''.join(rows)}</section>"
+    )
+
+
+def _configuration_html(settings: Settings) -> str:
+    """Return the LLM and runtime cards shown at the bottom of the sidebar."""
+    provider = settings.llm_provider or ""
+    base_url = settings.llm_base_url or ""
+
+    llm_rows: list[str] = []
+    if provider:
+        model = settings.llm_model or default_model_for(provider)
+        llm_rows.append(_side_row_html(t("llm_provider"), _side_code_html(provider)))
+        if model:
+            llm_rows.append(_side_row_html(t("llm_model"), _side_code_html(model)))
+        if base_url:
+            llm_rows.append(_side_row_html("LLM_BASE_URL", _side_code_html(base_url)))
+
+    rag = settings.rag
+    retrieval = t("state_on") if rag.enabled else t("state_off")
+    retrieval_class = "tc-side-pill" if rag.enabled else "tc-side-pill tc-side-pill-off"
+    retrieval_html = (
+        f'<span class="{retrieval_class}">'
+        '<span class="tc-side-pill-dot" aria-hidden="true"></span>'
+        f"{html.escape(retrieval)}</span>"
+    )
+
+    embedding = rag.embedding_model
+    prefix, sep, rest = embedding.partition("/")
+    if sep and rest:
+        embedding_html = (
+            '<span class="tc-side-code">'
+            f'<span class="tc-side-code-prefix">{html.escape(prefix + sep)}</span>'
+            f"{html.escape(rest)}</span>"
+        )
+    else:
+        embedding_html = _side_code_html(embedding)
+
+    if settings.tracing_enabled:
+        phoenix_html = (
+            f'<a class="tc-side-link" href="{html.escape(settings.phoenix_ui_url, quote=True)}" '
+            f'target="_blank" rel="noreferrer">{html.escape(t("open_phoenix"))}</a>'
+        )
+    else:
+        phoenix_html = _side_code_html("None")
+
+    runtime_rows = [
+        _side_row_html(t("rag_retrieval"), retrieval_html),
+        _side_stack_row_html(t("rag_embedding_model"), embedding_html),
+        _side_row_html(t("phoenix_url"), phoenix_html),
+    ]
+    return _side_config_card_html(t("llm_settings"), llm_rows) + _side_config_card_html(
+        t("runtime_config"), runtime_rows
+    )
+
+
 def _render_configuration() -> None:
     """Show the read-only configuration loaded from the environment.
 
@@ -2909,31 +3095,14 @@ def _render_configuration() -> None:
     provider = settings.llm_provider or ""
     base_url = settings.llm_base_url or ""
 
-    _section(t("llm_settings"))
+    _html_block(_configuration_html(settings))
     if provider:
-        model = settings.llm_model or default_model_for(provider)
-        st.markdown(f"- **{t('llm_provider')}**: `{provider}`")
-        if model:
-            st.markdown(f"- **{t('llm_model')}**: `{model}`")
-        if base_url:
-            st.markdown(f"- **LLM_BASE_URL**: `{base_url}`")
         if provider in {"ollama", "lmstudio"} and base_url and urlsplit(base_url).path in {"", "/"}:
             st.warning(t("llm_base_url_hint"))
     else:
         st.warning(
             "LLM not configured. Set LLM_PROVIDER (and credentials) in .env (see .env.example)."
         )
-
-    st.divider()
-    _section(t("runtime_config"))
-    rag = settings.rag
-    retrieval = t("state_on") if rag.enabled else t("state_off")
-    st.markdown(f"- **{t('rag_retrieval')}**: `{retrieval}`")
-    st.markdown(f"- **{t('rag_embedding_model')}**: `{rag.embedding_model}`")
-    if settings.tracing_enabled:
-        st.markdown(f"- **{t('phoenix_url')}**: [Open \u2197]({settings.phoenix_ui_url})")
-    else:
-        st.markdown(f"- **{t('phoenix_url')}**: `None`")
 
 
 def render() -> None:

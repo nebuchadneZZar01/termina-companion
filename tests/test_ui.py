@@ -9,6 +9,7 @@ import pytest
 
 from app import ui
 from app.rag.models import IndexedSource, SourceMetadata
+from app.settings import RAGSettings, Settings
 
 
 class _Container:
@@ -1104,6 +1105,38 @@ def test_evaluation_tab_reports_a_missing_saved_report(tmp_path, monkeypatch) ->
     assert not at.exception
     assert any("No saved evaluation report yet." in info.value for info in at.info)
     assert not at.table
+
+
+def test_configuration_cards_escape_values_and_gate_phoenix(monkeypatch) -> None:
+    """The sidebar cards escape settings and only link Phoenix when tracing is on."""
+    monkeypatch.setattr(ui.st, "session_state", {"lang": "en"})
+    settings = Settings(
+        llm_provider="<ollama>",
+        llm_model="llama&3",
+        rag=RAGSettings(embedding_model="sentence-transformers/model", enabled=True),
+        otel_exporter_otlp_endpoint="http://localhost:6006",
+    )
+
+    markup = ui._configuration_html(settings)
+
+    assert "&lt;ollama&gt;" in markup
+    assert "llama&amp;3" in markup
+    assert "<ollama>" not in markup
+    assert 'class="tc-side-pill"' in markup
+    assert "Open Phoenix" in markup
+    assert 'href="http://localhost:6006"' in markup
+
+    offline = Settings(
+        llm_provider="ollama",
+        llm_model="llama3.2",
+        rag=RAGSettings(enabled=False),
+        otel_exporter_otlp_endpoint=None,
+        phoenix_base_url=None,
+    )
+    offline_markup = ui._configuration_html(offline)
+    assert "tc-side-pill-off" in offline_markup
+    assert "Open Phoenix" not in offline_markup
+    assert ">None<" in offline_markup
 
 
 def test_plan_timeline_escapes_text_and_marks_the_last_step(monkeypatch) -> None:
