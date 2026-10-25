@@ -1615,16 +1615,17 @@ def _render_comparison(report: EvaluationReport) -> None:
         )
 
     if rows:
-        _html_block(
-            _table_html(
-                [
-                    t("eval_compare_scenario"),
-                    t("eval_compare_change"),
-                    t("eval_compare_detail"),
-                ],
-                rows,
+        with st.container(key="eval_comparison_table"):
+            _html_block(
+                _table_html(
+                    [
+                        t("eval_compare_scenario"),
+                        t("eval_compare_change"),
+                        t("eval_compare_detail"),
+                    ],
+                    rows,
+                )
             )
-        )
 
 
 def _check_label(kind: str) -> str:
@@ -1919,6 +1920,7 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--tc-muted);
 }
 .st-key-eval_details { margin-top: 18px; }
+.st-key-eval_comparison_table { margin-bottom: 18px; }
 .st-key-eval_failure_metric [data-testid="stMetricValue"] {
   font-family: Inter, sans-serif;
   font-size: 16px;
