@@ -1827,6 +1827,13 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
   letter-spacing: 0.02em;
 }
+.st-key-goal_row [data-testid="stWidgetLabel"],
+.st-key-goal_row [data-testid="stWidgetLabel"] p {
+  color: var(--tc-muted);
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+}
 
 [data-testid="stTextInput"] input,
 [data-testid="stTextArea"] textarea,
