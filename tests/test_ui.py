@@ -654,6 +654,18 @@ def test_fairy_greeting_accepts_a_custom_message() -> None:
     assert "url(#taiaw-eval)" in evaluation
 
 
+def test_failure_breakdown_handles_empty_and_wrapping_kinds(monkeypatch) -> None:
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+
+    empty = ui._failure_breakdown_html({})
+    many = ui._failure_breakdown_html({"run_error": 1, "temporal_ordering": 2})
+
+    assert "tc-failure-empty" in empty
+    assert "<b>1</b> kind_run_error" in many
+    assert "<b>2</b> kind_temporal_ordering" in many
+
+
 def test_failed_run_without_a_completed_attempt_renders_no_plan(monkeypatch) -> None:
     stub = _StreamlitStub()
     monkeypatch.setattr(ui, "st", stub)
@@ -850,6 +862,8 @@ def test_evaluation_tab_renders_the_report_of_a_finished_sweep(tmp_path, monkeyp
     assert "<code>deed-chain</code>" in rendered
     assert "tc-cell-pass" in rendered
     assert "tc-cell-fail" in rendered
+    assert "Failures by check" in rendered
+    assert "tc-failure-chip" in rendered
     assert [expander.label for expander in at.expander] == [
         "`anju-kafei` — PASS",
         "`deed-chain` — FAIL",

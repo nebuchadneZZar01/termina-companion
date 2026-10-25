@@ -732,6 +732,22 @@ def _code_html(value: str) -> str:
     return f"<code>{html.escape(value)}</code>"
 
 
+def _failure_breakdown_html(kinds: dict[str, int]) -> str:
+    """Return the failures-by-check panel shown under the evaluation metrics."""
+    chips = "".join(
+        f'<span class="tc-failure-chip"><b>{count}</b> {html.escape(_check_label(kind))}</span>'
+        for kind, count in kinds.items()
+    )
+    if not chips:
+        chips = '<span class="tc-failure-empty">\u2013</span>'
+    return (
+        '<div class="tc-failure-panel">'
+        f'<div class="tc-failure-label">{html.escape(t("eval_failures_by_kind"))}</div>'
+        f'<div class="tc-failure-list">{chips}</div>'
+        "</div>"
+    )
+
+
 def _section(title: str, caption: str = "") -> None:
     """Draw a section header with optional caption.
 
@@ -1442,17 +1458,11 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
         if report.wiki_retrieval == "degraded":
             st.caption(t("eval_rag_degraded_help"))
 
-    c_rate, c_passed, c_failed, c_kinds = st.columns(4)
+    c_rate, c_passed, c_failed = st.columns(3)
     c_rate.metric(t("eval_pass_rate"), f"{report.pass_rate * 100:.0f}%")
     c_passed.metric(t("eval_passed"), f"{report.passed}/{report.total}")
     c_failed.metric(t("eval_failed"), str(report.failed))
-    kinds = report.failures_by_kind
-    with c_kinds:
-        with st.container(key="eval_failure_metric"):
-            st.metric(
-                t("eval_failures_by_kind"),
-                ", ".join(f"{_check_label(kind)}: {count}" for kind, count in kinds.items()) or "-",
-            )
+    _html_block(_failure_breakdown_html(report.failures_by_kind))
 
     _render_comparison(report)
 
@@ -1921,13 +1931,6 @@ h1, h2, h3, h4, h5, h6 {
 }
 .st-key-eval_details { margin-top: 18px; }
 .st-key-eval_comparison_table { margin-bottom: 18px; }
-.st-key-eval_failure_metric [data-testid="stMetricValue"] {
-  font-family: Inter, sans-serif;
-  font-size: 16px;
-  line-height: 1.35;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
 [data-testid="stAlert"] {
   border-radius: 12px;
   border: 1px solid var(--tc-border);
@@ -2356,6 +2359,41 @@ h1, h2, h3, h4, h5, h6 {
   font-size: 14px;
 }
 .tc-banner-icon { color: var(--tc-teal); font-weight: 700; }
+.tc-failure-panel {
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+}
+.tc-failure-label {
+  margin-bottom: 8px;
+  color: var(--tc-muted);
+  font-size: 13px;
+}
+.tc-failure-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+}
+.tc-failure-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--tc-text);
+  font-size: 13px;
+}
+.tc-failure-chip b {
+  font-family: Cinzel, serif;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--tc-gold);
+}
+.tc-failure-empty {
+  font-family: Cinzel, serif;
+  font-size: 18px;
+  color: var(--tc-gold);
+}
 
 @media (max-width: 700px) {
   .tc-step-time { width: 64px; }
