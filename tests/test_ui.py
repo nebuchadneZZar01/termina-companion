@@ -338,6 +338,7 @@ def test_agent_registry_rebuilds_attempts_and_durations(monkeypatch) -> None:
     assert "step_attempt:n=2,max=3" in markup
     assert ">1.0s<" in markup
     assert ">2.0s<" in markup
+    assert "<code>m</code>" in markup
 
 
 def test_planning_task_stop_is_cooperative_and_does_not_start_new_work() -> None:
@@ -437,6 +438,24 @@ def test_registry_activity_highlights_the_current_event(monkeypatch) -> None:
     assert "prog_objectives" in markup
     assert "prog_llm" in markup
     assert markup.count("\u23f3") == 1
+
+
+def test_registry_activity_renders_the_model_as_code(monkeypatch) -> None:
+    monkeypatch.setattr(
+        ui,
+        "t",
+        lambda key, **kwargs: (
+            "Calling `{model}` (attempt {attempt})" if key == "prog_llm" else key
+        ).format(**kwargs),
+    )
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+
+    markup = ui._registry_activity_html(
+        [{"node": "plan", "phase": "llm", "model": "gpt-4o", "attempt": 1}],
+        running=False,
+    )
+
+    assert "<code>gpt-4o</code>" in markup
 
 
 @pytest.mark.parametrize(

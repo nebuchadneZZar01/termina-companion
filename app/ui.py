@@ -347,9 +347,16 @@ def _progress_line(payload: dict) -> str:
     return t(f"prog_{phase}", **params)
 
 
-def _plain_progress(line: str) -> str:
-    """Drop inline markdown markers now that progress lines render as HTML."""
-    return line.replace("`", "").replace("*", "")
+def _progress_html(line: str, entities) -> str:
+    """Render a progress line as HTML, preserving backticked values as code."""
+    parts = re.split(r"`([^`]*)`", line)
+    rendered = []
+    for position, part in enumerate(parts):
+        if position % 2:
+            rendered.append(_code_html(part))
+        else:
+            rendered.append(_highlight_entities(part.replace("*", ""), entities))
+    return "".join(rendered)
 
 
 def _render_planning_progress(task: _PlanningTask, kb=None) -> None:
@@ -792,7 +799,7 @@ def _table_html(headers, rows, numeric=()) -> str:
 
 
 def _code_html(value: str) -> str:
-    """Return an escaped value as inline code for the HTML tables."""
+    """Return an escaped value as inline code for HTML fragments."""
     return f"<code>{html.escape(value)}</code>"
 
 
@@ -2364,7 +2371,12 @@ h1, h2, h3, h4, h5, h6 {
 .tc-reg-activity li { color: var(--tc-muted); }
 .tc-reg-activity li.current { color: var(--tc-gold); }
 .tc-reg-activity .tc-ev { display: inline-block; width: 16px; }
-.tc-reg-kv { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--tc-muted); }
+.tc-reg-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--tc-muted);
+}
 .tc-reg-issues-box {
   padding: 12px 14px;
   border-radius: 10px;
@@ -2570,6 +2582,7 @@ h1, h2, h3, h4, h5, h6 {
   display: inline-block;
   width: 6px;
   height: 6px;
+  margin-left: 3px;
   margin-right: 6px;
   vertical-align: 1px;
   background: currentColor;
@@ -2899,7 +2912,7 @@ def _registry_rows(task: _PlanningTask) -> list[dict]:
 
 def _registry_activity_html(events: list[dict], running: bool, entities=None) -> str:
     """Return the live activity timeline for one agent row."""
-    lines = [line for line in (_plain_progress(_progress_line(event)) for event in events) if line]
+    lines = [line for line in (_progress_line(event) for event in events) if line]
     if not lines:
         return ""
     index = entities or _entity_index(None)
@@ -2910,7 +2923,7 @@ def _registry_activity_html(events: list[dict], running: bool, entities=None) ->
         tone = "current" if current else "done"
         items.append(
             f'<li class="{tone}"><span class="tc-ev">{marker}</span> '
-            f"{_highlight_entities(line, index)}</li>"
+            f"{_progress_html(line, index)}</li>"
         )
     return (
         '<div class="tc-reg-activity">'
@@ -2924,7 +2937,7 @@ def _registry_live_summary(events: list[dict]) -> str:
     for event in reversed(events):
         line = _progress_line(event)
         if line:
-            return _plain_progress(line)
+            return line
     return t("agent_starting")
 
 
@@ -2933,10 +2946,10 @@ def _registry_engine_html(node: str, data: dict) -> str:
     engine, model = _engine_for(node, data)
     if not engine:
         return ""
-    label = _ENGINE_LABELS.get(engine, engine)
+    label = html.escape(_ENGINE_LABELS.get(engine, engine))
     if model:
-        label = f"{label} · {model}"
-    return f'<span class="tc-reg-engine">{html.escape(label)}</span>'
+        label = f"{label} · {_code_html(model)}"
+    return f'<span class="tc-reg-engine">{label}</span>'
 
 
 def _registry_state_summary(data: dict) -> str:
@@ -3068,9 +3081,9 @@ def _registry_summary(
     index = entities if entities is not None else _entity_index(None)
     if not data:
         if live:
-            return _highlight_entities(_registry_live_summary(events or []), index)
+            return _progress_html(_registry_live_summary(events or []), index)
         lines = [line for line in (_progress_line(event) for event in events or []) if line]
-        return _highlight_entities(_plain_progress(lines[-1]), index) if lines else ""
+        return _progress_html(lines[-1], index) if lines else ""
     if node == "state":
         return _registry_state_summary(data)
     if node == "knowledge":
