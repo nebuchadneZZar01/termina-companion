@@ -654,6 +654,14 @@ def test_fairy_greeting_accepts_a_custom_message() -> None:
     assert "url(#taiaw-eval)" in evaluation
 
 
+def test_favicon_reuses_the_fairy_with_its_orb() -> None:
+    favicon = ui._fairy_svg("taia-favicon", css_class="", with_orb=True)
+
+    assert 'id="taia-favicon"' in favicon
+    assert 'id="taia-favicon-orb"' in favicon
+    assert "tc-fairy-wings" not in favicon
+
+
 def test_failure_breakdown_handles_empty_and_wrapping_kinds(monkeypatch) -> None:
     monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
     monkeypatch.setattr(ui, "tr", lambda value: value)

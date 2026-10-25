@@ -2466,24 +2466,36 @@ def _empty_plan_html() -> str:
     )
 
 
-def _fairy_html(day: int, value: datetime.time, text: str | None = None) -> str:
-    """Return TaIA's greeting bubble with the hours left in the cycle.
-
-    ``text`` overrides the play greeting, so the evaluation tab can reuse the
-    same figure and bubble without inventing a second layout.
-    """
-    hours = _hours_left(day, _internal_hour(value.hour), value.minute)
-    message = text if text is not None else t("fairy_greeting", hours=hours)
-    # Both tabs stay in the DOM, so a shared gradient id would let the
-    # evaluation fairy resolve the hidden play tab's defs.
-    gradient_id = "taiaw-eval" if text is not None else "taiaw-play"
+def _fairy_svg(
+    gradient_id: str,
+    css_class: str = "tc-fairy-wings",
+    with_orb: bool = False,
+) -> str:
+    """Return TaIA's wings as inline SVG, optionally with her orb."""
     fill = f"url(#{gradient_id})"
-    wings = (
-        '<svg class="tc-fairy-wings" viewBox="0 0 96 72" aria-hidden="true">'
+    class_attr = f' class="{css_class}"' if css_class else ""
+    orb_gradient_id = f"{gradient_id}-orb"
+    orb_defs = (
+        f'<radialGradient id="{orb_gradient_id}" cx="50%" cy="50%" r="50%">'
+        '<stop offset="0" stop-color="#ffffff"></stop>'
+        '<stop offset="0.3" stop-color="#fff3a0"></stop>'
+        '<stop offset="0.62" stop-color="#f5d142"></stop>'
+        '<stop offset="1" stop-color="#f5d142" stop-opacity="0.15"></stop>'
+        "</radialGradient>"
+        if with_orb
+        else ""
+    )
+    orb = (
+        f'<circle cx="48" cy="44" r="18" fill="url(#{orb_gradient_id})"></circle>'
+        if with_orb
+        else ""
+    )
+    return (
+        f'<svg{class_attr} viewBox="0 0 96 72" aria-hidden="true">'
         f'<defs><linearGradient id="{gradient_id}" x1="0" y1="0" x2="0" y2="1">'
         '<stop offset="0" stop-color="#bfe6f2" stop-opacity="0.75"></stop>'
         '<stop offset="1" stop-color="#fff3a0" stop-opacity="0.75"></stop>'
-        "</linearGradient></defs>"
+        f"</linearGradient>{orb_defs}</defs>"
         f'<path d="M40 38C28 30 16 16 12 3C26 8 38 22 40 38Z" fill="{fill}" '
         'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
         'stroke-linecap="round"></path>'
@@ -2500,12 +2512,27 @@ def _fairy_html(day: int, value: datetime.time, text: str | None = None) -> str:
         f'<path d="M58 47C67 44 75 47 83 54C73 57 63 55 58 47Z" fill="{fill}" '
         'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
         'stroke-linecap="round"></path>'
+        f"{orb}"
         '<circle cx="70" cy="60" r="3.5" fill="none" stroke="#f5d142" '
         'stroke-width="1.2"></circle>'
         '<circle cx="80" cy="66" r="2.2" fill="#f5d142"></circle>'
         '<circle cx="88" cy="56" r="1.8" fill="#fff3a0"></circle>'
         "</svg>"
     )
+
+
+def _fairy_html(day: int, value: datetime.time, text: str | None = None) -> str:
+    """Return TaIA's greeting bubble with the hours left in the cycle.
+
+    ``text`` overrides the play greeting, so the evaluation tab can reuse the
+    same figure and bubble without inventing a second layout.
+    """
+    hours = _hours_left(day, _internal_hour(value.hour), value.minute)
+    message = text if text is not None else t("fairy_greeting", hours=hours)
+    # Both tabs stay in the DOM, so a shared gradient id would let the
+    # evaluation fairy resolve the hidden play tab's defs.
+    gradient_id = "taiaw-eval" if text is not None else "taiaw-play"
+    wings = _fairy_svg(gradient_id)
     return (
         '<section class="tc-fairy">'
         '<div class="tc-fairy-figure" aria-hidden="true">'
@@ -2922,8 +2949,8 @@ def render() -> None:
         st.session_state["lang"] = "it"
 
     st.set_page_config(
-        page_title="Termina Companion",
-        page_icon="\U0001f319",
+        page_title="TaIA — Your Termina Fairy Companion",
+        page_icon=_fairy_svg("taia-favicon", css_class="", with_orb=True),
         layout="wide",
         initial_sidebar_state="expanded",
     )
