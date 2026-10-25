@@ -881,13 +881,9 @@ def _render_last_plan(plan, issues) -> None:
         ),
         None,
     )
-    if focus is None:
-        _render_plan(plan, issues=issues)
-        return
-    start = max(0, focus - 1)
-    end = min(len(plan.steps), focus + 2)
-    st.caption(t("last_plan_caption", n=focus + 1, start=start + 1, end=end))
-    _render_plan(plan, start=start, end=end, issues=issues, show_numbers=True)
+    if focus is not None:
+        st.caption(t("last_plan_caption", n=focus + 1))
+    _render_plan(plan, issues=issues, show_numbers=True)
 
 
 def _render_why(plan) -> None:

@@ -565,6 +565,41 @@ def test_invalid_plan_marks_the_failing_step_and_missing_items(monkeypatch) -> N
     assert "Garo" in markup
 
 
+def test_invalid_plan_renders_every_step(monkeypatch) -> None:
+    from app.domain import ClockTime, Plan, PlanStep, TimeWindow, ValidationIssue
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(ui, "st", stub)
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: f"{key}:{kwargs}")
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+    steps = [
+        PlanStep(
+            title=f"Step {index}",
+            location="Clock Town",
+            window=TimeWindow(
+                start=ClockTime(day=1, hour=8 + index),
+                end=ClockTime(day=1, hour=9 + index),
+            ),
+        )
+        for index in range(5)
+    ]
+    issue = ValidationIssue(
+        severity="error",
+        step_idx=2,
+        kind="item",
+        message="Missing item(s): Rampino.",
+    )
+
+    ui._render_last_plan(Plan(goal="goal", steps=steps), [issue])
+
+    markup = next(
+        value for kind, value in stub.calls if kind == "markdown" and "tc-timeline" in value
+    )
+    assert markup.count('class="tc-step-time"') == 5
+    for index in range(5):
+        assert f"Step {index}" in markup
+
+
 def test_failed_run_without_a_completed_attempt_renders_no_plan(monkeypatch) -> None:
     stub = _StreamlitStub()
     monkeypatch.setattr(ui, "st", stub)

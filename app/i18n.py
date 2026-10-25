@@ -618,7 +618,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "last_plan_title": "The last plan I tried",
         "last_plan_caption": (
             "It is not valid: you cannot do step {n} without the items marked in "
-            "red. Here are steps {start}-{end}."
+            "red. Here is the full plan."
         ),
         "plan_step_title": "Step {n} \u00b7 {title}",
         "missing_requirement": "You're missing: {name}",
@@ -991,7 +991,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "last_plan_title": "L'ultimo piano che ho provato",
         "last_plan_caption": (
             "Non \u00e8 valido: il passo {n} non puoi farlo senza gli oggetti segnati "
-            "in rosso. Qui vedi i passi {start}-{end}."
+            "in rosso. Qui vedi il piano completo."
         ),
         "plan_step_title": "Passo {n} \u00b7 {title}",
         "missing_requirement": "Ti manca: {name}",

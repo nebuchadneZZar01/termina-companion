@@ -333,7 +333,7 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   and every step with an error are red, while step actions live in the *Why*
   tab) and the Critic's verdict as a teal/red banner (`_verdict_html()`). An
   invalid plan also shows the missing-requirement chips, the full problems
-  table and a focused *last plan* slice around the first failing step.
+  table and the full *last plan* with the first failing step highlighted.
   Planning runs
   as a session-scoped background task: Generate is disabled while active and
   Stop requests cooperative cancellation between agent/LLM calls. The same HTML
