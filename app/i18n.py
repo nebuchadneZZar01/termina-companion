@@ -539,18 +539,24 @@ _STRINGS: dict[str, dict[str, str]] = {
         "generate_plan_caption": "Builds the plan from your state and goal.",
         "stop_plan": "Stop",
         "stop_plan_help": "Stop after the current agent or LLM call finishes.",
-        "info_edit_state": ("Set your state and goal, then press **Plan My Quest**."),
+        "empty_plan_title": "No plan yet",
+        "empty_plan_body": (
+            "Tell me what you want to do, Link, and press \u201cAsk TaIA\u201d: "
+            "your path will appear here, hour by hour, until the Moon falls."
+        ),
         "llm_settings": "LLM Settings",
         "runtime_config": "Runtime configuration",
         "rag_retrieval": "Wiki retrieval",
         "rag_embedding_model": "Embedding model",
         "phoenix_url": "Phoenix",
+        "open_phoenix": "Open Phoenix \u2197",
         "state_on": "on",
         "state_off": "off",
         "save_load": "Save/Load",
         "save_button": "Save",
         "load_button": "Load",
         "save_ok": "Saved successfully",
+        "load_ok": "Loaded successfully",
         "load_none": "No save found",
         "llm_provider": "Provider",
         "llm_model": "Model",
@@ -573,13 +579,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         "spinner_lines": (
             "Consulting the Triforce of Wisdom",
-            "Contacting the Zonai servers",
-            "Opening the Door of Time",
-            "Playing the Song of Time",
-            "Asking the Great Fairy for advice",
+            "Synchronizing the Sheikah Slate",
+            "Recharging the energy cells",
             "Paging through the Bomber's Notebook",
-            "Following a mischievous fairy",
-            "Warping with the Song of Storms",
+            "Playing the Song of Time",
+            "Opening the Door of Time",
+            "Asking the Great Fairy for advice",
         ),
         # live agent progress
         "prog_objectives": "{n} relevant objective(s)",
@@ -598,20 +603,30 @@ _STRINGS: dict[str, dict[str, str]] = {
         "prog_llm": "Calling `{model}` (attempt {attempt})",
         "prog_llm_done": "{steps} step(s) in {seconds}s",
         "prog_running": "working...",
-        # step sections
+        # live activity and memory
         "activity": "Activity",
-        "result_state": "Detected state",
-        "result_knowledge": "Retrieved knowledge",
-        "result_memory": "Memory",
-        "result_plan": "Proposed plan",
-        "result_critic": "Validation outcome",
         "memory_episodes": "Past episodes reused",
         "memory_episodes_caption": "What memory recalled for this goal.",
         "memory_none": "No past episodes.",
         # output
         "your_plan": "Your Plan",
         "plan_valid": "\u2713 Plan valid",
-        "plan_not_valid": "\u2717 Plan not valid \u2014 check the issues below",
+        "verdict_fail_title": "That won't work, Link",
+        "verdict_missing_body": (
+            "You are missing something. Get these, update your inventory and ask "
+            "me for the plan again."
+        ),
+        "last_plan_title": "The last plan I tried",
+        "last_plan_caption": (
+            "It is not valid: you cannot do step {n} without the items marked in "
+            "red. Here is the full plan."
+        ),
+        "plan_step_title": "Step {n} \u00b7 {title}",
+        "missing_requirement": "You're missing: {name}",
+        "issue_severity": "Severity",
+        "issue_kind": "Type",
+        "issue_step": "Step",
+        "issue_detail": "Detail",
         "plan_last_attempt": (
             "Last completed attempt ({n}/{max}) \u2014 shown despite the planning failure."
         ),
@@ -622,6 +637,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "agent_critic": "Critic Agent",
         "no_plan": "No plan produced.",
         "window_label": "Window",
+        "actions_label": "What to do",
         "needs": "Needs",
         "depends_on": "Depends on step(s) {deps}",
         "step_n": "Step {n}",
@@ -697,6 +713,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "rag_wiki_unreachable": "Wiki unreachable \u2014 using structured MCP data only.",
         "rag_no_evidence": "No supplemental wiki passage matched this goal.",
         # tabs
+        "behind_the_scenes": "Behind the scenes",
         "tab_why": "Why this plan?",
         "tab_why_caption": (
             "Why the plan looks like this: for each step, its time window, "
@@ -717,8 +734,48 @@ _STRINGS: dict[str, dict[str, str]] = {
         # top-level tabs
         "tab_play": "Play",
         "tab_evaluation": "Evaluation",
+        # Majora's Mask redesign
+        "brand_tagline": "Your fairy in the three-day cycle",
+        "time_left_label": "TIME WE HAVE LEFT",
+        "time_left_caption": ("You are on Day {day}, Link. Every day runs from 06:00 to 05:59."),
+        "day_n": "Day {n}",
+        "sidebar_location": "Where are you, Link?",
+        "sidebar_masks": "Your masks",
+        "sidebar_items": "What you carry",
+        "select_placeholder": "Choose...",
+        "goal_label": "What do you want to do?",
+        "ask_taia": "Ask TaIA",
+        "fairy_greeting": (
+            "Hey, Link! Listen: about {hours} hours are left before the Moon falls. "
+            "Tell me what you want to do and I will prepare a plan."
+        ),
+        "agents_title": "WHAT I AM DOING FOR YOU",
+        "agent_card_state": "I look at how you are",
+        "agent_card_knowledge": "I look up what I know",
+        "agent_card_plan": "I prepare the plan",
+        "agent_card_critic": "I double-check everything",
+        "agent_registry_hint": "Open an agent to read what it did.",
+        "agent_registry_live_hint": (
+            "Live: the current agent stays open; durations fill in when it finishes."
+        ),
+        "agent_starting": "Starting...",
+        "registry_state_summary": (
+            "{when} \u00b7 {where} \u00b7 {masks} mask(s) \u00b7 {items} item(s)"
+        ),
+        "registry_plan_steps": "{n} step(s)",
+        "registry_issue_count": "{n} issue(s)",
+        "registry_stop_here": " \u00b7 last attempt, I stop",
+        "problems_count": "{n} problem(s) to solve",
+        "wiki_evidence": "Wiki evidence:",
+        "indexed_pages_n": "{n} page(s) indexed",
+        "verdict_ok_body": ("I rechecked every step and found no problems. Attempt {n} of {max}."),
+        "verdict_fail_body": ("I found {n} issue(s) to fix. Attempt {n_attempt} of {max}."),
         # evaluation tab
         "eval_title": "Plan evaluation",
+        "eval_fairy": (
+            "Link, let's do a dress rehearsal: I'll rerun every plan and check that "
+            "they really reach the goal."
+        ),
         "eval_caption": (
             "Run the shipped scenarios against the live pipeline and check the "
             "plans it produces: goal reached, timing, prerequisites, tool usage."
@@ -753,7 +810,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_need_llm": "An LLM provider must be configured to run the evaluation.",
         "eval_load_last": "Load last report",
         "eval_no_saved_report": "No saved evaluation report yet.",
-        "eval_saved_report": "Every sweep is saved to {path}.",
+        "eval_saved_report": "Every run is saved to {path}.",
         "eval_report_meta": "Model: {model} · wiki retrieval: {rag} · repeats: {repeats}",
         "eval_rag_on": "on",
         "eval_rag_off": "off",
@@ -861,18 +918,24 @@ _STRINGS: dict[str, dict[str, str]] = {
         "stop_plan_help": (
             "Interrompe dopo il completamento dell'agente o della chiamata LLM in corso."
         ),
-        "info_edit_state": ("Imposta stato e obiettivo, poi premi **Pianifica la mia missione**."),
+        "empty_plan_title": "Ancora nessun piano",
+        "empty_plan_body": (
+            "Dimmi cosa vuoi fare, Link, e premi \u201cChiedi a TaIA\u201d: "
+            "qui comparir\u00e0 il tuo percorso, ora per ora, fino alla caduta della Luna."
+        ),
         "llm_settings": "Impostazioni LLM",
         "runtime_config": "Configurazione runtime",
         "rag_retrieval": "Retrieval wiki",
         "rag_embedding_model": "Modello di embedding",
         "phoenix_url": "Phoenix",
+        "open_phoenix": "Apri Phoenix \u2197",
         "state_on": "attivo",
         "state_off": "disattivo",
         "save_load": "Partita",
         "save_button": "Salva",
         "load_button": "Carica",
         "save_ok": "Salvataggio riuscito",
+        "load_ok": "Caricamento riuscito",
         "load_none": "Nessun salvataggio trovato",
         "llm_provider": "Provider",
         "llm_model": "Modello",
@@ -895,13 +958,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         "spinner_lines": (
             "Interrogando la Triforza della Saggezza",
-            "Contattando i server Zonai",
-            "Aprendo la Porta del Tempo",
-            "Suonando la Canzone del Tempo",
-            "Chiedendo consiglio alla Grande Fata",
+            "Sincronizzando la Tavoletta Sheikah",
+            "Ricaricando le celle energetiche",
             "Cercando indizi nel Bomber's Notebook",
-            "Seguendo una fata dispettosa",
-            "Teleportando con la Canzone delle Tempeste",
+            "Suonando la Canzone del Tempo",
+            "Aprendo la Porta del Tempo",
+            "Chiedendo consiglio alla Grande Fata",
         ),
         # live agent progress
         "prog_objectives": "{n} obiettivo/i rilevante/i",
@@ -920,20 +982,30 @@ _STRINGS: dict[str, dict[str, str]] = {
         "prog_llm": "Chiamo `{model}` (tentativo {attempt})",
         "prog_llm_done": "{steps} passi in {seconds}s",
         "prog_running": "in corso...",
-        # step sections
+        # live activity and memory
         "activity": "Attivit\u00e0",
-        "result_state": "Stato rilevato",
-        "result_knowledge": "Conoscenza recuperata",
-        "result_memory": "Memoria",
-        "result_plan": "Piano proposto",
-        "result_critic": "Esito della validazione",
         "memory_episodes": "Episodi passati riusati",
         "memory_episodes_caption": "Cosa la memoria ha richiamato per questo obiettivo.",
         "memory_none": "Nessun episodio passato.",
         # output
         "your_plan": "Il Tuo Piano",
         "plan_valid": "\u2713 Piano valido",
-        "plan_not_valid": ("\u2717 Piano non valido \u2014 controlla i problemi qui sotto"),
+        "verdict_fail_title": "Cos\u00ec non si pu\u00f2 fare, Link",
+        "verdict_missing_body": (
+            "Ti manca qualcosa. Procurati questi oggetti, aggiornali nell'inventario "
+            "e richiedimi il piano."
+        ),
+        "last_plan_title": "L'ultimo piano che ho provato",
+        "last_plan_caption": (
+            "Non \u00e8 valido: il passo {n} non puoi farlo senza gli oggetti segnati "
+            "in rosso. Qui vedi il piano completo."
+        ),
+        "plan_step_title": "Passo {n} \u00b7 {title}",
+        "missing_requirement": "Ti manca: {name}",
+        "issue_severity": "Gravit\u00e0",
+        "issue_kind": "Tipo",
+        "issue_step": "Passo",
+        "issue_detail": "Dettaglio",
         "plan_last_attempt": (
             "Ultimo tentativo completato ({n}/{max}) \u2014 mostrato nonostante l'errore."
         ),
@@ -944,6 +1016,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "agent_critic": "Agente Critico",
         "no_plan": "Nessun piano generato.",
         "window_label": "Finestra",
+        "actions_label": "Cosa fare",
         "needs": "Necessita",
         "depends_on": "Dipende dai passi {deps}",
         "step_n": "Passo {n}",
@@ -1027,6 +1100,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "rag_wiki_unreachable": ("Wiki non raggiungibile \u2014 uso solo i dati MCP strutturati."),
         "rag_no_evidence": "Nessun passaggio wiki supplementare corrisponde all'obiettivo.",
         # tabs
+        "behind_the_scenes": "Dietro le quinte",
         "tab_why": "Perch\u00e9 questo piano?",
         "tab_why_caption": (
             "Perch\u00e9 il piano \u00e8 fatto cos\u00ec: per ogni passo, "
@@ -1047,8 +1121,54 @@ _STRINGS: dict[str, dict[str, str]] = {
         # top-level tabs
         "tab_play": "Gioca",
         "tab_evaluation": "Valutazione",
+        # Majora's Mask redesign
+        "brand_tagline": "La tua fata nel ciclo di tre giorni",
+        "time_left_label": "IL TEMPO CHE CI RESTA",
+        "time_left_caption": (
+            "Sei al Giorno {day}, Link. Ogni giorno dura dalle 06:00 alle 05:59."
+        ),
+        "day_n": "Giorno {n}",
+        "sidebar_location": "Dove sei, Link?",
+        "sidebar_masks": "Le tue maschere",
+        "sidebar_items": "Cosa hai con te",
+        "select_placeholder": "Scegli...",
+        "goal_label": "Cosa vuoi fare?",
+        "ask_taia": "Chiedi a TaIA",
+        "fairy_greeting": (
+            "Ehi, Link! Ascolta: ci restano circa {hours} ore prima che la Luna cada. "
+            "Dimmi cosa vuoi fare e ti preparo un piano."
+        ),
+        "agents_title": "COSA STO FACENDO PER TE",
+        "agent_card_state": "Guardo come stai",
+        "agent_card_knowledge": "Cerco cosa so",
+        "agent_card_plan": "Preparo il piano",
+        "agent_card_critic": "Ricontrollo tutto",
+        "agent_registry_hint": "Apri un agente per leggere cosa ha fatto.",
+        "agent_registry_live_hint": (
+            "In corso: l'agente attuale resta aperto; le durate compaiono al termine."
+        ),
+        "agent_starting": "Avvio...",
+        "registry_state_summary": (
+            "{when} \u00b7 {where} \u00b7 {masks} maschere \u00b7 {items} oggetti"
+        ),
+        "registry_plan_steps": "{n} passo/i",
+        "registry_issue_count": "{n} problema/i",
+        "registry_stop_here": " \u00b7 ultimo tentativo, mi fermo",
+        "problems_count": "{n} problema/i da risolvere",
+        "wiki_evidence": "Evidenze dal wiki:",
+        "indexed_pages_n": "{n} pagine indicizzate",
+        "verdict_ok_body": (
+            "Ho ricontrollato ogni passo e non ho trovato problemi. Tentativo {n} di {max}."
+        ),
+        "verdict_fail_body": (
+            "Ho trovato {n} problema/i da correggere. Tentativo {n_attempt} di {max}."
+        ),
         # evaluation tab
         "eval_title": "Valutazione dei piani",
+        "eval_fairy": (
+            "Link, facciamo una prova generale: rifaccio tutti i piani e controllo "
+            "che arrivino davvero al traguardo."
+        ),
         "eval_caption": (
             "Esegui gli scenari forniti sul pipeline reale e verifica i piani che "
             "produce: obiettivo raggiunto, tempi, prerequisiti, uso degli strumenti."
@@ -1083,7 +1203,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_need_llm": "Serve un provider LLM configurato per eseguire la valutazione.",
         "eval_load_last": "Carica ultimo report",
         "eval_no_saved_report": "Nessun report di valutazione salvato.",
-        "eval_saved_report": "Ogni sweep viene salvato in {path}.",
+        "eval_saved_report": "Ogni prova viene salvata in {path}.",
         "eval_report_meta": "Modello: {model} · retrieval wiki: {rag} · ripetizioni: {repeats}",
         "eval_rag_on": "attivo",
         "eval_rag_off": "disattivo",

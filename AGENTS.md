@@ -311,35 +311,50 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   `node.*` trace span and record its outcome (duration, status, detail) for
   the run audit; a failing node is also added to the run's error list.
 * `app/ui.py` — Streamlit frontend logic (`render()`); requires a configured
-  LLM provider, with local providers supported for offline runs. The sidebar
-  shows the few read-only settings a player cares about, loaded by
-  `app/settings.py` (LLM provider/model/base URL, whether wiki retrieval is on,
-  the embedding model, and the Phoenix link when configured, otherwise
-  `None`); it is display-only, configuration stays in env and `.env`. The state
-  editor picks Day 1-3 and a 24-hour time (minute precision, default 06:00);
+  LLM provider, with local providers supported for offline runs. The page uses
+  the Majora's Mask theme injected by `_inject_styles()` (Cinzel/Inter, dark
+  navy surfaces, gold/teal/red accents in `.streamlit/config.toml` and the
+  `_THEME_CSS` block). The sidebar is the state editor: brand block, language
+  picker, the "time left" card with the three-day bar, Day 1-3 and a 24-hour
+  time (minute precision, default 06:00), location, masks, items, quests,
+  Save/Load and the read-only settings from `app/settings.py`.
   `00:00-05:59` is mapped to hours 24-29 internally so it stays the night at
-  the end of the selected game day, and a caption explains the 06:00 boundary.
+  the end of the selected game day. `_render_sidebar_editor()` owns those
+  widgets and returns the values the Play tab turns into a `GameState`.
   The page has
-  two top-level tabs: *Play* (`_render_play()`, the state editor and the
-  planning flow) and *Evaluation* (`_render_evaluation()`, the evaluation
-  sweep: scenario picker, RAG toggle, Run/Stop, the per-scenario report, the
-  comparison card against the newest stored sweep, and
+  two top-level tabs: *Play* (`_render_play()`, TaIA's greeting, the inline
+  goal input with the Ask TaIA/Stop controls, the empty-plan card, the live or
+  finished agent registry, and the timeline plan) and
+  *Evaluation* (`_render_evaluation(editor)`, TaIA's greeting and the sweep:
+  scenario picker, RAG toggle, Run/Stop, native metrics, an HTML per-scenario
+  table, the comparison card against the newest stored sweep, and
   *Load last report* for the sweep persisted by the worker).
+  The plan renders as a vertical HTML timeline (`_render_plan()`; the last step
+  and every step with an error are red, while step actions live in the *Why*
+  tab) and the Critic's verdict as a teal/red banner (`_verdict_html()`). An
+  invalid plan also shows the missing-requirement chips, the full problems
+  table and the full *last plan* with the first failing step highlighted.
+  Below it, *Behind the scenes* reuses three tabs with HTML detail cards for
+  the step explanations, the game/RAG sources and the trace.
   Planning runs
   as a session-scoped background task: Generate is disabled while active and
-  Stop requests cooperative cancellation between agent/LLM calls. The progress
-  stepper grows with the run instead of redrawing itself: the outer status title
-  rotates on a wall-clock timer (`_TICK_SECONDS`), and a child step is appended
-  only when its agent starts, so future agents are never shown. Each step has a
-  bold "Activity" timeline (completed events dimmed, the current one highlighted)
-  separated from a labelled result card, so what the agent did and what it
-  produced stay distinct; the agent name and engine badge live in the step header
-  only. `_planning_live` blocks on the worker queue and repaints only on a
-  new event or a timer tick, so nothing flickers; the single empty placeholder is
-  an invisible yield point that lets Streamlit process a queued Stop click during
-  a long agent call (`_IDLE_WAIT`). The task keeps an ordered replayable log, so
-  the finished stepper is re-rendered statically after the final rerun. The
-  worker run is wrapped in `pipeline_span`, and the Trace tab's audit section
+  Stop requests cooperative cancellation between agent/LLM calls. The same HTML
+  agent registry is used live and after the run: a row appears only when its
+  agent starts, the last row stays open, a live row shows its Activity timeline
+  (completed events dimmed, the current one highlighted) and swaps to the result
+  body when the node finishes; future agents are never shown. The reasoning title
+  rotates on a wall-clock timer (`_TICK_SECONDS`), while `_planning_live` blocks
+  on the worker queue, repaints the registry only on a new event and the title on
+  a tick, so nothing flickers. The single empty placeholder is an invisible yield
+  point that lets Streamlit process a queued Stop click during a long agent call
+  (`_IDLE_WAIT`). HTML `<details>` state is client-side, so a registry repaint
+  resets an opened past row to its default; the current row stays open. The task
+  keeps an ordered replayable log plus per-node timings, so the same registry
+  gains engine badges, real durations, result summaries and every
+  planning/critic attempt as the run completes; invalid runs add a red
+  problem-count pill and the per-attempt issue table. The worker run is wrapped
+  in `pipeline_span`, and the
+  Trace tab's audit section
   shows the run id, a Phoenix link, the node timeline and errors only (in
   `st.code`); full LLM prompts are deliberately not shown in the UI. The
   worker streams the graph directly (not via `run_pipeline`), so it also

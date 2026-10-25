@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime
 import datetime as _datetime
+import html
 import logging
 import queue
 import re
@@ -37,7 +38,7 @@ from app.i18n import DEFAULT_LANG, spinner_lines, t, tr, tr_msg
 from app.llm import default_model_for
 from app.phoenix import publish_plan_validation
 from app.save import load_state, save_state
-from app.settings import get_settings
+from app.settings import Settings, get_settings
 from app.state import PlanningState
 from app.trace import current_run, pipeline_span
 
@@ -58,6 +59,7 @@ def _graph():
 
 
 _LANGS = {"en": "\U0001f1ec\U0001f1e7 English", "it": "\U0001f1ee\U0001f1f9 Italiano"}
+_FAVICON_PATH = Path(__file__).resolve().parent / "assets" / "favicon.svg"
 
 _PLANNING_TASK_KEY = "_planning_task"
 _EVALUATION_TASK_KEY = "_evaluation_task"
@@ -72,23 +74,13 @@ _NO_MESSAGE = object()
 _IDLE_WAIT = 0.25
 # The reasoning title rotates on a wall-clock timer, independent of agent
 # updates, so a long LLM call still shows fresh activity.
-_TICK_SECONDS = 2.0
+_TICK_SECONDS = 3.0
 
-# Agent nodes in execution order; the stepper shows a step only once it starts.
-_AGENT_NODES = ("state", "knowledge", "plan", "critic")
 _AGENT_LABEL_KEY = {
     "state": "agent_state",
     "knowledge": "agent_knowledge",
     "plan": "agent_planning",
     "critic": "agent_critic",
-}
-# Section caption drawn above each agent's detail card, so the card content is
-# not confused with the activity log above it.
-_RESULT_LABEL_KEY = {
-    "state": "result_state",
-    "knowledge": "result_knowledge",
-    "plan": "result_plan",
-    "critic": "result_critic",
 }
 # Progress phases the UI knows how to render; anything else is ignored so a
 # future agent event never renders a raw i18n key.
@@ -130,9 +122,14 @@ class _PlanningTask:
     status: str = "running"
     result: dict = field(default_factory=dict)
     updates: list[tuple[str, dict]] = field(default_factory=list)
-    # Ordered streaming log the stepper replays: ("start", node),
+    # Ordered streaming log the agent registry replays: ("start", node),
     # ("progress", payload) and ("update", node, data) entries.
     log: list[tuple] = field(default_factory=list)
+    # Wall-clock start per node and the duration of each finished update,
+    # keyed by the update's index in ``log``. Kept out of the log tuples so
+    # replay and tests see the same stable shape.
+    node_started: dict[str, float] = field(default_factory=dict)
+    timings: dict[int, float] = field(default_factory=dict)
     error: str = ""
 
 
@@ -271,6 +268,9 @@ def _drain_planning_task(task: _PlanningTask, wait: float = 0.0) -> bool:
                     continue
                 task.result.update(data)
                 task.updates.append((node, data))
+                started = task.node_started.pop(node, None)
+                if started is not None:
+                    task.timings[len(task.log)] = time.monotonic() - started
                 task.log.append(("update", node, data))
     if _task_is_active(task) and task.thread is not None and not task.thread.is_alive():
         task.status = "stopped" if task.stop_event.is_set() else "error"
@@ -299,6 +299,7 @@ def _record_progress(task: _PlanningTask, payload: dict) -> None:
     if not node:
         return
     if payload.get("phase") == "start":
+        task.node_started[node] = time.monotonic()
         task.log.append(("start", node))
     else:
         task.log.append(("progress", payload))
@@ -313,7 +314,7 @@ def _progress_label(tick: int) -> str:
 
 
 def _outer_status(task: _PlanningTask, tick: int) -> tuple[str, str]:
-    """Return the ``(state, label)`` for the outer stepper container."""
+    """Return the live title state and label for the current task status."""
     validation = task.result.get("validation")
     if task.status == "done":
         valid = bool(getattr(validation, "valid", False))
@@ -347,162 +348,69 @@ def _progress_line(payload: dict) -> str:
     return t(f"prog_{phase}", **params)
 
 
-def _activity_md(events: list[str], running: bool) -> str:
-    """Render an agent's activity log: a labelled, bulleted, dimmed timeline.
-
-    Completed events are dimmed with grayscale markdown; while the step is
-    still running its last event is highlighted as the current phase. Bullets
-    are markdown list items, so Streamlit indents them slightly under the label
-    and they line up with the detail card below the divider.
-
-    args:
-        events (list[str]): already-formatted event lines, oldest first.
-        running (bool): True while the agent is still working.
-
-    returns:
-        str: the markdown body for the step's activity block.
-    """
-    parts = [f"**{t('activity')}**", ""]
-    for index, event in enumerate(events):
-        current = running and index == len(events) - 1
-        marker = "\u23f3" if current else "\u2713"
-        item = f"{marker} {event}"
-        parts.append(f"- {item}" if current else f"- :gray[{item}]")
-    if not running:
-        parts.extend(["", "---"])
-    return "\n".join(parts)
+def _progress_html(line: str, entities) -> str:
+    """Render a progress line as HTML, preserving backticked values as code."""
+    parts = re.split(r"`([^`]*)`", line)
+    rendered = []
+    for position, part in enumerate(parts):
+        if position % 2:
+            rendered.append(_code_html(part))
+        else:
+            rendered.append(_highlight_entities(part.replace("*", ""), entities))
+    return "".join(rendered)
 
 
-@dataclass
-class _Step:
-    """One agent step in the live stepper: its status box and event lines."""
-
-    node: str
-    status: object
-    live: object
-    events: list[str] = field(default_factory=list)
-
-
-class _PlanStepper:
-    """Progressive live stepper: one step per agent, shown when it starts.
-
-    The outer status box is created once and its title rotates on a timer; a
-    child step is appended only when its agent starts, so the tree never shows
-    future agents. This keeps the widget tree stable (no stacked re-renders) and
-    preserves the user's expand/collapse state.
-    """
-
-    def __init__(self, tick: int = 0) -> None:
-        self.outer = st.status(_progress_label(tick), state="running", expanded=True)
-        self._open: dict[str, _Step] = {}
-
-    def start(self, node: str) -> None:
-        """Append a running step for an agent as soon as it starts.
-
-        The status is created directly instead of through a ``with`` block:
-        leaving that block marks a status complete, which would swap the
-        spinner for a check mark while the agent is still working.
-        """
-        status = self.outer.status(t(_AGENT_LABEL_KEY[node]), state="running", expanded=True)
-        self._open[node] = _Step(node=node, status=status, live=status.empty())
-
-    def close_open(self, state: str = "complete") -> None:
-        """Close any step still running, so no spinner survives a finished run."""
-        for step in self._open.values():
-            step.status.update(state=state)
-        self._open.clear()
-
-    def progress(self, payload: dict) -> None:
-        """Append a progress line to the agent's open step, if any."""
-        step = self._open.get(payload.get("node", ""))
-        if step is None:
-            return
-        line = _progress_line(payload)
-        if not line:
-            return
-        step.events.append(line)
-        step.live.markdown(_activity_md(step.events, running=True))
-
-    def finish(self, node: str, result: dict) -> None:
-        """Close an agent's step and draw its full detail card from merged state."""
-        step = self._open.pop(node, None)
-        if step is None:
-            self.start(node)
-            step = self._open.pop(node)
-        if step.events:
-            step.live.markdown(_activity_md(step.events, running=False))
-        step.status.update(label=self._step_label(node, result), state="complete", expanded=True)
-        _append_step(step.status, node, result)
-
-    @staticmethod
-    def _step_label(node: str, result: dict) -> str:
-        name = t(_AGENT_LABEL_KEY[node])
-        engine, model = _engine_for(node, result)
-        name += _engine_badge(engine, model)
-        if node == "plan":
-            attempt = result.get("replan_attempts", 1)
-            name += f" \u2014 {t('step_attempt', n=attempt, max=MAX_PLANNING_ATTEMPTS)}"
-        return name
-
-    def set_outer(self, state: str, label: str) -> None:
-        """Update the outer status box label and state in place."""
-        self.outer.update(label=label, state=state, expanded=True)
-
-
-def _apply_log(stepper: _PlanStepper, task: _PlanningTask, cursor: int) -> int:
-    """Replay streamed log entries from ``cursor``; return the new cursor."""
-    for entry in task.log[cursor:]:
-        kind = entry[0]
-        if kind == "start":
-            if entry[1] not in _AGENT_LABEL_KEY or entry[1] in {"memory", "memory_store"}:
-                continue
-            stepper.start(entry[1])
-        elif kind == "progress":
-            payload = entry[1]
-            if isinstance(payload, dict) and payload.get("node") in {"memory", "memory_store"}:
-                continue
-            stepper.progress(entry[1])
-        elif kind == "update":
-            if entry[1] in {"memory", "memory_store"}:
-                continue
-            stepper.finish(entry[1], task.result)
-    return len(task.log)
-
-
-def _render_planning_progress(task: _PlanningTask) -> None:
-    """Render the finished stepper statically by replaying the whole log."""
-    stepper = _PlanStepper()
-    _apply_log(stepper, task, 0)
-    stepper.set_outer(*_outer_status(task, 0))
-    stepper.close_open("error" if task.status in {"error", "stopped"} else "complete")
+def _render_planning_progress(task: _PlanningTask, kb=None) -> None:
+    """Render the finished agent registry and any terminal error."""
+    _html_block(_agent_registry_html(task, kb=kb))
     if task.status == "error":
         st.error(t("planning_error", error=task.error or "unknown error"))
     elif task.status == "stopped":
         st.warning(t("planning_stopped"))
 
 
-def _planning_live(task: _PlanningTask) -> None:
-    """Drive the live stepper until the run reaches a terminal state.
+def _live_title_html(label: str) -> str:
+    """Return the pulsing reasoning title drawn above the live registry."""
+    return (
+        '<div class="tc-live-title">'
+        '<span class="tc-live-dot" aria-hidden="true"></span>'
+        f"<span>{html.escape(label)}</span></div>"
+    )
 
-    The loop blocks on the worker queue (no busy timer), repainting only when an
-    agent update arrives or the 2s reasoning-title tick rolls over. The single
-    empty placeholder is an invisible yield point, which is what lets Streamlit
-    process a queued Stop click while this script is still running.
+
+def _planning_live(task: _PlanningTask, kb=None) -> None:
+    """Drive the live HTML registry until the run reaches a terminal state.
+
+    The registry is redrawn only when a streamed event arrives, while the
+    reasoning title rotates on the 2s wall-clock tick. Keeping the registry out
+    of the tick redraw preserves any row the user opened between events. The
+    single empty placeholder is an invisible yield point, which is what lets
+    Streamlit process a queued Stop click while this script is still running.
     """
-    stepper = _PlanStepper()
+    title = st.empty()
+    registry = st.empty()
     yield_point = st.empty()
     started = time.monotonic()
-    cursor = _apply_log(stepper, task, 0)
+    last_tick = -1
+
+    def draw_title(tick: int) -> None:
+        _state, label = _outer_status(task, tick)
+        title.markdown(_live_title_html(label), unsafe_allow_html=True)
+
+    def draw_registry() -> None:
+        registry.markdown(_agent_registry_html(task, live=True, kb=kb), unsafe_allow_html=True)
+
+    draw_title(0)
+    draw_registry()
     last_tick = 0
-    stepper.set_outer(*_outer_status(task, last_tick))
     while _task_is_active(task):
         progressed = _drain_planning_task(task, wait=_IDLE_WAIT)
         if progressed:
-            cursor = _apply_log(stepper, task, cursor)
+            draw_registry()
         tick = int((time.monotonic() - started) // _TICK_SECONDS)
         if progressed or tick != last_tick:
+            draw_title(tick)
             last_tick = tick
-            stepper.set_outer(*_outer_status(task, tick))
         yield_point.empty()
 
 
@@ -523,35 +431,71 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
             st.warning(t("planning_incomplete"))
         return
 
-    _section(t("your_plan"))
-    if failed:
-        st.caption(
-            t(
-                "plan_last_attempt",
-                n=result.get("replan_attempts", 0),
+    entities = _entity_index(kb)
+    attempt = result.get("replan_attempts", 0)
+    plan = result.get("plan")
+    if validation.valid:
+        _section(t("your_plan"))
+        if failed:
+            st.caption(
+                t(
+                    "plan_last_attempt",
+                    n=attempt,
+                    max=MAX_PLANNING_ATTEMPTS,
+                )
+            )
+        _html_block(
+            _verdict_html(
+                True,
+                t("plan_valid"),
+                t("verdict_ok_body", n=attempt, max=MAX_PLANNING_ATTEMPTS),
+            )
+        )
+    else:
+        missing = _missing_requirements(validation.issues)
+        body = (
+            t("verdict_missing_body")
+            if missing
+            else t(
+                "verdict_fail_body",
+                n=len(validation.issues),
+                n_attempt=attempt,
                 max=MAX_PLANNING_ATTEMPTS,
             )
         )
-    if validation.valid:
-        st.success(t("plan_valid"))
-    else:
-        st.error(t("plan_not_valid"))
+        _html_block(
+            _verdict_html(
+                False,
+                t("verdict_fail_title"),
+                body,
+                _missing_chips_html(validation.issues),
+            )
+        )
         if validation.issues:
-            st.markdown(f"**{t('problems')}**")
-            for issue in validation.issues:
-                _render_issue(st, issue)
+            _html_block(_problems_panel_html(validation.issues, entities))
+        _render_last_plan(plan, validation.issues, kb=kb)
+        if failed:
+            st.caption(
+                t(
+                    "plan_last_attempt",
+                    n=attempt,
+                    max=MAX_PLANNING_ATTEMPTS,
+                )
+            )
 
     plan_model = result.get("plan_model")
     if plan_model:
         st.caption(t("plan_model_caption", model=_fmt_model(plan_model)))
 
-    _render_plan(result.get("plan"))
+    if validation.valid:
+        _render_plan(plan, valid=True, kb=kb)
 
+    _section(t("behind_the_scenes"))
     tab_why, tab_sources, tab_trace = st.tabs([t("tab_why"), t("tab_sources"), t("tab_trace")])
 
     with tab_why:
         st.caption(t("tab_why_caption"))
-        _render_why(result.get("plan"))
+        _render_why(result.get("plan"), kb=kb)
     with tab_sources:
         st.caption(t("tab_sources_caption"))
         _render_sources(result["relevant_objectives"], kb)
@@ -570,7 +514,7 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
         _render_trace_state(result["game_state"])
         _render_memory(result.get("relevant_episodes", []))
         _render_trace_attempts(result["replan_attempts"])
-        _render_trace_issues(validation)
+        _render_trace_issues(validation, entities)
 
 
 def _render_run_audit(result: dict) -> None:
@@ -600,20 +544,24 @@ def _render_run_audit(result: dict) -> None:
         header = f"{header} \u00b7 [Open Phoenix \u2197]({get_settings().phoenix_ui_url})"
     st.markdown(header)
     if run.nodes:
-        st.markdown(f"**{t('audit_timeline')}**")
-        st.table(
+        _html_block(f'<div class="tc-subhead">{html.escape(t("audit_timeline"))}</div>')
+        rows = [
             [
-                {
-                    t("audit_step"): node["name"],
-                    t("audit_duration"): f"{node['duration_s'] * 1000:.0f} ms",
-                    t("audit_status"): "\u2705" if node["status"] == "ok" else "\u274c",
-                    t("audit_detail"): node["detail"],
-                }
-                for node in run.nodes
+                html.escape(node["name"]),
+                f'<span class="tc-cell-muted">{node["duration_s"] * 1000:.0f} ms</span>',
+                "\u2705" if node["status"] == "ok" else "\u274c",
+                html.escape(node["detail"]),
             ]
+            for node in run.nodes
+        ]
+        _html_block(
+            _table_html(
+                [t("audit_step"), t("audit_duration"), t("audit_status"), t("audit_detail")],
+                rows,
+            )
         )
     if run.errors:
-        st.markdown(f"**{t('audit_errors')}**")
+        _html_block(f'<div class="tc-subhead">{html.escape(t("audit_errors"))}</div>')
         for error in run.errors:
             block = f"[{error['source']}] {error['message']}"
             if error["detail"]:
@@ -621,49 +569,8 @@ def _render_run_audit(result: dict) -> None:
             st.code(block, language="text")
 
 
-def _append_step(status, node: str, result: dict) -> None:
-    """Render the trace line for one streamed agent update.
-
-    args:
-        status (streamlit.delta_generator.DeltaGenerator): the status
-        container to write step details into.
-        node (str): the agent node name ("state", "knowledge", "plan",
-        "critic").
-        result (dict): the node's output dict.
-
-    returns:
-        None: draws into the status container.
-    """
-    if node == "state":
-        _step_state(status, result)
-    elif node == "knowledge":
-        _step_knowledge(status, result)
-    elif node == "plan":
-        _step_plan(status, result)
-    elif node == "critic":
-        _step_critic(status, result)
-
-
 # Engines whose badge is an acronym, not a lowercase identifier.
 _ENGINE_LABELS = {"llm": "LLM"}
-
-
-def _engine_badge(engine: str | None, model: str = "") -> str:
-    """Format an engine name as a parenthesised badge suffix.
-
-    args:
-        engine (str | None): the engine label, e.g. "llm".
-        model (str, default ""): the model name, shown as inline code when
-            present.
-
-    returns:
-        str: " (engine)", " (engine \u00b7 `model`)" or "" when empty.
-    """
-    if not engine:
-        return ""
-    label = _ENGINE_LABELS.get(engine, engine)
-    suffix = f" \u00b7 `{model}`" if model else ""
-    return f" ({label}{suffix})"
 
 
 def _engine_for(node: str, result: dict) -> tuple[str | None, str]:
@@ -678,11 +585,6 @@ def _fmt_model(model: str | None) -> str:
     return f"`{model}`" if model else t("eval_unknown")
 
 
-def _result_label(node: str) -> str:
-    """Return the bold section caption shown above an agent's detail card."""
-    return t(_RESULT_LABEL_KEY[node])
-
-
 _WINDOW_RE = re.compile(
     r"\[(Day \d, \d{2}:\d{2}(?: \(\+1\))? \u2192 Day \d, \d{2}:\d{2}(?: \(\+1\))?)\]"
 )
@@ -693,140 +595,85 @@ def _markdown_windows(s: str) -> str:
     return _WINDOW_RE.sub(lambda m: f"`[{m.group(1)}]`", s)
 
 
-def _step_state(status, result: dict) -> None:
-    """Render the State Agent's trace card.
-
-    args:
-        status (DeltaGenerator): the trace container.
-        result (dict): the state node output with location and summary.
-
-    returns:
-        None: draws into the status container.
-    """
-    c = status.container()
-    c.markdown(f"**{_result_label('state')}**")
-    gs = result["game_state"]
-    _state_fields(c, gs)
-    # The summary's field line is now redundant; keep the quest-progress tail.
-    progress = str(result.get("state_summary", "")).partition("\n")[2]
-    if progress:
-        c.caption(progress)
+_ENTITY_CLASS = {"item": "tc-item", "mask": "tc-mask", "place": "tc-place"}
 
 
-def _state_fields(scope, gs) -> None:
-    """Render the game state as one bulleted markdown block.
+def _entity_span(value: str, kind: str) -> str:
+    """Return one display value as its semantic game-entity span."""
+    return f'<span class="{_ENTITY_CLASS[kind]}">{html.escape(value)}</span>'
 
-    A single markdown list keeps the four fields tight and indented exactly
-    like the agent activity timelines and the other detail-card lists. Shared
-    by the live State Agent card and the trace tab.
 
-    args:
-        scope: the container to draw into.
-        gs: the canonicalised game state.
+def _entities_html(values, kind: str) -> str:
+    """Return a comma-separated, translated list of semantic entity spans."""
+    return ", ".join(_entity_span(tr(value), kind) for value in values)
 
-    returns:
-        None: draws into the scope container.
-    """
-    items = ", ".join(tr(item) for item in gs.inventory) or t("trace_none")
-    masks = ", ".join(tr(mask) for mask in gs.masks) or t("trace_none")
-    scope.markdown(
-        "\n".join(
-            [
-                f"- **{t('trace_where')}** {tr(gs.location)}",
-                f"- **{t('trace_when')}** {tr(_fmt_clock(gs.time))}",
-                f"- **{t('trace_items')}** {items}",
-                f"- **{t('trace_masks')}** {masks}",
-            ]
-        )
+
+def _entity_index(kb) -> tuple[re.Pattern[str], dict[str, str]]:
+    """Build the longest-first matcher for known items, masks and places."""
+    if kb is None:
+        return re.compile(r"(?!x)x"), {}
+    items = {
+        item
+        for objective in kb.all_objectives
+        for item in (*objective.requires_items, *objective.provides_items)
+    }
+    masks = set(MASKS)
+    for objective in kb.all_objectives:
+        masks.update(objective.requires_masks)
+        masks.update(objective.provides_masks)
+    masks.update(item for item in items if "mask" in item.casefold())
+    items -= masks
+    places = {location.name for location in kb.locations} | {"Clock Town"}
+    pairs = [
+        *((tr(name), "mask") for name in masks),
+        *((tr(name), "item") for name in items),
+        *((tr(name), "place") for name in places),
+    ]
+    kinds: dict[str, str] = {}
+    for name, kind in pairs:
+        if name:
+            kinds.setdefault(name.casefold(), kind)
+    if not kinds:
+        return re.compile(r"(?!x)x"), {}
+    ordered = sorted(kinds, key=len, reverse=True)
+    pattern = re.compile(
+        "|".join(f"(?<!\\w){re.escape(name)}(?!\\w)" for name in ordered),
+        re.IGNORECASE,
     )
+    return pattern, kinds
 
 
-def _step_memory(status, result: dict) -> None:
-    """Render the Memory Agent's trace card."""
-    c = status.container()
-    c.markdown(f"**{_result_label('memory')}**")
-    episodes = result.get("relevant_episodes", [])
-    c.write(t("memory_episodes_caption"))
-    if not episodes:
-        c.caption(t("memory_none"))
-        return
-    for ep in episodes[:3]:
-        c.markdown(f"- {ep.goal} ({'valid' if ep.valid else 'invalid'})")
+def _highlight_entities(text: str, index: tuple[re.Pattern[str], dict[str, str]]) -> str:
+    """Escape *text* and wrap the game entities it mentions in semantic spans."""
+    raw = tr(text)
+    pattern, kinds = index
+    if not kinds:
+        return html.escape(raw)
+    parts: list[str] = []
+    position = 0
+    for match in pattern.finditer(raw):
+        parts.append(html.escape(raw[position : match.start()]))
+        parts.append(_entity_span(match.group(0), kinds[match.group(0).casefold()]))
+        position = match.end()
+    parts.append(html.escape(raw[position:]))
+    return "".join(parts)
 
 
-def _step_knowledge(status, result: dict) -> None:
-    """Render the Knowledge Agent's trace card.
-
-    args:
-        status (DeltaGenerator): the trace container.
-        result (dict): the knowledge node output with retrieved objectives.
-
-    returns:
-        None: draws into the status container.
-    """
-    c = status.container()
-    c.markdown(f"**{_result_label('knowledge')}**")
-    objectives = result["relevant_objectives"]
-    c.write(t("knowledge_objectives", n=len(objectives)))
-    for obj in objectives:
-        c.markdown(f"- {tr(obj.title)}")
-    if not objectives:
-        c.caption(t("knowledge_empty_hint"))
-    retrieval_engine = result.get("retrieval_engine")
-    if retrieval_engine:
-        c.caption(f"{t('rag_engine')}: `{retrieval_engine}`")
-    retrieval_status = result.get("retrieval_status")
-    if retrieval_status:
-        c.caption(f"{t('rag_status')}: `{retrieval_status}`")
-    if result.get("retrieval_wiki_unreachable"):
-        c.warning(t("rag_wiki_unreachable"))
-    if result.get("retrieval_warning"):
-        c.warning(result["retrieval_warning"])
-
-
-def _step_plan(status, result: dict) -> None:
-    """Render the Planning Agent's trace card.
-
-    args:
-        status (DeltaGenerator): the trace container.
-        result (dict): the plan node output with plan and attempt number.
-
-    returns:
-        None: draws into the status container.
-    """
-    c = status.container()
-    c.markdown(f"**{_result_label('plan')}**")
-    plan = result["plan"]
-    if not plan or not plan.steps:
-        c.write(t("no_plan"))
-        return
-    lines = []
-    for i, step in enumerate(plan.steps, 1):
-        window = _fmt_window(step.window)
-        lines.append(f"{i}. {tr(step.title)} @ {tr(step.location)} (`{window}`)")
-    c.markdown("\n".join(lines))
-
-
-def _step_critic(status, result: dict) -> None:
-    """Render the Critic Agent's trace card.
-
-    args:
-        status (DeltaGenerator): the trace container.
-        result (dict): the critic node output with the validation result.
-
-    returns:
-        None: draws into the status container.
-    """
-    c = status.container()
-    c.markdown(f"**{_result_label('critic')}**")
-    validation = result["validation"]
-    if validation.valid:
-        # No manual "✓" prefix: t("plan_valid") already carries its own check.
-        c.write(t("plan_valid"))
-        return
-    c.write(t("replan_line", n=len(validation.issues), max=MAX_PLANNING_ATTEMPTS))
-    for issue in validation.issues:
-        _render_issue(c, issue)
+def _state_fields_html(gs) -> str:
+    """Return the canonical game state as the trace card's rows."""
+    items = _entities_html(gs.inventory, "item") or html.escape(t("trace_none"))
+    masks = _entities_html(gs.masks, "mask") or html.escape(t("trace_none"))
+    rows = [
+        (t("trace_where"), _entity_span(tr(gs.location), "place")),
+        (t("trace_when"), _html_clock(gs.time)),
+        (t("trace_items"), items),
+        (t("trace_masks"), masks),
+    ]
+    body = "".join(
+        f'<div class="tc-detail-line"><b>{html.escape(label)}</b> {value}</div>'
+        for label, value in rows
+    )
+    return f'<div class="tc-detail-card">{body}</div>'
 
 
 def _render_issue(scope, issue, fallback: str = "plan") -> None:
@@ -863,6 +710,121 @@ def _render_issue(scope, issue, fallback: str = "plan") -> None:
     if col_step is not None:
         col_step.markdown(f"**{where}**")
     col_msg.markdown(tr_msg(_markdown_windows(issue.message)))
+
+
+_MISSING_RE = re.compile(r"^Missing (item|mask)\(s\): (.+)\.$")
+
+
+def _missing_requirements(issues) -> list[tuple[str, str]]:
+    """Extract missing item/mask names and their kind from the Critic's text."""
+    names: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for issue in issues:
+        match = _MISSING_RE.match(issue.message.strip())
+        if match is None:
+            continue
+        kind = match.group(1)
+        for name in match.group(2).split(","):
+            name = name.strip()
+            if name and name not in seen:
+                seen.add(name)
+                names.append((kind, name))
+    return names
+
+
+def _missing_chips_html(issues, prefix: bool = False) -> str:
+    """Return requirement chips for the issues, optionally prefixed with 'missing'."""
+    missing = _missing_requirements(issues)
+    if not missing:
+        return ""
+    chips = []
+    for kind, name in missing:
+        entity = _entity_span(tr(name), kind)
+        label = t("missing_requirement", name=entity) if prefix else entity
+        chips.append(f'<span class="tc-missing-chip">{label}</span>')
+    return f'<div class="tc-missing-chips">{"".join(chips)}</div>'
+
+
+def _issues_table_html(issues, fallback: str = "plan", entities=None) -> str:
+    """Return the Critic issue table shared by the registry and problems panels."""
+    index = entities if entities is not None else _entity_index(None)
+    rows = []
+    for issue in issues:
+        severity = t("sev_error") if issue.severity == "error" else t("sev_warning")
+        tone = "error" if issue.severity == "error" else "warning"
+        kind = t(f"kind_{issue.kind}")
+        where = t("step_n", n=issue.step_idx + 1) if issue.step_idx is not None else t(fallback)
+        message = _highlight_entities(tr_msg(issue.message), index)
+        rows.append(
+            '<div class="tc-issue-row">'
+            f'<span><span class="tc-sev-tag {tone}">{html.escape(severity.upper())}</span></span>'
+            f'<span><span class="tc-kind-tag">{html.escape(kind.upper())}</span></span>'
+            f'<span class="tc-issue-step">{html.escape(where)}</span>'
+            f"<span>{message}</span>"
+            "</div>"
+        )
+    return (
+        '<div class="tc-issues-table">'
+        '<div class="tc-issue-row tc-issue-head">'
+        f"<span>{html.escape(t('issue_severity').upper())}</span>"
+        f"<span>{html.escape(t('issue_kind').upper())}</span>"
+        f"<span>{html.escape(t('issue_step').upper())}</span>"
+        f"<span>{html.escape(t('issue_detail').upper())}</span>"
+        "</div>"
+        f"{''.join(rows)}</div>"
+    )
+
+
+def _problems_panel_html(issues, entities=None) -> str:
+    """Return the full-width problems table shown under an invalid plan."""
+    return (
+        '<section class="tc-problems-panel">'
+        f'<div class="tc-panel-title">{html.escape(t("problems"))}</div>'
+        f"{_issues_table_html(issues, entities=entities)}"
+        "</section>"
+    )
+
+
+def _table_html(headers, rows, numeric=()) -> str:
+    """Return a compact dark table; cells and headers must already be escaped."""
+    numeric = set(numeric)
+    head = "".join(
+        f'<th class="{"num" if i in numeric else ""}">{html.escape(label)}</th>'
+        for i, label in enumerate(headers)
+    )
+    body = "".join(
+        "<tr>"
+        + "".join(
+            f'<td class="{"num" if i in numeric else ""}">{cell}</td>' for i, cell in enumerate(row)
+        )
+        + "</tr>"
+        for row in rows
+    )
+    return (
+        '<div class="tc-table-wrap"><table class="tc-table">'
+        f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>"
+    )
+
+
+def _code_html(value: str) -> str:
+    """Return an escaped value as inline code for HTML fragments."""
+    return f"<code>{html.escape(value)}</code>"
+
+
+def _failure_breakdown_html(kinds: dict[str, int]) -> str:
+    """Return the failures-by-check panel shown under the evaluation metrics."""
+    chips = "".join(
+        f'<span class="tc-failure-chip"><b>{count}</b> {html.escape(_check_label(kind))}</span>'
+        for kind, count in kinds.items()
+    )
+    if not chips:
+        chips = '<span class="tc-failure-empty">\u2013</span>'
+    return (
+        '<div class="tc-failure-panel">'
+        f'<div class="tc-failure-label">{html.escape(t("eval_failures_by_kind"))}</div>'
+        f'<div class="tc-failure-list">{chips}</div>'
+        "</div>"
+    )
 
 
 def _section(title: str, caption: str = "") -> None:
@@ -951,11 +913,26 @@ def _fmt_timestamp(iso: str | None) -> str:
     return f"{dt.day} {months[dt.month - 1]} {dt.year}, {dt.hour:02d}:{dt.minute:02d} UTC"
 
 
-def _render_plan(plan) -> None:
-    """Render the final plan: time + location header and step actions.
+def _render_plan(
+    plan,
+    *,
+    start: int = 0,
+    end: int | None = None,
+    issues=None,
+    show_numbers: bool = False,
+    valid: bool = False,
+    kb=None,
+) -> None:
+    """Render the final plan as the Majora's Mask vertical timeline.
 
     args:
         plan (Plan | None): the plan to display.
+        start (int, default 0): first step index to render.
+        end (int | None, default None): exclusive last step index.
+        issues: validation issues used to highlight steps and show chips.
+        show_numbers (bool, default False): prefix each title with "Step N".
+        valid (bool, default False): paint the final step with the valid accent.
+        kb: knowledge base used to recognise named entities in step titles.
 
     returns:
         None: draws into the app.
@@ -963,20 +940,86 @@ def _render_plan(plan) -> None:
     if not plan or not plan.steps:
         st.write(t("no_plan"))
         return
-    for step in plan.steps:
-        wl = step.window.start
-        st.markdown(f"**{_fmt_clock(wl)} \u2500 {tr(step.location)}**")
-        with st.container(border=True):
-            st.markdown(f"**{tr(step.title)}**")
-            for action in step.actions:
-                st.markdown(f"\u2713 {tr(action)}")
+    entities = _entity_index(kb)
+    total = len(plan.steps)
+    issues_by_step: dict[int, list] = {}
+    for issue in issues or []:
+        if issue.severity == "error" and issue.step_idx is not None:
+            issues_by_step.setdefault(issue.step_idx, []).append(issue)
+    selected = list(enumerate(plan.steps))[start:end]
+    rows = []
+    for index, step in selected:
+        last = index == total - 1
+        bad = index in issues_by_step
+        start_clock = step.window.start
+        suffix = " (+1)" if start_clock.next_morning else ""
+        hour = f"{start_clock.display_hour:02d}:{start_clock.minute:02d}{suffix}"
+        meta = []
+        if step.location:
+            meta.append(_entity_span(tr(step.location), "place"))
+        needs = [
+            *(_entity_span(tr(x), "item") for x in step.requires_items),
+            *(_entity_span(tr(x), "mask") for x in step.requires_masks),
+        ]
+        if needs:
+            meta.append(f"{html.escape(t('needs'))} {', '.join(needs)}")
+        if step.depends_on:
+            deps = ", ".join(str(d + 1) for d in step.depends_on)
+            meta.append(html.escape(t("depends_on", deps=deps)))
+        title = _highlight_entities(step.title, entities)
+        if show_numbers:
+            title = t("plan_step_title", n=index + 1, title=title)
+        chips = _missing_chips_html(issues_by_step.get(index, []), prefix=True)
+        classes = "tc-step"
+        if last:
+            classes += " last"
+            if valid:
+                classes += " ok"
+        if bad:
+            classes += " bad"
+        rows.append(
+            f'<div class="{classes}">'
+            '<div class="tc-step-time">'
+            f'<div class="tc-step-hour">{hour}</div>'
+            f'<div class="tc-step-day">{html.escape(t("day_n", n=start_clock.day))}</div>'
+            "</div>"
+            '<div class="tc-step-rail">'
+            '<span class="tc-dot"></span><span class="tc-line"></span>'
+            "</div>"
+            '<div class="tc-step-card">'
+            f'<div class="tc-step-title">{title}</div>'
+            f'<div class="tc-step-meta">{" \u00b7 ".join(meta)}</div>'
+            f"{chips}"
+            "</div></div>"
+        )
+    _html_block(f'<div class="tc-timeline">{"".join(rows)}</div>')
 
 
-def _render_why(plan) -> None:
+def _render_last_plan(plan, issues, kb=None) -> None:
+    """Render the invalid plan around its first failing step."""
+    _section(t("last_plan_title"))
+    if not plan or not plan.steps:
+        st.write(t("no_plan"))
+        return
+    focus = next(
+        (
+            issue.step_idx
+            for issue in issues
+            if issue.severity == "error" and issue.step_idx is not None
+        ),
+        None,
+    )
+    if focus is not None:
+        st.caption(t("last_plan_caption", n=focus + 1))
+    _render_plan(plan, issues=issues, show_numbers=True, kb=kb)
+
+
+def _render_why(plan, kb=None) -> None:
     """Render the "why" tab: window, needs and dependencies per step.
 
     args:
         plan (Plan | None): the plan to explain.
+        kb: knowledge base used to recognise named entities in free text.
 
     returns:
         None: draws into the app.
@@ -984,22 +1027,40 @@ def _render_why(plan) -> None:
     if not plan or not plan.steps:
         st.write(t("no_plan"))
         return
+    entities = _entity_index(kb)
+    cards = []
     for i, step in enumerate(plan.steps, 1):
-        with st.container(border=True):
-            st.markdown(f"**{t('step_n', n=i)} \u2014 {tr(step.title)}**")
-            st.write(
-                f"{t('window_label')}: {_fmt_clock(step.window.start)} "
-                f"\u2192 {_fmt_clock(step.window.end)}"
+        lines = [
+            f"{html.escape(t('window_label'))}: "
+            f"{_html_clock(step.window.start)} \u2192 {_html_clock(step.window.end)}"
+        ]
+        if step.requires_items:
+            needs = _entities_html(step.requires_items, "item")
+            lines.append(f"{html.escape(t('needs'))}: {needs}")
+        if step.requires_masks:
+            masks = _entities_html(step.requires_masks, "mask")
+            lines.append(f"{html.escape(t('source_masks'))} {masks}")
+        if step.depends_on:
+            deps = ", ".join(str(d + 1) for d in step.depends_on)
+            lines.append(html.escape(t("depends_on", deps=deps)))
+        body = "".join(f'<div class="tc-detail-line">{line}</div>' for line in lines)
+        if step.actions:
+            actions = "".join(
+                f"<li>{_highlight_entities(action, entities)}</li>" for action in step.actions
             )
-            if step.requires_items:
-                needs = ", ".join(tr(x) for x in step.requires_items)
-                st.write(f"{t('needs')}: {needs}")
-            if step.requires_masks:
-                needs = ", ".join(tr(x) for x in step.requires_masks)
-                st.write(f"{t('source_masks')} {needs}")
-            if step.depends_on:
-                deps = ", ".join(str(d + 1) for d in step.depends_on)
-                st.write(t("depends_on", deps=deps))
+            body += (
+                f'<div class="tc-detail-muted">{html.escape(t("actions_label"))}</div>'
+                f"<ul>{actions}</ul>"
+            )
+        cards.append(
+            '<div class="tc-detail-card">'
+            f'<div class="tc-detail-title">'
+            f"{html.escape(t('step_n', n=i))} \u2014 "
+            f"{_highlight_entities(step.title, entities)}"
+            "</div>"
+            f"{body}</div>"
+        )
+    _html_block(f'<div class="tc-detail-list">{"".join(cards)}</div>')
 
 
 def _window_range(w: TimeWindow) -> str:
@@ -1031,36 +1092,47 @@ def _render_sources(objectives, kb) -> None:
     if not objectives:
         st.write(t("no_sources"))
         return
+    entities = _entity_index(kb)
+    cards = []
     for obj in objectives:
-        with st.container(border=True):
-            st.markdown(f"\U0001f50d **{tr(obj.title)}**")
-            st.write(
-                f"{t('source_when')} {tr(_fmt_clock(obj.window.start))} "
-                f"\u2192 {tr(_fmt_clock(obj.window.end))}"
-            )
-            st.write(f"{t('source_where')} {tr(obj.location)}")
-            if obj.npc_id:
-                npc = kb.npc(obj.npc_id)
-                if npc:
-                    slots = " \u00b7 ".join(_window_range(w) for w in npc.schedule)
-                    st.write(
-                        f"{t('source_npc')} {tr(npc.name)} \u00b7 {t('source_active')} {slots}"
-                    )
-            if obj.event_ref:
-                event = kb.event(obj.event_ref)
-                if event:
-                    st.write(
-                        f"{t('source_event')} {tr(event.name)} \u00b7 {_window_range(event.window)}"
-                    )
-            if obj.requires_items:
-                items = ", ".join(tr(x) for x in obj.requires_items)
-                st.write(f"{t('source_needs')} {items}")
-            if obj.requires_masks:
-                masks = ", ".join(tr(x) for x in obj.requires_masks)
-                st.write(f"{t('source_masks')} {masks}")
-            prereq_titles = [o.title for o in kb.all_objectives if o.id in obj.prerequisites]
-            if prereq_titles:
-                st.write(f"{t('source_after')} {', '.join(tr(x) for x in prereq_titles)}")
+        lines = [
+            f"{html.escape(t('source_when'))} {_html_clock(obj.window.start)} "
+            f"\u2192 {_html_clock(obj.window.end)}",
+            f"{html.escape(t('source_where'))} {_entity_span(tr(obj.location), 'place')}",
+        ]
+        if obj.npc_id:
+            npc = kb.npc(obj.npc_id)
+            if npc:
+                slots = " \u00b7 ".join(_window_range(w) for w in npc.schedule)
+                lines.append(
+                    f"{html.escape(t('source_npc'))} {html.escape(tr(npc.name))} "
+                    f"\u00b7 {html.escape(t('source_active'))} {html.escape(slots)}"
+                )
+        if obj.event_ref:
+            event = kb.event(obj.event_ref)
+            if event:
+                lines.append(
+                    f"{html.escape(t('source_event'))} {html.escape(tr(event.name))} "
+                    f"\u00b7 {html.escape(_window_range(event.window))}"
+                )
+        if obj.requires_items:
+            items = _entities_html(obj.requires_items, "item")
+            lines.append(f"{html.escape(t('source_needs'))} {items}")
+        if obj.requires_masks:
+            masks = _entities_html(obj.requires_masks, "mask")
+            lines.append(f"{html.escape(t('source_masks'))} {masks}")
+        prereq_titles = [o.title for o in kb.all_objectives if o.id in obj.prerequisites]
+        if prereq_titles:
+            prereqs = ", ".join(_highlight_entities(title, entities) for title in prereq_titles)
+            lines.append(f"{html.escape(t('source_after'))} {prereqs}")
+        body = "".join(f'<div class="tc-detail-line">{line}</div>' for line in lines)
+        cards.append(
+            '<div class="tc-detail-card">'
+            f'<div class="tc-detail-title">\U0001f50d '
+            f"{_highlight_entities(obj.title, entities)}</div>"
+            f"{body}</div>"
+        )
+    _html_block(f'<div class="tc-detail-list">{"".join(cards)}</div>')
 
 
 def _render_rag_source(source) -> None:
@@ -1113,7 +1185,7 @@ def _render_rag_evidence(
     intended for planner context, so source pages remain visible even when a
     second vector query returns no passage.
     """
-    st.markdown(f"**{t('rag_sources')}**")
+    _html_block(f'<div class="tc-subhead">{html.escape(t("rag_sources"))}</div>')
     st.caption(t("rag_sources_caption"))
     if engine:
         st.caption(f"{t('rag_engine')}: `{engine}`")
@@ -1133,7 +1205,7 @@ def _render_rag_evidence(
             if key not in seen:
                 seen.add(key)
                 sources.append(source)
-    st.markdown(f"*{t('rag_indexed_sources')}*")
+    _html_block(f'<div class="tc-detail-title">{html.escape(t("rag_indexed_sources"))}</div>')
     if sources:
         st.caption(t("rag_indexed_sources_caption", n=len(sources)))
         for source in sources:
@@ -1145,25 +1217,36 @@ def _render_rag_evidence(
     else:
         st.caption(t("rag_no_indexed_sources"))
 
-    st.markdown(f"**{t('rag_evidence')}**")
+    _html_block(f'<div class="tc-subhead">{html.escape(t("rag_evidence"))}</div>')
     if not evidence:
         st.caption(t("rag_no_evidence"))
         return
+    cards = []
     for item in evidence:
         metadata = item.chunk.metadata
         source = metadata.source_url or metadata.canonical_url or "Zelda Wiki"
         excerpt = " ".join(item.chunk.text.split())
         if len(excerpt) > 600:
             excerpt = excerpt[:597].rstrip() + "..."
-        with st.container(border=True):
-            st.markdown(f"**{tr(metadata.title)}** · {t('rag_score')}: {item.score:.3f}")
-            st.write(excerpt)
-            st.caption(f"{t('rag_source')}: {source}")
-            if metadata.source_revision_id is not None:
-                st.caption(
-                    f"{t('rag_revision')}: {metadata.source_revision_id} "
-                    f"({_fmt_timestamp(metadata.source_revision_timestamp)})"
-                )
+        revision = ""
+        if metadata.source_revision_id is not None:
+            revision = (
+                f'<div class="tc-detail-muted">'
+                f"{html.escape(t('rag_revision'))}: {metadata.source_revision_id} "
+                f"({html.escape(_fmt_timestamp(metadata.source_revision_timestamp))})"
+                "</div>"
+            )
+        cards.append(
+            '<div class="tc-detail-card">'
+            f'<div class="tc-detail-title">{html.escape(tr(metadata.title))} '
+            f'<span class="tc-detail-muted">\u00b7 {html.escape(t("rag_score"))}: '
+            f"{item.score:.3f}</span></div>"
+            f'<div class="tc-detail-line">{html.escape(excerpt)}</div>'
+            f'<div class="tc-detail-muted">{html.escape(t("rag_source"))}: '
+            f"{html.escape(source)}</div>"
+            f"{revision}</div>"
+        )
+    _html_block(f'<div class="tc-detail-list">{"".join(cards)}</div>')
 
 
 def _render_trace_state(gs) -> None:
@@ -1176,8 +1259,7 @@ def _render_trace_state(gs) -> None:
         None: draws into the app.
     """
     _section(t("understood"), t("understood_caption"))
-    with st.container(border=True):
-        _state_fields(st, gs)
+    _html_block(_state_fields_html(gs))
 
 
 def _render_memory(episodes) -> None:
@@ -1186,11 +1268,22 @@ def _render_memory(episodes) -> None:
     if not episodes:
         st.caption(t("memory_none"))
         return
+    cards = []
     for ep in episodes[:3]:
-        with st.container(border=True):
-            st.markdown(f"**{ep.goal}** ({'valid' if ep.valid else 'invalid'})")
-            if ep.plan_summary:
-                st.caption(" ".join(str(ep.plan_summary).split())[:300])
+        status = "valid" if ep.valid else "invalid"
+        summary = ""
+        if ep.plan_summary:
+            summary = (
+                f'<div class="tc-detail-muted">'
+                f"{html.escape(' '.join(str(ep.plan_summary).split())[:300])}</div>"
+            )
+        cards.append(
+            '<div class="tc-detail-card">'
+            f'<div class="tc-detail-title">{html.escape(str(ep.goal))} '
+            f'<span class="tc-detail-muted">({html.escape(status)})</span></div>'
+            f"{summary}</div>"
+        )
+    _html_block(f'<div class="tc-detail-list">{"".join(cards)}</div>')
 
 
 def _render_trace_attempts(n: int) -> None:
@@ -1204,18 +1297,23 @@ def _render_trace_attempts(n: int) -> None:
     """
     _section(t("trace_attempts"), t("trace_attempts_caption"))
     if n == 0:
-        st.success(t("no_replan"))
+        body = t("no_replan")
+        tone = "tc-cell-pass"
     elif n >= MAX_PLANNING_ATTEMPTS:
-        st.warning(t("replan_gave_up", max=MAX_PLANNING_ATTEMPTS))
+        body = t("replan_gave_up", max=MAX_PLANNING_ATTEMPTS)
+        tone = "tc-cell-fail"
     else:
-        st.info(t("attempts", n=n, max=MAX_PLANNING_ATTEMPTS))
+        body = t("attempts", n=n, max=MAX_PLANNING_ATTEMPTS)
+        tone = "tc-cell-warn"
+    _html_block(f'<div class="tc-detail-card"><div class="{tone}">{html.escape(body)}</div></div>')
 
 
-def _render_trace_issues(validation) -> None:
+def _render_trace_issues(validation, entities=None) -> None:
     """Render validation details and legend in the trace tab.
 
     args:
         validation (ValidationResult): the validation outcome to display.
+        entities: optional entity matcher for item/mask/place styling.
 
     returns:
         None: draws into the app.
@@ -1223,24 +1321,30 @@ def _render_trace_issues(validation) -> None:
     _section(t("validation_details"), t("validation_caption"))
     col_problems, col_legend = st.columns([2, 1], vertical_alignment="top", gap="large")
     with col_problems:
-        _section(t("problems"))
+        _html_block(f'<div class="tc-subhead">{html.escape(t("problems"))}</div>')
         if not validation.issues:
-            st.success(t("no_issues"))
-        for issue in validation.issues:
-            with st.container(border=True):
-                _render_issue(st, issue)
+            _html_block(
+                '<div class="tc-detail-card">'
+                f'<div class="tc-cell-pass">{html.escape(t("no_issues"))}</div>'
+                "</div>"
+            )
+        else:
+            _html_block(
+                f'<div class="tc-detail-card">'
+                f"{_issues_table_html(validation.issues, entities=entities)}</div>"
+            )
     with col_legend:
-        _section(t("legend_severity"))
-        r1a, r1b = st.columns([1, 3])
-        with r1a:
-            st.badge(t("sev_error").upper(), color="red")
-        with r1b:
-            st.write(t("sev_legend_error"))
-        r2a, r2b = st.columns([1, 3])
-        with r2a:
-            st.badge(t("sev_warning").upper(), color="orange")
-        with r2b:
-            st.write(t("sev_legend_warning"))
+        _html_block(f'<div class="tc-subhead">{html.escape(t("legend_severity"))}</div>')
+        _html_block(
+            '<div class="tc-detail-card">'
+            '<div class="tc-detail-line">'
+            f'<span class="tc-sev-tag error">{html.escape(t("sev_error").upper())}</span> '
+            f"{html.escape(t('sev_legend_error'))}</div>"
+            '<div class="tc-detail-line">'
+            f'<span class="tc-sev-tag warning">{html.escape(t("sev_warning").upper())}</span> '
+            f"{html.escape(t('sev_legend_warning'))}</div>"
+            "</div>"
+        )
 
 
 def _save_evaluation_report(results: list[ScenarioResult], rag_on: bool) -> None:
@@ -1452,46 +1556,71 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
         if report.wiki_retrieval == "degraded":
             st.caption(t("eval_rag_degraded_help"))
 
-    c_rate, c_passed, c_failed, c_kinds = st.columns(4)
+    c_rate, c_passed, c_failed = st.columns(3)
     c_rate.metric(t("eval_pass_rate"), f"{report.pass_rate * 100:.0f}%")
     c_passed.metric(t("eval_passed"), f"{report.passed}/{report.total}")
     c_failed.metric(t("eval_failed"), str(report.failed))
-    kinds = report.failures_by_kind
-    c_kinds.metric(
-        t("eval_failures_by_kind"),
-        ", ".join(f"{_check_label(kind)}: {count}" for kind, count in kinds.items()) or "-",
-    )
+    _html_block(_failure_breakdown_html(report.failures_by_kind))
 
     _render_comparison(report)
 
-    st.table(
-        [
-            {
-                t("eval_scenario"): result.scenario_id,
-                t("eval_status"): t("eval_pass") if result.passed else t("eval_fail"),
-                t("eval_steps"): result.step_count,
-                t("eval_duration"): f"{result.duration_s:.1f}s",
-                t("eval_errors"): result.error_count,
-                t("eval_warnings"): result.warning_count,
-                t("eval_run_error"): _short_error(result.error),
-            }
-            for result in report.results
-        ]
-    )
-
+    rows = []
     for result in report.results:
         status = t("eval_pass") if result.passed else t("eval_fail")
-        with st.expander(f"{result.scenario_id} — {status}"):
-            if result.error:
-                st.error(f"{t('eval_run_error')}: {result.error}")
-            elif not result.issues:
-                st.success(t("eval_no_issues"))
-            for issue in result.issues:
-                _render_issue(st, issue, fallback="")
-                help_key = f"kind_{issue.kind}_help"
-                help_text = t(help_key)
-                if help_text != help_key:
-                    st.caption(help_text)
+        status_class = "tc-cell-pass" if result.passed else "tc-cell-fail"
+        warnings = (
+            f'<span class="tc-cell-warn">{result.warning_count}</span>'
+            if result.warning_count
+            else "0"
+        )
+        error = _short_error(result.error)
+        error_cell = (
+            _code_html(error)
+            if result.error
+            else f'<span class="tc-cell-muted">{html.escape(error)}</span>'
+        )
+        rows.append(
+            [
+                _code_html(result.scenario_id),
+                f'<span class="{status_class}">{html.escape(status)}</span>',
+                str(result.step_count),
+                f'<span class="tc-cell-muted">{result.duration_s:.1f}s</span>',
+                str(result.error_count),
+                warnings,
+                error_cell,
+            ]
+        )
+    _html_block(
+        _table_html(
+            [
+                t("eval_scenario"),
+                t("eval_status"),
+                t("eval_steps"),
+                t("eval_duration"),
+                t("eval_errors"),
+                t("eval_warnings"),
+                t("eval_run_error"),
+            ],
+            rows,
+            numeric={2, 4, 5},
+        )
+    )
+
+    with st.container(key="eval_details", gap=28):
+        for result in report.results:
+            status = t("eval_pass") if result.passed else t("eval_fail")
+            with st.expander(f"`{result.scenario_id}` — {status}"):
+                if result.error:
+                    st.error(t("eval_run_error"))
+                    st.code(result.error, language="text")
+                elif not result.issues:
+                    st.success(t("eval_no_issues"))
+                for issue in result.issues:
+                    _render_issue(st, issue, fallback="")
+                    help_key = f"kind_{issue.kind}_help"
+                    help_text = t(help_key)
+                    if help_text != help_key:
+                        st.caption(help_text)
 
 
 def _format_timestamp(value: str) -> str:
@@ -1538,28 +1667,35 @@ def _render_comparison(report: EvaluationReport) -> None:
     when = _format_timestamp(baseline.created_at) or t("eval_unknown")
     before = f"{comparison.baseline_passed}/{comparison.baseline_total}"
     after = f"{comparison.current_passed}/{comparison.current_total}"
-    rows = [
-        {
-            t("eval_compare_scenario"): change.scenario_id,
-            t("eval_compare_change"): t(f"eval_compare_{change.status}"),
-            t("eval_compare_detail"): (
-                t(
-                    "eval_compare_new_failure",
-                    kinds=", ".join(_check_label(kind) for kind in change.new_failure_kinds),
-                )
-                if change.new_failure_kinds
-                else t(f"eval_compare_{change.status}_help")
-            ),
-        }
-        for change in comparison.changes
-        if change.status != "same"
-    ]
+    changes = [change for change in comparison.changes if change.status != "same"]
+    rows = []
+    for change in changes:
+        detail = (
+            t(
+                "eval_compare_new_failure",
+                kinds=", ".join(_check_label(kind) for kind in change.new_failure_kinds),
+            )
+            if change.new_failure_kinds
+            else t(f"eval_compare_{change.status}_help")
+        )
+        rows.append(
+            [
+                _code_html(change.scenario_id),
+                html.escape(t(f"eval_compare_{change.status}")),
+                html.escape(detail),
+            ]
+        )
     if comparison.has_regressions:
         st.warning(t("eval_compare_summary", when=when, before=before, after=after))
     elif rows:
         st.caption(t("eval_compare_summary", when=when, before=before, after=after))
     else:
-        st.caption(t("eval_compare_clean", when=when, before=before, after=after))
+        text = t("eval_compare_clean", when=when, before=before, after=after)
+        _html_block(
+            '<div class="tc-banner">'
+            f'<span class="tc-banner-icon">\u2713</span>'
+            f"<span>{html.escape(text)}</span></div>"
+        )
 
     if comparison.model_changed:
         st.caption(
@@ -1587,7 +1723,17 @@ def _render_comparison(report: EvaluationReport) -> None:
         )
 
     if rows:
-        st.table(rows)
+        with st.container(key="eval_comparison_table"):
+            _html_block(
+                _table_html(
+                    [
+                        t("eval_compare_scenario"),
+                        t("eval_compare_change"),
+                        t("eval_compare_detail"),
+                    ],
+                    rows,
+                )
+            )
 
 
 def _check_label(kind: str) -> str:
@@ -1637,6 +1783,1486 @@ def _time_label(day: int, value: datetime.time) -> str:
     return t(key, day=day, time=display)
 
 
+_THEME_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;500;600&display=swap');
+
+:root {
+  --tc-bg: #0e1126;
+  --tc-surface: #141836;
+  --tc-card: #1b2046;
+  --tc-border: #2a2f5c;
+  --tc-border-strong: #4a4f80;
+  --tc-gold: #e0b252;
+  --tc-teal: #5fd1c4;
+  --tc-red: #e5684f;
+  --tc-text: #e8e6f2;
+  --tc-muted: #a9a6c4;
+  --tc-item: #ffae6b;
+  --tc-mask: #c9b6ff;
+  --tc-place: #8ec5ff;
+  --tc-place-line: #4a6a99;
+}
+
+html, body, .stApp, [data-testid="stAppViewContainer"] {
+  font-family: Inter, system-ui, sans-serif;
+}
+.stApp {
+  background: radial-gradient(circle at 20% 0%, #171c3a 0%, #0e1126 45%, #0b0e1f 100%);
+  color: var(--tc-text);
+}
+[data-testid="stMainBlockContainer"] {
+  padding-top: 1.25rem !important;
+}
+[data-testid="stHeader"] { background: transparent; }
+#MainMenu, footer, [data-testid="stToolbar"] { visibility: hidden; }
+[data-testid="stExpandSidebarButton"] {
+  visibility: visible !important;
+  position: relative;
+  top: 26px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--tc-border-strong);
+  border-radius: 8px;
+  background-color: transparent;
+  color: var(--tc-muted);
+}
+[data-testid="stExpandSidebarButton"]:hover { color: var(--tc-gold); }
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: Cinzel, serif !important;
+  color: var(--tc-gold);
+  letter-spacing: 0.02em;
+}
+[data-testid="stCaptionContainer"], .stCaption { color: var(--tc-muted); }
+
+[data-testid="stSidebar"] {
+  width: 360px !important;
+  min-width: 360px !important;
+  max-width: 360px !important;
+  background: var(--tc-surface);
+  border-right: 1px solid var(--tc-border);
+}
+[data-testid="stSidebar"][aria-expanded="false"] {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  transform: translateX(-360px) !important;
+  overflow: hidden !important;
+}
+[data-testid="stSidebarContent"] {
+  width: 360px !important;
+  background: transparent;
+}
+[data-testid="stSidebarUserContent"] {
+  padding: 1.25rem 1.1rem 2rem;
+}
+[data-testid="stSidebarHeader"] {
+  display: flex;
+  justify-content: flex-end;
+  position: absolute;
+  top: 26px;
+  right: 12px;
+  padding: 0;
+  z-index: 3;
+}
+[data-testid="stSidebarCollapseButton"] {
+  display: inline-flex !important;
+  visibility: visible !important;
+}
+[data-testid="stSidebarCollapseButton"] button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  visibility: visible !important;
+  border: 1px solid var(--tc-border-strong);
+  border-radius: 8px;
+  background-color: transparent;
+  color: var(--tc-muted);
+}
+[data-testid="stSidebarCollapseButton"] button:hover,
+[data-testid="stExpandSidebarButton"]:hover {
+  border-color: var(--tc-gold);
+}
+[data-testid="stSidebarCollapseButton"] button:focus-visible,
+[data-testid="stExpandSidebarButton"]:focus-visible {
+  outline: 2px solid var(--tc-gold);
+  outline-offset: 2px;
+}
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] .stMarkdown p { color: var(--tc-muted); }
+
+[data-testid="stButton"] button {
+  border-radius: 10px;
+  border: 1px solid var(--tc-border-strong);
+  background: transparent;
+  color: var(--tc-text);
+  font-family: Inter, sans-serif;
+  font-weight: 500;
+}
+[data-testid="stButton"] button:hover {
+  border-color: var(--tc-gold);
+  color: var(--tc-gold);
+}
+[data-testid="stButton"] button[kind="primary"] {
+  background: var(--tc-gold);
+  border-color: var(--tc-gold);
+  color: #1a1630;
+  font-family: Cinzel, serif;
+  font-weight: 700;
+}
+[data-testid="stButton"] button[kind="primary"]:hover {
+  background: #efc46e;
+  border-color: #efc46e;
+  color: #1a1630;
+}
+.st-key-goal_row [data-testid="stButton"] button[kind="primary"],
+.st-key-goal_row [data-testid="stButton"] button[kind="primary"] * {
+  font-family: Cinzel, serif !important;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.st-key-goal_row [data-testid="stWidgetLabel"],
+.st-key-goal_row [data-testid="stWidgetLabel"] p {
+  color: var(--tc-muted);
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea,
+[data-testid="stNumberInput"] input,
+[data-testid="stTimeInput"] input,
+[data-testid="stDateInput"] input {
+  background: var(--tc-bg);
+  border: 1px solid var(--tc-border);
+  border-radius: 8px;
+  color: var(--tc-text);
+}
+[data-testid="stTextArea"] textarea {
+  background: var(--tc-surface);
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-size: 16px;
+}
+[data-testid="stSelectbox"] input,
+[data-testid="stSelectbox"] [role="combobox"] {
+  background: var(--tc-bg);
+  border: 1px solid var(--tc-border);
+  border-radius: 8px;
+  color: var(--tc-text);
+}
+[data-testid="stMultiSelectTagsContainer"] {
+  background: var(--tc-bg);
+  border: 1px solid var(--tc-border);
+  border-radius: 8px;
+  padding: 4px 6px;
+}
+[data-testid="stMultiSelectTagsContainer"] [data-tag] {
+  background: #2b2540;
+  border: 1px solid var(--tc-gold);
+  border-radius: 999px;
+  color: var(--tc-gold);
+  font-size: 13px;
+}
+[data-testid="stMultiSelect"] input { color: var(--tc-text); }
+
+[data-testid="stTabs"] [role="tablist"] {
+  gap: 26px;
+  border-bottom: 1px solid var(--tc-border);
+  background: transparent;
+}
+[data-testid="stTabs"] [data-testid="stTab"],
+[data-testid="stTabs"] [role="tab"],
+[data-testid="stTabs"] [data-baseweb="tab"],
+[data-testid="stTabs"] [role="tablist"] button,
+[data-testid="stTabs"] [data-testid="stTab"] *,
+[data-testid="stTabs"] [role="tab"] *,
+[data-testid="stTabs"] [data-baseweb="tab"] *,
+[data-testid="stTabs"] [role="tablist"] button * {
+  font-family: Cinzel, serif !important;
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+[data-testid="stTabs"] [data-testid="stTab"],
+[data-testid="stTabs"] [role="tab"],
+[data-testid="stTabs"] [data-baseweb="tab"],
+[data-testid="stTabs"] [role="tablist"] button {
+  color: var(--tc-muted);
+  background: transparent;
+  padding: 8px 2px;
+}
+[data-testid="stTabs"] [data-testid="stTab"][aria-selected="true"],
+[data-testid="stTabs"] [role="tab"][aria-selected="true"],
+[data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"],
+[data-testid="stTabs"] [role="tablist"] button[aria-selected="true"] {
+  color: var(--tc-gold);
+  border-bottom: 2px solid var(--tc-gold);
+  font-weight: 700;
+}
+[data-testid="stTabs"] [data-testid="stTab"][aria-selected="true"] *,
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] *,
+[data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"] *,
+[data-testid="stTabs"] [role="tablist"] button[aria-selected="true"] * {
+  color: var(--tc-gold);
+  border-bottom: 0;
+  font-weight: 700;
+}
+
+[data-testid="stButtonGroup"] [data-variant="pills"] {
+  border-radius: 999px;
+  border: 1px solid var(--tc-border-strong);
+  background: transparent;
+  color: var(--tc-muted);
+  font-size: 13px;
+  padding: 4px 12px;
+}
+[data-testid="stButtonGroup"] [data-variant="pills"]:hover {
+  border-color: var(--tc-gold);
+  color: var(--tc-gold);
+}
+[data-testid="stButtonGroup"] [data-variant="pills"][data-selected],
+[data-testid="stButtonGroup"] [data-variant="pills"][aria-selected="true"],
+[data-testid="stButtonGroup"] [data-variant="pills"][aria-pressed="true"] {
+  background: #2b2540;
+  border-color: var(--tc-gold);
+  color: var(--tc-gold);
+}
+
+[data-testid="stExpander"],
+[data-testid="stExpander"] details {
+  background: var(--tc-card);
+  border: 1px solid var(--tc-border);
+  border-radius: 12px;
+}
+[data-testid="stExpander"] summary {
+  font-family: Cinzel, serif;
+  color: var(--tc-text);
+}
+[data-testid="stMetric"] {
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+[data-testid="stMetricLabel"] { color: var(--tc-muted); font-size: 13px; }
+[data-testid="stMetricValue"] {
+  font-family: Cinzel, serif;
+  font-weight: 700;
+  font-size: 34px;
+  line-height: 1.2;
+  color: var(--tc-gold);
+}
+[data-testid="stTable"] table {
+  border-collapse: collapse;
+  background: var(--tc-card);
+}
+[data-testid="stTable"] thead th {
+  padding: 12px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--tc-border);
+  color: var(--tc-muted);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+}
+[data-testid="stTable"] tbody td {
+  padding: 12px 18px;
+  border-top: 1px solid var(--tc-border);
+}
+[data-testid="stMarkdownContainer"] code {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  color: var(--tc-teal);
+  background: var(--tc-bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.st-key-eval_actions [data-testid="stButton"] button[kind="secondary"] {
+  color: var(--tc-muted);
+}
+.st-key-evaluation_tab [data-testid="stMarkdownContainer"]:has(> [class^="tc-"]) {
+  margin-bottom: 0 !important;
+}
+[data-testid="stAlert"] {
+  border-radius: 12px;
+  border: 1px solid var(--tc-border);
+  background: var(--tc-card);
+}
+[data-testid="stAlertContainer"] {
+  background: var(--tc-card) !important;
+  border: 1px solid var(--tc-border) !important;
+  border-radius: 12px;
+}
+[data-testid="stToast"] {
+  background: var(--tc-card) !important;
+  border: 1px solid var(--tc-border-strong) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 18px 40px rgba(4, 6, 18, 0.55) !important;
+  color: var(--tc-text);
+  filter: none !important;
+  padding: 14px 16px;
+  font-family: Inter, sans-serif;
+}
+[data-testid="stToastText"] {
+  color: var(--tc-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+[data-testid="stToastDynamicIcon"] {
+  font-size: 18px;
+  line-height: 1;
+}
+[data-testid="stToast"] button[aria-label="Close"] {
+  color: var(--tc-muted);
+}
+[data-testid="stToast"] button[aria-label="Close"]:hover {
+  color: var(--tc-gold);
+}
+[data-testid="stToastViewButton"] {
+  color: var(--tc-teal);
+  font-size: 12px;
+}
+[data-testid="stToastViewButton"]:hover {
+  color: var(--tc-gold);
+}
+
+.tc-brand { padding-right: 44px; }
+.tc-brand-name {
+  font-family: Cinzel, serif;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  color: var(--tc-gold);
+}
+.tc-brand-tag { color: var(--tc-muted); font-size: 13px; }
+
+.tc-side-card {
+  background: var(--tc-card);
+  border: 1px solid var(--tc-border);
+  border-radius: 14px;
+  padding: 14px 16px 6px;
+}
+.tc-side-card + .tc-side-card { margin-top: 20px; }
+.tc-side-card-title {
+  font-family: Cinzel, serif;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--tc-muted);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.tc-side-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--tc-border);
+}
+.tc-side-row-label { font-size: 13px; color: var(--tc-muted); }
+.tc-side-code {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  color: var(--tc-teal);
+  background: var(--tc-bg);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+.tc-side-code-prefix { color: #6f6c91; }
+.tc-side-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--tc-teal);
+  color: var(--tc-teal);
+  font-size: 12px;
+}
+.tc-side-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tc-teal);
+}
+.tc-side-pill-off { border-color: var(--tc-muted); color: var(--tc-muted); }
+.tc-side-pill-off .tc-side-pill-dot { background: var(--tc-muted); }
+.tc-side-link { color: #6db3ff; font-size: 13px; text-decoration: none; }
+.tc-side-row-stack { display: block; }
+.tc-side-row-stack .tc-side-code { display: block; margin-top: 4px; overflow-wrap: anywhere; }
+
+.tc-time-card {
+  background: var(--tc-card);
+  border: 1px solid var(--tc-border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin: 4px 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tc-time-head { display: flex; justify-content: space-between; align-items: baseline; }
+.tc-time-label {
+  font-family: Cinzel, serif;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--tc-muted);
+}
+.tc-time-value { font-family: Cinzel, serif; font-size: 26px; color: var(--tc-gold); }
+.tc-time-value small { font-size: 13px; color: var(--tc-teal); }
+.tc-daybar { display: flex; gap: 6px; }
+.tc-daybar span { flex: 1; height: 8px; border-radius: 4px; background: var(--tc-border); }
+.tc-daybar span.on { background: var(--tc-gold); }
+.tc-daylabels {
+  display: flex;
+  justify-content: space-between;
+  color: var(--tc-muted);
+  font-size: 12px;
+}
+.tc-daylabels .on { color: var(--tc-gold); font-weight: 600; }
+.tc-time-caption { color: var(--tc-muted); font-size: 12px; }
+
+.tc-fairy { display: flex; gap: 10px; align-items: center; }
+.tc-fairy-figure { position: relative; width: 96px; height: 72px; flex: none; }
+.tc-fairy-wings { position: absolute; inset: 0; width: 96px; height: 72px; }
+.tc-fairy-orb {
+  position: absolute;
+  left: 30px;
+  top: 26px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #ffffff 0%, #fff3a0 30%,
+    #f5d142 62%, rgba(245, 209, 66, 0.15) 100%);
+  box-shadow: 0 0 22px 8px rgba(245, 209, 66, 0.5);
+}
+.tc-fairy-bubble {
+  flex: 1;
+  padding: 14px 18px;
+  border-radius: 4px 16px 16px 16px;
+  background: #12302f;
+  border: 1px solid var(--tc-teal);
+}
+.tc-fairy-name {
+  font-family: Cinzel, serif;
+  font-weight: 700;
+  color: var(--tc-teal);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}
+.tc-fairy-text { color: var(--tc-text); }
+
+.tc-panel {
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin: 6px 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.tc-panel-title {
+  font-family: Cinzel, serif;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--tc-muted);
+}
+.tc-live-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 12px;
+  color: var(--tc-gold);
+  font-family: Cinzel, serif;
+  font-size: 15px;
+}
+.tc-live-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--tc-gold);
+  animation: tc-pulse 1.6s ease-out infinite;
+}
+@keyframes tc-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(245, 209, 66, 0.5); }
+  70% { box-shadow: 0 0 0 8px rgba(245, 209, 66, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 209, 66, 0); }
+}
+.tc-registry-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.tc-registry-hint { font-size: 12px; color: var(--tc-muted); margin-top: -8px; }
+.tc-registry { display: flex; flex-direction: column; gap: 8px; }
+.tc-reg {
+  border: 1px solid var(--tc-border);
+  border-radius: 10px;
+  background: var(--tc-card);
+  overflow: hidden;
+}
+.tc-reg.bad { border-color: rgba(224, 90, 90, 0.55); }
+.tc-reg.running { border-color: rgba(245, 209, 66, 0.55); }
+.tc-reg > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  list-style: none;
+  cursor: pointer;
+}
+.tc-reg > summary::-webkit-details-marker { display: none; }
+.tc-reg[open] > summary { border-bottom: 1px solid var(--tc-border); }
+.tc-reg-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--tc-teal);
+}
+.tc-reg.bad .tc-reg-dot { background: var(--tc-red); }
+.tc-reg.running .tc-reg-dot {
+  background: var(--tc-gold);
+  animation: tc-pulse 1.6s ease-out infinite;
+}
+.tc-reg-main { flex: 1; min-width: 0; }
+.tc-reg-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
+.tc-reg-sub { font-size: 12px; color: var(--tc-muted); }
+.tc-reg-engine,
+.tc-reg-attempt {
+  padding: 1px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--tc-border-strong);
+  color: var(--tc-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.tc-reg-attempt { border-color: var(--tc-gold); color: var(--tc-gold); }
+.tc-reg-right { flex: none; max-width: 52%; text-align: right; }
+.tc-reg-result {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--tc-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tc-reg.running .tc-reg-result { color: var(--tc-gold); }
+.tc-reg-time { font-size: 11px; color: var(--tc-muted); }
+.tc-chev { color: var(--tc-muted); transition: transform 0.15s; }
+.tc-reg[open] .tc-chev { transform: rotate(180deg); }
+.tc-reg-body { padding: 12px 14px 14px; font-size: 13px; }
+.tc-reg-body ul { margin: 0; padding-left: 18px; }
+.tc-reg-body li { margin: 3px 0; }
+.tc-reg-activity { color: var(--tc-muted); }
+.tc-reg-activity ul {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.tc-reg-activity li { color: var(--tc-muted); }
+.tc-reg-activity li.current { color: var(--tc-gold); }
+.tc-reg-activity .tc-ev { display: inline-block; width: 16px; }
+.tc-reg-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--tc-muted);
+}
+.tc-reg-issues-box {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #2a1a24;
+  border: 1px solid var(--tc-red);
+}
+.tc-reg-issue-head { color: #f0b5a8; margin-bottom: 6px; }
+.tc-reg-stop { color: var(--tc-muted); }
+.tc-problems-pill {
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--tc-red);
+  background: rgba(224, 90, 90, 0.12);
+  color: var(--tc-red);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tc-badges { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.tc-badges-label { font-size: 12px; color: var(--tc-muted); }
+.tc-badge {
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--tc-teal);
+  color: var(--tc-teal);
+  font-size: 12px;
+}
+.tc-badge.gold { border-color: var(--tc-gold); color: var(--tc-gold); }
+.tc-badge.red { border-color: var(--tc-red); color: var(--tc-red); }
+.tc-badges span:last-child { font-size: 12px; color: var(--tc-muted); }
+
+.tc-verdict {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: #12302f;
+  border: 1px solid var(--tc-teal);
+}
+.tc-verdict.fail { background: #2a1a24; border-color: var(--tc-red); }
+.tc-verdict-icon { font-size: 22px; color: var(--tc-teal); }
+.tc-verdict.fail .tc-verdict-icon { color: var(--tc-red); }
+.tc-verdict-title {
+  font-family: Cinzel, serif;
+  font-weight: 700;
+  color: var(--tc-teal);
+  font-size: 17px;
+}
+.tc-verdict.fail .tc-verdict-title { color: var(--tc-red); }
+.tc-verdict-body { font-size: 13px; color: #b9e5e0; }
+.tc-verdict.fail .tc-verdict-body { color: #f0b5a8; }
+
+.tc-issues-table { display: flex; flex-direction: column; }
+.tc-issue-row {
+  display: grid;
+  grid-template-columns: 86px 108px 80px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--tc-border);
+  font-size: 13px;
+}
+.tc-issue-head {
+  padding: 4px 0;
+  border-top: 0;
+  color: var(--tc-muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.tc-sev-tag,
+.tc-kind-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.tc-sev-tag.error { background: #3a1c26; color: #f0757a; }
+.tc-sev-tag.warning { background: #3a3320; color: var(--tc-gold); }
+.tc-kind-tag { background: #14305a; color: #7ab8ff; }
+.tc-issue-step { font-weight: 600; }
+.tc-problems-panel {
+  padding: 16px 20px;
+  border-radius: 14px;
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+}
+.tc-problems-panel .tc-issues-table { margin-top: 6px; }
+.tc-missing-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tc-missing-chip {
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--tc-red);
+  background: #1b2046;
+  color: #f0b5a8;
+  font-size: 12px;
+}
+
+.tc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 56px 24px;
+  border-radius: 14px;
+  border: 1px dashed var(--tc-border-strong);
+  background: var(--tc-surface);
+  text-align: center;
+}
+.tc-empty-icon { color: var(--tc-gold); }
+.tc-empty-title {
+  font-family: Cinzel, serif;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--tc-gold);
+}
+.tc-empty-body { max-width: 460px; color: var(--tc-muted); }
+
+.tc-timeline { display: flex; flex-direction: column; }
+.tc-step { display: flex; gap: 18px; }
+.tc-step-time { width: 92px; flex: none; text-align: right; padding-top: 14px; }
+.tc-step-hour { font-family: Cinzel, serif; font-weight: 700; }
+.tc-step-day { font-size: 12px; color: var(--tc-muted); }
+.tc-step-rail {
+  width: 14px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.tc-dot {
+  width: 12px;
+  height: 12px;
+  margin-top: 18px;
+  border-radius: 50%;
+  background: var(--tc-gold);
+  flex: none;
+}
+.tc-line { flex: 1; width: 2px; background: var(--tc-border); min-height: 16px; }
+.tc-step:last-child .tc-line { display: none; }
+.tc-step-card {
+  flex: 1;
+  margin-bottom: 12px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+}
+.tc-step-title { font-weight: 600; }
+.tc-step-meta { font-size: 13px; color: var(--tc-muted); }
+.tc-step.last .tc-step-hour { color: var(--tc-red); }
+.tc-step.last .tc-dot { background: var(--tc-red); }
+.tc-step.last .tc-step-card { background: #2a1a24; border-color: var(--tc-red); }
+.tc-step.last .tc-step-meta { color: #f0b5a8; }
+.tc-step.last.ok .tc-step-hour { color: var(--tc-teal); }
+.tc-step.last.ok .tc-dot { background: var(--tc-teal); }
+.tc-step.last.ok .tc-step-card {
+  background: #12302f;
+  border-color: var(--tc-teal);
+}
+.tc-step.last.ok .tc-step-meta { color: #b9e5e0; }
+.tc-step.bad .tc-step-hour { color: var(--tc-red); }
+.tc-step.bad .tc-dot { background: var(--tc-red); }
+.tc-step.bad .tc-step-card { background: #2a1a24; border-color: var(--tc-red); }
+.tc-step.bad .tc-step-meta { color: #f0b5a8; }
+
+.tc-subhead {
+  font-family: Cinzel, serif;
+  font-size: 18px;
+  color: var(--tc-gold);
+  margin: 6px 0 2px;
+}
+.tc-detail-list { display: flex; flex-direction: column; gap: 12px; }
+.tc-detail-card {
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tc-detail-title { font-weight: 600; }
+.tc-detail-line { font-size: 14px; }
+.tc-detail-muted { color: var(--tc-muted); font-size: 13px; }
+.tc-code {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  color: var(--tc-teal);
+  background: var(--tc-bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.tc-item {
+  font-family: Inter, sans-serif;
+  font-weight: 600;
+  color: var(--tc-item);
+  white-space: nowrap;
+}
+.tc-item::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 3px;
+  margin-right: 6px;
+  vertical-align: 1px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+.tc-mask {
+  font-family: Cinzel, serif;
+  font-weight: 700;
+  color: var(--tc-mask);
+  letter-spacing: 0.02em;
+}
+.tc-place {
+  font-family: Inter, sans-serif;
+  font-weight: 600;
+  font-variant: small-caps;
+  letter-spacing: 0.03em;
+  color: var(--tc-place);
+  text-decoration: underline dotted var(--tc-place-line);
+  text-underline-offset: 3px;
+}
+.tc-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--tc-border);
+  border-radius: 14px;
+  background: var(--tc-card);
+}
+.tc-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tc-table th {
+  padding: 12px 18px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--tc-muted);
+  white-space: nowrap;
+}
+.tc-table td { padding: 12px 18px; border-top: 1px solid var(--tc-border); }
+.tc-table code { white-space: normal; overflow-wrap: anywhere; }
+.tc-table th.num, .tc-table td.num { text-align: right; }
+.tc-cell-pass { color: var(--tc-teal); font-weight: 600; }
+.tc-cell-fail { color: var(--tc-red); font-weight: 600; }
+.tc-cell-warn { color: var(--tc-gold); }
+.tc-cell-muted { color: var(--tc-muted); }
+.tc-eval-error { color: var(--tc-red); }
+.tc-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #12302f;
+  border: 1px solid var(--tc-teal);
+  color: #b9e5e0;
+  font-size: 14px;
+}
+.tc-banner-icon { color: var(--tc-teal); font-weight: 700; }
+.tc-failure-panel {
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+}
+.tc-failure-label {
+  margin-bottom: 8px;
+  color: var(--tc-muted);
+  font-size: 13px;
+}
+.tc-failure-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+}
+.tc-failure-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--tc-text);
+  font-size: 13px;
+}
+.tc-failure-chip b {
+  font-family: Cinzel, serif;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--tc-gold);
+}
+.tc-failure-empty {
+  font-family: Cinzel, serif;
+  font-size: 18px;
+  color: var(--tc-gold);
+}
+
+@media (max-width: 700px) {
+  .tc-step-time { width: 64px; }
+}
+"""
+
+
+def _html_block(markup: str) -> None:
+    """Draw trusted HTML markup into the page."""
+    st.markdown(markup, unsafe_allow_html=True)
+
+
+def _inject_styles() -> None:
+    """Install the Majora's Mask theme once per script run."""
+    _html_block(f"<style>{_THEME_CSS}</style>")
+
+
+def _hours_left(day: int, internal_hour: int, minute: int) -> int:
+    """Return the whole hours left before the cycle ends (Day 3 29:59)."""
+    elapsed = (day - 1) * 1440 + (internal_hour - 6) * 60 + minute
+    return max(0, (3 * 1440 - elapsed) // 60)
+
+
+def _brand_html() -> str:
+    """Return the sidebar brand block."""
+    return (
+        '<div class="tc-brand">'
+        '<div class="tc-brand-name">TaIA</div>'
+        f'<div class="tc-brand-tag">{html.escape(t("brand_tagline"))}</div>'
+        "</div>"
+    )
+
+
+def _time_card_html(day: int, value: datetime.time) -> str:
+    """Return the sidebar "time left" card for the selected game time."""
+    hour = _internal_hour(value.hour)
+    suffix = " <small>(+1)</small>" if hour >= 24 else ""
+    display = f"{value.hour:02d}:{value.minute:02d}"
+    bars = "".join(f'<span class="{"on" if n == day else ""}"></span>' for n in (1, 2, 3))
+    labels = "".join(
+        f'<span class="{"on" if n == day else ""}">{html.escape(t("day_n", n=n))}</span>'
+        for n in (1, 2, 3)
+    )
+    return (
+        '<div class="tc-time-card">'
+        '<div class="tc-time-head">'
+        f'<span class="tc-time-label">{html.escape(t("time_left_label"))}</span>'
+        f'<span class="tc-time-value">{display}{suffix}</span>'
+        "</div>"
+        f'<div class="tc-daybar">{bars}</div>'
+        f'<div class="tc-daylabels">{labels}</div>'
+        f'<div class="tc-time-caption">{html.escape(t("time_left_caption", day=day))}</div>'
+        "</div>"
+    )
+
+
+def _empty_plan_html() -> str:
+    """Return the dashed empty-state card shown before the first plan."""
+    return (
+        '<section class="tc-empty">'
+        '<svg class="tc-empty-icon" width="40" height="40" viewBox="0 0 24 24" '
+        'fill="none" stroke="currentColor" stroke-width="1.5" '
+        'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        '<circle cx="12" cy="12" r="9"></circle>'
+        '<path d="M12 7v5l3 2"></path></svg>'
+        f'<div class="tc-empty-title">{html.escape(t("empty_plan_title"))}</div>'
+        f'<div class="tc-empty-body">{html.escape(t("empty_plan_body"))}</div>'
+        "</section>"
+    )
+
+
+def _fairy_svg(
+    gradient_id: str,
+    css_class: str = "tc-fairy-wings",
+) -> str:
+    """Return TaIA's wings as inline SVG."""
+    fill = f"url(#{gradient_id})"
+    class_attr = f' class="{css_class}"' if css_class else ""
+    return (
+        f'<svg{class_attr} viewBox="0 0 96 72" aria-hidden="true">'
+        f'<defs><linearGradient id="{gradient_id}" x1="0" y1="0" x2="0" y2="1">'
+        '<stop offset="0" stop-color="#bfe6f2" stop-opacity="0.75"></stop>'
+        '<stop offset="1" stop-color="#fff3a0" stop-opacity="0.75"></stop>'
+        "</linearGradient></defs>"
+        f'<path d="M40 38C28 30 16 16 12 3C26 8 38 22 40 38Z" fill="{fill}" '
+        'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
+        'stroke-linecap="round"></path>'
+        '<path d="M39 35C29 25 21 14 14 5" fill="none" stroke="#8fb8c4" '
+        'stroke-width="0.9" stroke-linecap="round"></path>'
+        f'<path d="M56 38C68 30 80 16 84 3C70 8 58 22 56 38Z" fill="{fill}" '
+        'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
+        'stroke-linecap="round"></path>'
+        '<path d="M57 35C67 25 75 14 82 5" fill="none" stroke="#8fb8c4" '
+        'stroke-width="0.9" stroke-linecap="round"></path>'
+        f'<path d="M38 47C29 44 21 47 13 54C23 57 33 55 38 47Z" fill="{fill}" '
+        'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
+        'stroke-linecap="round"></path>'
+        f'<path d="M58 47C67 44 75 47 83 54C73 57 63 55 58 47Z" fill="{fill}" '
+        'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
+        'stroke-linecap="round"></path>'
+        '<circle cx="70" cy="60" r="3.5" fill="none" stroke="#f5d142" '
+        'stroke-width="1.2"></circle>'
+        '<circle cx="80" cy="66" r="2.2" fill="#f5d142"></circle>'
+        '<circle cx="88" cy="56" r="1.8" fill="#fff3a0"></circle>'
+        "</svg>"
+    )
+
+
+def _fairy_html(day: int, value: datetime.time, text: str | None = None) -> str:
+    """Return TaIA's greeting bubble with the hours left in the cycle.
+
+    ``text`` overrides the play greeting, so the evaluation tab can reuse the
+    same figure and bubble without inventing a second layout.
+    """
+    hours = _hours_left(day, _internal_hour(value.hour), value.minute)
+    message = text if text is not None else t("fairy_greeting", hours=hours)
+    # Both tabs stay in the DOM, so a shared gradient id would let the
+    # evaluation fairy resolve the hidden play tab's defs.
+    gradient_id = "taiaw-eval" if text is not None else "taiaw-play"
+    wings = _fairy_svg(gradient_id)
+    return (
+        '<section class="tc-fairy">'
+        '<div class="tc-fairy-figure" aria-hidden="true">'
+        f"{wings}"
+        '<span class="tc-fairy-orb"></span>'
+        "</div>"
+        '<div class="tc-fairy-bubble">'
+        '<div class="tc-fairy-name">TaIA</div>'
+        f'<div class="tc-fairy-text">{html.escape(message)}</div>'
+        "</div></section>"
+    )
+
+
+_AGENT_SUBTITLE_KEY = {
+    "state": "agent_card_state",
+    "knowledge": "agent_card_knowledge",
+    "plan": "agent_card_plan",
+    "critic": "agent_card_critic",
+}
+
+
+def _rag_badges_html(result: dict) -> str:
+    """Return the wiki-evidence badge row for a finished or running run."""
+    status = result.get("retrieval_status") or ""
+    if not status:
+        return ""
+    if status == "unavailable":
+        tone = "red"
+    elif status in {"wiki_ingested", "wiki_miss"}:
+        tone = "gold"
+    else:
+        tone = ""
+    badges = f'<span class="tc-badge {tone}">{html.escape(status)}</span>'
+    sources = result.get("retrieval_indexed_sources") or []
+    if sources:
+        badges += f"<span>{html.escape(t('indexed_pages_n', n=len(sources)))}</span>"
+    return (
+        '<div class="tc-badges">'
+        f'<span class="tc-badges-label">{html.escape(t("wiki_evidence"))}</span>'
+        f"{badges}</div>"
+    )
+
+
+def _plain_clock(clock) -> str:
+    """Format a clock for HTML text without markdown code spans."""
+    suffix = " (+1)" if clock.next_morning else ""
+    return f"{t('day_n', n=clock.day)}, {clock.display_hour:02d}:{clock.minute:02d}{suffix}"
+
+
+def _html_clock(clock) -> str:
+    """Format a clock as an inline code span for HTML detail cards."""
+    suffix = " (+1)" if clock.next_morning else ""
+    day = html.escape(t("day_n", n=clock.day))
+    return (
+        f'<span class="tc-code">{day} \u2013 '
+        f"{clock.display_hour:02d}:{clock.minute:02d}{suffix}</span>"
+    )
+
+
+def _registry_rows(task: _PlanningTask) -> list[dict]:
+    """Pair each streamed agent start with its progress, update and duration."""
+    rows: list[dict] = []
+    for index, entry in enumerate(task.log):
+        kind = entry[0]
+        if kind not in {"start", "update", "progress"}:
+            continue
+        if kind == "progress":
+            payload = entry[1]
+            if not isinstance(payload, dict):
+                continue
+            node = payload.get("node", "")
+            if node not in _AGENT_LABEL_KEY:
+                continue
+            target = next((row for row in reversed(rows) if row["node"] == node), None)
+            if target is not None:
+                target["events"].append(payload)
+            continue
+        node = entry[1]
+        if node not in _AGENT_LABEL_KEY:
+            continue
+        if kind == "start":
+            rows.append({"node": node, "data": None, "seconds": None, "events": []})
+            continue
+        data = entry[2] if len(entry) > 2 else None
+        if not isinstance(data, dict):
+            continue
+        target = next(
+            (row for row in reversed(rows) if row["node"] == node and row["data"] is None),
+            None,
+        )
+        if target is None:
+            target = {"node": node, "data": None, "seconds": None, "events": []}
+            rows.append(target)
+        target["data"] = data
+        target["seconds"] = task.timings.get(index)
+    return rows
+
+
+def _registry_activity_html(events: list[dict], running: bool, entities=None) -> str:
+    """Return the live activity timeline for one agent row."""
+    lines = [line for line in (_progress_line(event) for event in events) if line]
+    if not lines:
+        return ""
+    index = entities or _entity_index(None)
+    items = []
+    for position, line in enumerate(lines):
+        current = running and position == len(lines) - 1
+        marker = "\u23f3" if current else "\u2713"
+        tone = "current" if current else "done"
+        items.append(
+            f'<li class="{tone}"><span class="tc-ev">{marker}</span> '
+            f"{_progress_html(line, index)}</li>"
+        )
+    return (
+        '<div class="tc-reg-activity">'
+        f'<div class="tc-panel-title">{html.escape(t("activity"))}</div>'
+        f"<ul>{''.join(items)}</ul></div>"
+    )
+
+
+def _registry_live_summary(events: list[dict]) -> str:
+    """Return the current progress line (or a starting hint) for a live row."""
+    for event in reversed(events):
+        line = _progress_line(event)
+        if line:
+            return line
+    return t("agent_starting")
+
+
+def _registry_engine_html(node: str, data: dict) -> str:
+    """Return the engine chip for one registry row."""
+    engine, model = _engine_for(node, data)
+    if not engine:
+        return ""
+    label = html.escape(_ENGINE_LABELS.get(engine, engine))
+    if model:
+        label = f"{label} · {_code_html(model)}"
+    return f'<span class="tc-reg-engine">{label}</span>'
+
+
+def _registry_state_summary(data: dict) -> str:
+    """Return the one-line State Agent result shown in the row header."""
+    gs = data.get("game_state")
+    if gs is None:
+        return ""
+    return t(
+        "registry_state_summary",
+        when=_plain_clock(gs.time),
+        where=_entity_span(tr(gs.location), "place"),
+        masks=len(gs.masks),
+        items=len(gs.inventory),
+    )
+
+
+def _registry_plan_summary(data: dict) -> str:
+    """Return the one-line Planning Agent result shown in the row header."""
+    plan = data.get("plan")
+    if not plan or not plan.steps:
+        return t("no_plan")
+    return t("registry_plan_steps", n=len(plan.steps))
+
+
+def _registry_critic_summary(data: dict) -> str:
+    """Return the one-line Critic result shown in the row header."""
+    validation = data.get("validation")
+    if validation is None:
+        return ""
+    if validation.valid:
+        return t("plan_valid")
+    return t("registry_issue_count", n=len(validation.issues))
+
+
+def _registry_state_body(data: dict) -> str:
+    """Return the expanded State Agent body."""
+    gs = data.get("game_state")
+    if gs is None:
+        return ""
+    items = _entities_html(gs.inventory, "item") or html.escape(t("trace_none"))
+    masks = _entities_html(gs.masks, "mask") or html.escape(t("trace_none"))
+    return (
+        '<div class="tc-reg-kv">'
+        f"<span><b>{html.escape(t('trace_items'))}</b> {items}</span>"
+        f"<span><b>{html.escape(t('trace_masks'))}</b> {masks}</span>"
+        "</div>"
+    )
+
+
+def _registry_knowledge_body(data: dict, entities=None) -> str:
+    """Return the expanded Knowledge Agent body, including RAG badges."""
+    objectives = data.get("relevant_objectives") or []
+    index = entities if entities is not None else _entity_index(None)
+    if objectives:
+        items = "".join(f"<li>{_highlight_entities(obj.title, index)}</li>" for obj in objectives)
+        body = f"<ul>{items}</ul>"
+    else:
+        body = f'<div class="tc-reg-kv">{html.escape(t("knowledge_empty_hint"))}</div>'
+    return body + _rag_badges_html(data)
+
+
+def _registry_plan_body(data: dict, entities=None) -> str:
+    """Return the expanded Planning Agent body as a compact step list."""
+    plan = data.get("plan")
+    if not plan or not plan.steps:
+        return f'<div class="tc-reg-kv">{html.escape(t("no_plan"))}</div>'
+    index = entities if entities is not None else _entity_index(None)
+    items = "".join(
+        f"<li>{position}. {_highlight_entities(step.title, index)} "
+        f'<span class="tc-reg-time">{html.escape(_fmt_window(step.window))}</span></li>'
+        for position, step in enumerate(plan.steps, 1)
+    )
+    return f"<ul>{items}</ul>"
+
+
+def _registry_critic_body(data: dict, entities=None) -> str:
+    """Return the expanded Critic body with its issues."""
+    validation = data.get("validation")
+    if validation is None:
+        return ""
+    if validation.valid:
+        return f'<div class="tc-reg-kv">{html.escape(t("plan_valid"))}</div>'
+    stop = (
+        f'<span class="tc-reg-stop">{html.escape(t("registry_stop_here"))}</span>'
+        if len(data.get("attempt_log") or []) >= MAX_PLANNING_ATTEMPTS
+        else ""
+    )
+    head = t("replan_line", n=len(validation.issues), max=MAX_PLANNING_ATTEMPTS)
+    return (
+        '<div class="tc-reg-issues-box">'
+        f'<div class="tc-reg-issue-head">{html.escape(head)}{stop}</div>'
+        f"{_issues_table_html(validation.issues, entities=entities)}"
+        f"{_missing_chips_html(validation.issues, prefix=True)}"
+        "</div>"
+    )
+
+
+def _registry_body(
+    node: str,
+    data: dict,
+    *,
+    events: list[dict] | None = None,
+    live: bool = False,
+    entities=None,
+) -> str:
+    """Dispatch the expanded body for one registry row."""
+    if data:
+        if node == "state":
+            return _registry_state_body(data)
+        if node == "knowledge":
+            return _registry_knowledge_body(data, entities)
+        if node == "plan":
+            return _registry_plan_body(data, entities)
+        if node == "critic":
+            return _registry_critic_body(data, entities)
+        return ""
+    return _registry_activity_html(events or [], running=live, entities=entities)
+
+
+def _registry_summary(
+    node: str,
+    data: dict,
+    *,
+    events: list[dict] | None = None,
+    live: bool = False,
+    entities=None,
+) -> str:
+    """Dispatch the HTML-safe one-line result for one registry row."""
+    index = entities if entities is not None else _entity_index(None)
+    if not data:
+        if live:
+            return _progress_html(_registry_live_summary(events or []), index)
+        lines = [line for line in (_progress_line(event) for event in events or []) if line]
+        return _progress_html(lines[-1], index) if lines else ""
+    if node == "state":
+        return _registry_state_summary(data)
+    if node == "knowledge":
+        return html.escape(t("knowledge_objectives", n=len(data.get("relevant_objectives") or [])))
+    if node == "plan":
+        return html.escape(_registry_plan_summary(data))
+    if node == "critic":
+        return html.escape(_registry_critic_summary(data))
+    return ""
+
+
+def _agent_registry_html(task: _PlanningTask, live: bool = False, kb=None) -> str:
+    """Return the agent registry, shared by live and finished runs."""
+    rows = _registry_rows(task)
+    if not rows:
+        return ""
+    entities = _entity_index(kb)
+    validation = task.result.get("validation")
+    error_count = (
+        len([issue for issue in validation.issues if issue.severity == "error"])
+        if validation is not None and not validation.valid
+        else 0
+    )
+    pill = ""
+    if error_count:
+        pill = (
+            '<span class="tc-problems-pill">'
+            f"{html.escape(t('problems_count', n=error_count))}</span>"
+        )
+    cards = []
+    plan_attempt = 0
+    last = len(rows) - 1
+    for index, row in enumerate(rows):
+        node = row["node"]
+        data = row["data"] or {}
+        running = live and row["data"] is None
+        attempt = None
+        if node == "plan":
+            plan_attempt = int(data.get("replan_attempts") or plan_attempt + 1)
+            attempt = plan_attempt
+        elif node == "critic" and plan_attempt:
+            attempt = plan_attempt
+        bad = (
+            node == "critic" and data.get("validation") is not None and not data["validation"].valid
+        )
+        attempt_chip = ""
+        if attempt is not None:
+            attempt_chip = (
+                '<span class="tc-reg-attempt">'
+                f"{html.escape(t('step_attempt', n=attempt, max=MAX_PLANNING_ATTEMPTS))}"
+                "</span>"
+            )
+        seconds = row["seconds"]
+        duration = f'<div class="tc-reg-time">{seconds:.1f}s</div>' if seconds is not None else ""
+        classes = "tc-reg"
+        if bad:
+            classes += " bad"
+        if running:
+            classes += " running"
+        summary = _registry_summary(node, data, events=row["events"], live=live, entities=entities)
+        body = _registry_body(node, data, events=row["events"], live=running, entities=entities)
+        cards.append(
+            f'<details class="{classes}"{" open" if index == last else ""}>'
+            "<summary>"
+            '<span class="tc-reg-dot"></span>'
+            '<div class="tc-reg-main">'
+            f'<div class="tc-reg-name">{html.escape(t(_AGENT_LABEL_KEY[node]))}'
+            f"{_registry_engine_html(node, data)}{attempt_chip}</div>"
+            f'<div class="tc-reg-sub">{html.escape(t(_AGENT_SUBTITLE_KEY[node]))}</div>'
+            "</div>"
+            '<div class="tc-reg-right">'
+            f'<div class="tc-reg-result">{summary}</div>'
+            f"{duration}</div>"
+            '<span class="tc-chev" aria-hidden="true">⌄</span>'
+            "</summary>"
+            f'<div class="tc-reg-body">{body}</div>'
+            "</details>"
+        )
+    hint = t("agent_registry_live_hint") if live else t("agent_registry_hint")
+    return (
+        '<section class="tc-panel">'
+        '<div class="tc-registry-head">'
+        f'<div class="tc-panel-title">{html.escape(t("agents_title"))}</div>'
+        f"{pill}</div>"
+        f'<div class="tc-registry-hint">{html.escape(hint)}</div>'
+        f'<div class="tc-registry">{"".join(cards)}</div>'
+        "</section>"
+    )
+
+
+def _verdict_html(valid: bool, title: str, body: str, extra_html: str = "") -> str:
+    """Return the Critic's verdict banner."""
+    cls = "" if valid else " fail"
+    icon = "\u2713" if valid else "\u2717"
+    return (
+        f'<section class="tc-verdict{cls}">'
+        f'<div class="tc-verdict-icon" aria-hidden="true">{icon}</div>'
+        f'<div><div class="tc-verdict-title">{html.escape(title)}</div>'
+        f'<div class="tc-verdict-body">{html.escape(body)}</div>'
+        f"{extra_html}</div></section>"
+    )
+
+
+def _side_code_html(value: str) -> str:
+    """Return the monospace value chip used inside a sidebar card."""
+    return f'<span class="tc-side-code">{html.escape(value)}</span>'
+
+
+def _side_row_html(label: str, value_html: str) -> str:
+    """Return one label/value row of a sidebar configuration card."""
+    return (
+        '<div class="tc-side-row">'
+        f'<span class="tc-side-row-label">{html.escape(label)}</span>'
+        f"{value_html}</div>"
+    )
+
+
+def _side_stack_row_html(label: str, value_html: str) -> str:
+    """Return a stacked label/value row, for values too long to sit beside."""
+    return (
+        '<div class="tc-side-row tc-side-row-stack">'
+        f'<span class="tc-side-row-label">{html.escape(label)}</span>'
+        f"{value_html}</div>"
+    )
+
+
+def _side_config_card_html(title: str, rows: list[str]) -> str:
+    """Return one read-only configuration card of the sidebar."""
+    return (
+        '<section class="tc-side-card">'
+        f'<div class="tc-side-card-title">{html.escape(title)}</div>'
+        f"{''.join(rows)}</section>"
+    )
+
+
+def _configuration_html(settings: Settings) -> str:
+    """Return the LLM and runtime cards shown at the bottom of the sidebar."""
+    provider = settings.llm_provider or ""
+    base_url = settings.llm_base_url or ""
+
+    llm_rows: list[str] = []
+    if provider:
+        model = settings.llm_model or default_model_for(provider)
+        llm_rows.append(_side_row_html(t("llm_provider"), _side_code_html(provider)))
+        if model:
+            llm_rows.append(_side_row_html(t("llm_model"), _side_code_html(model)))
+        if base_url:
+            llm_rows.append(_side_row_html("LLM_BASE_URL", _side_code_html(base_url)))
+
+    rag = settings.rag
+    retrieval = t("state_on") if rag.enabled else t("state_off")
+    retrieval_class = "tc-side-pill" if rag.enabled else "tc-side-pill tc-side-pill-off"
+    retrieval_html = (
+        f'<span class="{retrieval_class}">'
+        '<span class="tc-side-pill-dot" aria-hidden="true"></span>'
+        f"{html.escape(retrieval)}</span>"
+    )
+
+    embedding = rag.embedding_model
+    prefix, sep, rest = embedding.partition("/")
+    if sep and rest:
+        embedding_html = (
+            '<span class="tc-side-code">'
+            f'<span class="tc-side-code-prefix">{html.escape(prefix + sep)}</span>'
+            f"{html.escape(rest)}</span>"
+        )
+    else:
+        embedding_html = _side_code_html(embedding)
+
+    if settings.tracing_enabled:
+        phoenix_html = (
+            f'<a class="tc-side-link" href="{html.escape(settings.phoenix_ui_url, quote=True)}" '
+            f'target="_blank" rel="noreferrer">{html.escape(t("open_phoenix"))}</a>'
+        )
+    else:
+        phoenix_html = _side_code_html("None")
+
+    runtime_rows = [
+        _side_row_html(t("rag_retrieval"), retrieval_html),
+        _side_stack_row_html(t("rag_embedding_model"), embedding_html),
+        _side_row_html(t("phoenix_url"), phoenix_html),
+    ]
+    return _side_config_card_html(t("llm_settings"), llm_rows) + _side_config_card_html(
+        t("runtime_config"), runtime_rows
+    )
+
+
 def _render_configuration() -> None:
     """Show the read-only configuration loaded from the environment.
 
@@ -1654,14 +3280,8 @@ def _render_configuration() -> None:
     provider = settings.llm_provider or ""
     base_url = settings.llm_base_url or ""
 
-    _section(t("llm_settings"))
+    _html_block(_configuration_html(settings))
     if provider:
-        model = settings.llm_model or default_model_for(provider)
-        st.markdown(f"- **{t('llm_provider')}**: `{provider}`")
-        if model:
-            st.markdown(f"- **{t('llm_model')}**: `{model}`")
-        if base_url:
-            st.markdown(f"- **LLM_BASE_URL**: `{base_url}`")
         if provider in {"ollama", "lmstudio"} and base_url and urlsplit(base_url).path in {"", "/"}:
             st.warning(t("llm_base_url_hint"))
     else:
@@ -1669,16 +3289,28 @@ def _render_configuration() -> None:
             "LLM not configured. Set LLM_PROVIDER (and credentials) in .env (see .env.example)."
         )
 
-    st.divider()
-    _section(t("runtime_config"))
-    rag = settings.rag
-    retrieval = t("state_on") if rag.enabled else t("state_off")
-    st.markdown(f"- **{t('rag_retrieval')}**: `{retrieval}`")
-    st.markdown(f"- **{t('rag_embedding_model')}**: `{rag.embedding_model}`")
-    if settings.tracing_enabled:
-        st.markdown(f"- **{t('phoenix_url')}**: [Open \u2197]({settings.phoenix_ui_url})")
-    else:
-        st.markdown(f"- **{t('phoenix_url')}**: `None`")
+
+def _apply_pending_load() -> None:
+    """Apply a pending save before the sidebar widgets own their keys."""
+    snapshot = st.session_state.pop("_load_pending", None)
+    if snapshot is None:
+        return
+    try:
+        st.session_state["save_day"] = int(snapshot.time.day)
+        st.session_state["save_time"] = _datetime.time(
+            snapshot.time.display_hour, snapshot.time.minute
+        )
+        if snapshot.migration_warning:
+            st.session_state["_save_warning"] = snapshot.migration_warning
+        if snapshot.location:
+            st.session_state["save_location"] = snapshot.location
+        st.session_state["save_masks"] = list(snapshot.masks)
+        st.session_state["save_inventory"] = list(snapshot.inventory)
+        st.session_state["save_quests"] = list(snapshot.quest_progress)
+        st.session_state["save_goal"] = snapshot.goal or ""
+        st.session_state["_load_ok"] = True
+    except Exception as exc:
+        st.toast(str(exc), icon="❌", duration=6)
 
 
 def render() -> None:
@@ -1694,13 +3326,17 @@ def render() -> None:
         st.session_state["lang"] = "it"
 
     st.set_page_config(
-        page_title="Termina Companion",
-        page_icon="\U0001f319",
+        page_title="TaIA – Your Termina Fairy Companion",
+        page_icon=str(_FAVICON_PATH),
         layout="wide",
+        initial_sidebar_state="expanded",
     )
+    _inject_styles()
+    kb = build_default_knowledge()
 
+    _apply_pending_load()
     with st.sidebar:
-        st.selectbox(t("language"), list(_LANGS), key="lang", format_func=lambda c: _LANGS[c])
+        editor = _render_sidebar_editor(kb)
         st.divider()
         _section(t("save_load"))
         col_s, col_l = st.columns(2)
@@ -1722,158 +3358,167 @@ def render() -> None:
                 }
                 try:
                     _ = save_state(data)
-                    st.success(t("save_ok"))
+                    st.toast(t("save_ok"), icon="✅", duration=4)
                 except Exception as exc:
-                    st.error(str(exc))
+                    st.toast(str(exc), icon="❌", duration=6)
         with col_l:
             if st.button(t("load_button"), use_container_width=True):
                 snapshot = load_state()
                 if not snapshot:
-                    st.warning(t("load_none"))
+                    st.toast(t("load_none"), icon="⚠️", duration=4)
                 else:
-                    try:
-                        st.session_state["save_day"] = int(snapshot.time.day)
-                        st.session_state["save_time"] = _datetime.time(
-                            snapshot.time.display_hour, snapshot.time.minute
-                        )
-                        if snapshot.migration_warning:
-                            st.session_state["_save_warning"] = snapshot.migration_warning
-                        if snapshot.location:
-                            st.session_state["save_location"] = snapshot.location
-                        st.session_state["save_masks"] = list(snapshot.masks)
-                        st.session_state["save_inventory"] = list(snapshot.inventory)
-                        st.session_state["save_quests"] = list(snapshot.quest_progress)
-                        st.session_state["save_goal"] = snapshot.goal or ""
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(str(exc))
+                    st.session_state["_load_pending"] = snapshot
+                    st.rerun()
+        if st.session_state.pop("_load_ok", False):
+            st.toast(t("load_ok"), icon="✅", duration=4)
         save_warning = st.session_state.pop("_save_warning", "")
         if save_warning:
-            st.warning(save_warning)
-        st.divider()
+            st.toast(save_warning, icon="⚠️", duration=8)
         _render_configuration()
-
-    st.title(f"\U0001f319 {t('title')}")
-    st.caption(t("subtitle"))
 
     tab_play, tab_evaluation = st.tabs([t("tab_play"), t("tab_evaluation")])
     with tab_play:
-        _render_play()
+        _render_play(editor, kb)
     with tab_evaluation:
-        _render_evaluation()
+        with st.container(key="evaluation_tab", gap=28):
+            _render_evaluation(editor)
 
 
-def _render_play() -> None:
-    """Render the play tab: state editor, planning action and result tabs.
+def _render_sidebar_editor(kb) -> dict:
+    """Render the Majora's Mask state editor in the sidebar.
+
+    Returns the values the Play tab needs to build a ``GameState``. The
+    widgets own their session-state keys, so the time card and the fairy
+    greeting can read the previous run's values before the widgets exist.
 
     args:
-        (none)
+        kb (KnowledgeBase): the knowledge base used for the location and item
+            options.
+
+    returns:
+        dict: the selected day, time, location, masks, inventory and quests.
+    """
+    _html_block(_brand_html())
+    st.selectbox(t("language"), list(_LANGS), key="lang", format_func=lambda c: _LANGS[c])
+    if st.session_state.get("save_time") is None:
+        st.session_state["save_time"] = datetime.time(6, 0)
+    day = int(st.session_state.get("save_day", 1))
+    when = st.session_state["save_time"]
+    _html_block(_time_card_html(day, when))
+
+    locations = sorted({loc.name for loc in kb.locations})
+    options = locations or ["Termina Field"]
+    default_loc = "South Clock Town"
+    if st.session_state.get("save_location") not in options:
+        st.session_state["save_location"] = default_loc if default_loc in options else options[0]
+    location = st.selectbox(
+        t("sidebar_location"),
+        options,
+        format_func=tr,
+        key="save_location",
+    )
+
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        day = st.selectbox(t("day"), [1, 2, 3], index=0, key="save_day")
+    with c2:
+        when = st.time_input(t("time"), value=None, step=60, key="save_time")
+    st.caption(_time_label(day, when))
+
+    if st.session_state.get("save_masks") is None:
+        st.session_state["save_masks"] = []
+    masks = st.multiselect(
+        t("sidebar_masks"),
+        list(MASKS),
+        format_func=tr,
+        help=t("masks_help"),
+        placeholder=t("select_placeholder"),
+        key="save_masks",
+    )
+    item_options = sorted(
+        {i for quest in kb.quests for o in quest.objectives for i in o.requires_items}
+    )
+    # Custom items enter through the input below the pills; the add is
+    # applied at the start of the next run, before the widgets exist, so
+    # save_inventory/save_inventory_new are only written pre-instantiation.
+    if st.session_state.get("save_inventory") is None:
+        st.session_state["save_inventory"] = []
+    pending_add = st.session_state.pop("_inventory_add_pending", None)
+    if pending_add:
+        current = list(st.session_state["save_inventory"])
+        if pending_add not in current:
+            st.session_state["save_inventory"] = [*current, pending_add]
+        st.session_state["save_inventory_new"] = ""
+    # The multiselect renders only options: merge the current selection so
+    # custom items (typed or loaded from a save) stay visible and removable.
+    owned_now = list(st.session_state["save_inventory"])
+    inventory_options = sorted(set(item_options) | set(owned_now))
+    inventory = st.multiselect(
+        t("sidebar_items"),
+        inventory_options or ["Hookshot"],
+        format_func=tr,
+        help=t("inventory_help"),
+        placeholder=t("select_placeholder"),
+        key="save_inventory",
+    )
+    st.text_input(t("inventory_add"), key="save_inventory_new")
+    if st.button(
+        t("inventory_add_button"),
+        use_container_width=True,
+        key="save_inventory_add",
+    ):
+        typed = (st.session_state.get("save_inventory_new") or "").strip()
+        if typed:
+            st.session_state["_inventory_add_pending"] = typed
+            st.rerun()
+    quest_names = {q.name: q.id for q in kb.quests}
+    if st.session_state.get("save_quests") is None:
+        st.session_state["save_quests"] = []
+    done_q = st.multiselect(
+        t("quest_progress"),
+        list(quest_names),
+        format_func=tr,
+        help=t("quest_progress_help"),
+        placeholder=t("select_placeholder"),
+        key="save_quests",
+    )
+    return {
+        "day": day,
+        "time": when,
+        "location": location,
+        "masks": list(masks or []),
+        "inventory": list(inventory or []),
+        "quests": list(done_q or []),
+        "quest_names": quest_names,
+    }
+
+
+def _render_play(editor: dict, kb) -> None:
+    """Render the play tab: TaIA greeting, goal, agent cards and plan.
+
+    args:
+        editor (dict): the sidebar state editor's values.
+        kb (KnowledgeBase): the knowledge base used to render sources.
 
     returns:
         None: renders the planning half of the app page.
     """
-    kb = build_default_knowledge()
-
-    left, right = st.columns(2)
-    with left:
-        _section(t("game_state"), t("game_state_caption"))
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            day = st.selectbox(t("day"), [1, 2, 3], index=0, key="save_day")
-        with c2:
-            tm = st.time_input(t("time"), datetime.time(6, 0), step=60, key="save_time")
-        st.caption(_time_label(day, tm))
-        st.caption(t("time_caption"))
-
-        locations = sorted({loc.name for loc in kb.locations})
-        default_loc = "South Clock Town"
-        idx = locations.index(default_loc) if default_loc in locations else 0
-        location = st.selectbox(
-            t("location"), locations or ["Termina Field"], index=idx, format_func=tr
-        )
-
-        masks = st.pills(
-            t("masks"),
-            list(MASKS),
-            selection_mode="multi",
-            format_func=tr,
-            help=t("masks_help"),
-            wrap=True,
-            key="save_masks",
-        )
-        item_options = sorted(
-            {i for quest in kb.quests for o in quest.objectives for i in o.requires_items}
-        )
-        # Custom items enter through the input below the pills; the add is
-        # applied at the start of the next run, before the widgets exist, so
-        # save_inventory/save_inventory_new are only written pre-instantiation.
-        pending_add = st.session_state.pop("_inventory_add_pending", None)
-        if pending_add:
-            current = list(st.session_state.get("save_inventory") or [])
-            if pending_add not in current:
-                st.session_state["save_inventory"] = [*current, pending_add]
-            st.session_state["save_inventory_new"] = ""
-        # Pills render only options: merge the current selection so custom
-        # items (typed or loaded from a save) stay visible and deselectable.
-        owned_now = st.session_state.get("save_inventory") or []
-        inventory_options = sorted(set(item_options) | set(owned_now))
-        inventory = st.pills(
-            t("inventory"),
-            inventory_options or ["Hookshot"],
-            selection_mode="multi",
-            format_func=tr,
-            help=t("inventory_help"),
-            wrap=True,
-            key="save_inventory",
-        )
-        add_col, button_col = st.columns([4, 1])
-        with add_col:
-            st.text_input(
-                t("inventory_add"),
-                key="save_inventory_new",
-                label_visibility="collapsed",
-                placeholder=t("inventory_add"),
+    _html_block(_fairy_html(editor["day"], editor["time"]))
+    task = st.session_state.get(_PLANNING_TASK_KEY)
+    with st.container(key="goal_row"):
+        goal_col, ask_col, stop_col = st.columns([7, 2, 1], vertical_alignment="bottom")
+        with goal_col:
+            goal_text = st.text_input(
+                t("goal_label"),
+                placeholder=t("goal_example"),
+                key="save_goal",
             )
-        with button_col:
-            if st.button(
-                t("inventory_add_button"),
-                use_container_width=True,
-                key="save_inventory_add",
-            ):
-                typed = (st.session_state.get("save_inventory_new") or "").strip()
-                if typed:
-                    st.session_state["_inventory_add_pending"] = typed
-                    st.rerun()
-        quest_names = {q.name: q.id for q in kb.quests}
-        done_q = st.pills(
-            t("quest_progress"),
-            list(quest_names),
-            selection_mode="multi",
-            format_func=tr,
-            help=t("quest_progress_help"),
-            wrap=True,
-            key="save_quests",
-        )
-        st.caption(t("legend"))
-
-    with right:
-        _section(t("goal"), t("goal_caption"))
-        goal_text = st.text_area(
-            t("goal_placeholder"),
-            placeholder=t("goal_example"),
-            height=180,
-            label_visibility="collapsed",
-            key="save_goal",
-        )
-        st.markdown('<div style="padding:0.4rem;"></div>', unsafe_allow_html=True)
-        task = st.session_state.get(_PLANNING_TASK_KEY)
         generate_disabled, stop_disabled = _plan_controls_disabled(task)
         if not (goal_text or "").strip():
             generate_disabled = True
-        run_col, stop_col = st.columns([4, 1])
-        with run_col:
+        with ask_col:
             run = st.button(
-                t("generate_plan"),
+                t("ask_taia"),
                 type="primary",
                 use_container_width=True,
                 disabled=generate_disabled,
@@ -1895,11 +3540,15 @@ def _render_play() -> None:
 
     if run and not _task_is_active(task) and (goal_text or "").strip():
         game_state = GameState(
-            time=ClockTime(day=day, hour=_internal_hour(tm.hour), minute=tm.minute),
-            location=location,
-            inventory=list(inventory or []),
-            masks=list(masks or []),
-            quest_progress={quest_names[q]: "done" for q in (done_q or [])},
+            time=ClockTime(
+                day=editor["day"],
+                hour=_internal_hour(editor["time"].hour),
+                minute=editor["time"].minute,
+            ),
+            location=editor["location"],
+            inventory=list(editor["inventory"]),
+            masks=list(editor["masks"]),
+            quest_progress={editor["quest_names"][q]: "done" for q in editor["quests"]},
         )
         goal = Goal(description=goal_text)
 
@@ -1916,31 +3565,33 @@ def _render_play() -> None:
 
     task = st.session_state.get(_PLANNING_TASK_KEY)
     if _task_is_active(task):
-        # Block here, redrawing the stepper only on agent updates. The final
+        # Block here, redrawing the registry only on agent updates. The final
         # rerun re-enables Generate/Stop and renders the result below.
-        _planning_live(task)
+        _planning_live(task, kb)
         st.rerun()
 
     if task is not None:
-        _render_planning_progress(task)
+        _render_planning_progress(task, kb)
         _render_planning_result(task, kb)
         return
 
-    st.info(t("info_edit_state"))
+    _html_block(_empty_plan_html())
 
 
-def _render_evaluation() -> None:
+def _render_evaluation(editor: dict) -> None:
     """Render the evaluation tab: scenario picker, run control and results.
 
     The sweep runs the whole pipeline once per scenario, so it happens in a
     background thread and reports every finished scenario live.
 
     args:
-        (none)
+        editor (dict): the sidebar state editor's values, used for the TaIA
+            greeting.
 
     returns:
         None: renders the evaluation half of the app page.
     """
+    _html_block(_fairy_html(editor["day"], editor["time"], text=t("eval_fairy")))
     _section(t("eval_title"), t("eval_caption"))
     if not get_settings().llm_provider:
         st.warning(t("eval_need_llm"))
@@ -1958,22 +3609,23 @@ def _render_evaluation() -> None:
     )
     rag_on = st.toggle(t("eval_rag"), value=True, help=t("eval_rag_help"), key="eval_rag")
 
-    run_col, stop_col = st.columns([4, 1])
-    with run_col:
-        run = st.button(
-            t("eval_run"),
-            type="primary",
-            use_container_width=True,
-            disabled=running or not scenario_ids,
-            key="eval_run_button",
-        )
-    with stop_col:
-        stop = st.button(
-            t("eval_stop"),
-            use_container_width=True,
-            disabled=not running,
-            key="eval_stop_button",
-        )
+    with st.container(key="eval_actions"):
+        run_col, stop_col = st.columns([3, 2])
+        with run_col:
+            run = st.button(
+                t("eval_run"),
+                type="primary",
+                use_container_width=True,
+                disabled=running or not scenario_ids,
+                key="eval_run_button",
+            )
+        with stop_col:
+            stop = st.button(
+                t("eval_stop"),
+                use_container_width=True,
+                disabled=not running,
+                key="eval_stop_button",
+            )
 
     if stop and running:
         task.stop_event.set()
@@ -1990,7 +3642,7 @@ def _render_evaluation() -> None:
     with hint_col:
         report_path = _saved_report_path()
         if report_path is not None:
-            st.caption(t("eval_saved_report", path=str(report_path)))
+            st.caption(t("eval_saved_report", path=f"`{report_path}`"))
     if load:
         saved = load_report()
         if saved is None:

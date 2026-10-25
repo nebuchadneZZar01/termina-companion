@@ -9,6 +9,7 @@ import pytest
 
 from app import ui
 from app.rag.models import IndexedSource, SourceMetadata
+from app.settings import RAGSettings, Settings
 
 
 class _Container:
@@ -20,7 +21,7 @@ class _Container:
 
 
 class _Placeholder:
-    """Stand-in for the invisible yield placeholder of the live loop."""
+    """Stand-in for the empty placeholders of the live loop."""
 
     def __init__(self, stub: _StreamlitStub) -> None:
         self.stub = stub
@@ -29,11 +30,15 @@ class _Placeholder:
         self.stub.emptied += 1
         return self
 
+    def markdown(self, value: str, **_kwargs) -> None:
+        self.stub.live_markdowns.append(value)
+
 
 class _StreamlitStub:
     def __init__(self) -> None:
         self.session_state: dict[str, str] = {}
         self.calls: list[tuple[str, str]] = []
+        self.live_markdowns: list[str] = []
         self.emptied = 0
 
     def container(self, **_kwargs):
@@ -202,6 +207,38 @@ def test_progress_label_rotates_with_the_wall_clock_tick(monkeypatch) -> None:
     assert ui._progress_label(3) == "one..."
 
 
+def test_apply_pending_load_sets_widget_keys_before_render(monkeypatch) -> None:
+    from app.domain import ClockTime
+    from app.save import SaveSnapshot
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(ui, "st", stub)
+    snapshot = SaveSnapshot(
+        time=ClockTime(day=2, hour=26, minute=30),
+        location="Stock Pot Inn",
+        masks=["Kafei's Mask"],
+        inventory=["Room Key"],
+        quest_progress=["Anju & Kafei"],
+        goal="Help Anju",
+        migration_warning="migrated",
+    )
+    stub.session_state["_load_pending"] = snapshot
+
+    ui._apply_pending_load()
+
+    assert "_load_pending" not in stub.session_state
+    assert stub.session_state["save_day"] == 2
+    assert stub.session_state["save_time"].hour == 2
+    assert stub.session_state["save_time"].minute == 30
+    assert stub.session_state["save_location"] == "Stock Pot Inn"
+    assert stub.session_state["save_masks"] == ["Kafei's Mask"]
+    assert stub.session_state["save_inventory"] == ["Room Key"]
+    assert stub.session_state["save_quests"] == ["Anju & Kafei"]
+    assert stub.session_state["save_goal"] == "Help Anju"
+    assert stub.session_state["_save_warning"] == "migrated"
+    assert stub.session_state["_load_ok"] is True
+
+
 def test_progress_line_formats_lists_and_skips_unknown_phases(monkeypatch) -> None:
     monkeypatch.setattr(ui, "t", lambda key, **kw: key if not kw else key + repr(kw))
 
@@ -224,6 +261,84 @@ def test_drain_records_agent_starts_and_progress_events() -> None:
         ("start", "state"),
         ("progress", {"node": "state", "phase": "objectives", "n": 3}),
     ]
+    assert task.timings == {}
+
+
+def test_drain_records_the_duration_of_a_finished_agent() -> None:
+    task = ui._PlanningTask()
+
+    task.events.put(ui._Progress({"node": "state", "phase": "start"}))
+    task.events.put({"state": {"state_summary": "ok"}})
+
+    assert ui._drain_planning_task(task) is True
+    assert 1 in task.timings
+    assert task.timings[1] >= 0
+
+
+def test_agent_registry_rebuilds_attempts_and_durations(monkeypatch) -> None:
+    from app.domain import (
+        ClockTime,
+        GameState,
+        Plan,
+        PlanStep,
+        TimeWindow,
+        ValidationResult,
+    )
+
+    def _t(key: str, **kwargs) -> str:
+        params = ",".join(f"{name}={value}" for name, value in kwargs.items())
+        return f"{key}:{params}" if params else key
+
+    monkeypatch.setattr(ui, "t", _t)
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(ui, "tr_msg", lambda value: value)
+    state = GameState(
+        time=ClockTime(day=1, hour=8),
+        location="Clock Town",
+        masks=["Kafei's Mask"],
+        inventory=["Room Key"],
+    )
+    step = PlanStep(
+        title="Meet Anju",
+        location="Stockpot Inn",
+        window=TimeWindow(
+            start=ClockTime(day=1, hour=10),
+            end=ClockTime(day=1, hour=11),
+        ),
+    )
+    plan = Plan(goal="Anju", steps=[step])
+    task = ui._PlanningTask()
+    task.log = [
+        ("start", "state"),
+        ("update", "state", {"game_state": state, "state_engine": "rule-based"}),
+        ("start", "plan"),
+        (
+            "update",
+            "plan",
+            {"plan": plan, "replan_attempts": 1, "plan_engine": "llm", "plan_model": "m"},
+        ),
+        ("start", "critic"),
+        ("update", "critic", {"validation": ValidationResult(valid=True)}),
+        ("start", "plan"),
+        (
+            "update",
+            "plan",
+            {"plan": plan, "replan_attempts": 2, "plan_engine": "llm", "plan_model": "m"},
+        ),
+        ("start", "critic"),
+        ("update", "critic", {"validation": ValidationResult(valid=True)}),
+    ]
+    task.timings = {1: 1.0, 3: 2.0, 5: 0.5, 7: 1.5, 9: 0.4}
+    task.result = {"validation": ValidationResult(valid=True)}
+
+    markup = ui._agent_registry_html(task)
+
+    assert markup.count("<details") == 5
+    assert "step_attempt:n=1,max=3" in markup
+    assert "step_attempt:n=2,max=3" in markup
+    assert ">1.0s<" in markup
+    assert ">2.0s<" in markup
+    assert "<code>m</code>" in markup
 
 
 def test_planning_task_stop_is_cooperative_and_does_not_start_new_work() -> None:
@@ -273,57 +388,74 @@ def test_drain_keeps_the_message_it_waited_for() -> None:
     assert task.updates == [("state", {"state_summary": "ready"})]
 
 
-def test_planning_live_applies_streamed_events_until_done(monkeypatch) -> None:
-    """The live loop drains the queue, replays events, and ticks the title."""
+def test_planning_live_draws_the_html_registry_with_progress(monkeypatch) -> None:
+    """The live loop paints the same registry markup used after the run."""
     stub = _StreamlitStub()
     events: queue.Queue[object] = queue.Queue()
     task = ui._PlanningTask(events=events, status="running")
-    applied: list[tuple] = []
-    outer_labels: list[str] = []
     drain = ui._drain_planning_task
-
-    class _FakeStepper:
-        def __init__(self, tick: int = 0) -> None:
-            pass
-
-        def start(self, node):
-            pass
-
-        def progress(self, payload):
-            pass
-
-        def finish(self, node, data):
-            pass
-
-        def set_outer(self, state, label):
-            outer_labels.append(label)
-
-    def _apply(_stepper, _task, cursor):
-        applied.extend(_task.log[cursor:])
-        return len(_task.log)
+    calls = {"n": 0}
 
     def _wait(_task, wait=0.0):
-        events.put(ui._Progress({"node": "state", "phase": "start"}))
-        events.put(ui._Progress({"node": "state", "phase": "objectives", "n": 3}))
-        events.put({"state": {"state_summary": "ready"}})
-        events.put(None)  # the run finishes right after this update
+        calls["n"] += 1
+        if calls["n"] == 1:
+            events.put(ui._Progress({"node": "state", "phase": "start"}))
+            events.put(ui._Progress({"node": "state", "phase": "objectives", "n": 3}))
+        else:
+            events.put({"state": {"state_summary": "ready"}})
+            events.put(None)
         return drain(_task, wait=wait)
 
     monkeypatch.setattr(ui, "st", stub)
-    monkeypatch.setattr(ui, "_PlanStepper", _FakeStepper)
-    monkeypatch.setattr(ui, "_apply_log", _apply)
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
     monkeypatch.setattr(ui, "_drain_planning_task", _wait)
     monkeypatch.setattr(ui, "_IDLE_WAIT", 0.001)
 
     ui._planning_live(task)
 
-    assert ("start", "state") in applied
-    assert ("progress", {"node": "state", "phase": "objectives", "n": 3}) in applied
-    assert ("update", "state", {"state_summary": "ready"}) in applied
-    # Initial label plus the terminal (done) label were pushed to the box.
-    assert outer_labels[0].endswith("...")
-    assert len(outer_labels) >= 2
-    assert stub.emptied >= 1
+    assert ("start", "state") in task.log
+    assert any("tc-live-title" in value for value in stub.live_markdowns)
+    running = next(value for value in stub.live_markdowns if "tc-reg-activity" in value)
+    assert 'class="tc-reg running"' in running
+    assert " open>" in running
+    assert any("prog_objectives" in value for value in stub.live_markdowns)
+    assert any("agent_registry_live_hint" in value for value in stub.live_markdowns)
+    assert stub.emptied >= 2
+
+
+def test_registry_activity_highlights_the_current_event(monkeypatch) -> None:
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
+
+    markup = ui._registry_activity_html(
+        [
+            {"node": "knowledge", "phase": "objectives", "n": 2},
+            {"node": "plan", "phase": "llm", "model": "gpt"},
+        ],
+        running=True,
+    )
+
+    assert 'class="current"' in markup
+    assert "prog_objectives" in markup
+    assert "prog_llm" in markup
+    assert markup.count("\u23f3") == 1
+
+
+def test_registry_activity_renders_the_model_as_code(monkeypatch) -> None:
+    monkeypatch.setattr(
+        ui,
+        "t",
+        lambda key, **kwargs: (
+            "Calling `{model}` (attempt {attempt})" if key == "prog_llm" else key
+        ).format(**kwargs),
+    )
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+
+    markup = ui._registry_activity_html(
+        [{"node": "plan", "phase": "llm", "model": "gpt-4o", "attempt": 1}],
+        running=False,
+    )
+
+    assert "<code>gpt-4o</code>" in markup
 
 
 @pytest.mark.parametrize(
@@ -384,142 +516,6 @@ def test_graph_streams_custom_start_and_agent_progress(monkeypatch) -> None:
     assert any(mode == "updates" for mode, _chunk in emitted)
 
 
-def test_activity_md_highlights_the_current_event_and_dims_the_rest(monkeypatch) -> None:
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
-
-    running = ui._activity_md(["one", "two"], running=True)
-    assert running.startswith("**activity**")
-    assert "- :gray[\u2713 one]" in running
-    assert "- \u23f3 two" in running
-    assert "---" not in running
-
-    done = ui._activity_md(["one", "two"], running=False)
-    assert "- :gray[\u2713 two]" in done
-    assert done.rstrip().endswith("---")
-
-
-class _Card:
-    """Records the calls _step_* make on a status container."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    def markdown(self, value: str, **_kwargs) -> None:
-        self.calls.append(("markdown", value))
-
-    def write(self, value: str, **_kwargs) -> None:
-        self.calls.append(("write", value))
-
-    def caption(self, value: str, **_kwargs) -> None:
-        self.calls.append(("caption", value))
-
-    def warning(self, value: str, **_kwargs) -> None:
-        self.calls.append(("warning", value))
-
-    def container(self, **_kwargs) -> _Card:
-        return self
-
-
-def test_step_plan_card_starts_with_result_label_without_agent_name(monkeypatch) -> None:
-    from app.domain import ClockTime, Plan, PlanStep, TimeWindow
-
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
-    monkeypatch.setattr(ui, "tr", lambda value: value)
-    step = PlanStep(
-        title="Talk to Anju",
-        objective_ref="anju_talk",
-        location="Stockpot Inn",
-        window=TimeWindow(start=ClockTime(day=2, hour=9), end=ClockTime(day=2, hour=10)),
-    )
-    result = {
-        "plan": Plan(goal="g", steps=[step]),
-        "replan_attempts": 1,
-        "plan_engine": "llm",
-        "plan_model": "gpt-4o-mini",
-    }
-    card = _Card()
-
-    ui._step_plan(card, result)
-
-    assert card.calls[0] == ("markdown", "**result_plan**")
-    rendered = "\n".join(value for _kind, value in card.calls)
-    assert "agent_planning" not in rendered
-    assert "1. Talk to Anju @ Stockpot Inn (`Day 2 - 09:00\u201310:00`)" in rendered
-
-
-def test_step_label_carries_the_engine_badge_not_the_card(monkeypatch) -> None:
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
-    label = ui._PlanStepper._step_label("knowledge", {"knowledge_engine": "rule-based"})
-    assert label == "agent_knowledge (rule-based)"
-
-
-def test_plan_step_label_uppercases_llm_and_code_formats_the_model(monkeypatch) -> None:
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
-    label = ui._PlanStepper._step_label(
-        "plan",
-        {"plan_engine": "llm", "plan_model": "llama3.2", "replan_attempts": 1},
-    )
-    assert label == "agent_planning (LLM \u00b7 `llama3.2`) \u2014 step_attempt"
-
-
-class _StepStatus:
-    """Status stub that fails if opened as a context manager."""
-
-    def __init__(self) -> None:
-        self.updates: list[dict] = []
-
-    def __enter__(self):
-        raise AssertionError("a running step must not be opened as a context manager")
-
-    def empty(self):
-        return self
-
-    def update(self, **kwargs) -> None:
-        self.updates.append(kwargs)
-
-
-class _OuterStatus:
-    def __init__(self) -> None:
-        self.created: list[tuple[str, _StepStatus]] = []
-
-    def status(self, label: str, **_kwargs) -> _StepStatus:
-        status = _StepStatus()
-        self.created.append((label, status))
-        return status
-
-
-def test_start_keeps_the_step_running_until_it_finishes(monkeypatch) -> None:
-    """A step created with ``with`` is auto-completed at once by Streamlit."""
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
-    stepper = ui._PlanStepper.__new__(ui._PlanStepper)
-    stepper.outer = _OuterStatus()
-    stepper._open = {}
-
-    stepper.start("state")
-
-    label, status = stepper.outer.created[0]
-    assert label == "agent_state"
-    assert stepper._open["state"].status is status
-    assert status.updates == []
-
-    stepper.close_open()
-    assert status.updates == [{"state": "complete"}]
-    assert stepper._open == {}
-
-
-def test_step_critic_valid_does_not_add_a_second_check(monkeypatch) -> None:
-    from app.domain import ValidationResult
-
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
-    monkeypatch.setattr(ui, "tr", lambda value: value)
-    card = _Card()
-
-    ui._step_critic(card, {"validation": ValidationResult(valid=True)})
-
-    assert ("markdown", "**result_critic**") in card.calls
-    assert ("write", "plan_valid") in card.calls
-
-
 def _patch_result_renderers(monkeypatch) -> list:
     """Stub the plan-result sections so only the heading logic is exercised."""
     rendered_issues = []
@@ -567,11 +563,266 @@ def test_failed_run_still_renders_the_last_completed_attempt(monkeypatch) -> Non
     ui._render_planning_result(task, kb=None)
 
     rendered = "\n".join(value for _kind, value in stub.calls)
-    assert ("subheader", "your_plan") in stub.calls
+    assert ("subheader", "last_plan_title") in stub.calls
     assert "plan_last_attempt" in rendered
-    assert ("error", "plan_not_valid") in stub.calls
-    assert ("markdown", "**problems**") in stub.calls
-    assert rendered_issues == [issue]
+    assert any(kind == "markdown" and "verdict_fail_title" in value for kind, value in stub.calls)
+    assert any(kind == "markdown" and "problems" in value for kind, value in stub.calls)
+    assert rendered_issues == []
+
+
+def test_invalid_plan_marks_the_failing_step_and_missing_items(monkeypatch) -> None:
+    from app.domain import ClockTime, Plan, PlanStep, TimeWindow, ValidationIssue
+
+    def _t(key: str, **kwargs) -> str:
+        return f"{key}:{kwargs}" if kwargs else key
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(ui, "st", stub)
+    monkeypatch.setattr(ui, "t", _t)
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(ui, "tr_msg", lambda value: value)
+    steps = [
+        PlanStep(
+            title=f"Step {index}",
+            location="Clock Town",
+            window=TimeWindow(
+                start=ClockTime(day=1, hour=8 + index),
+                end=ClockTime(day=1, hour=9 + index),
+            ),
+        )
+        for index in (0, 1, 2)
+    ]
+    issues = [
+        ValidationIssue(
+            severity="error",
+            step_idx=1,
+            kind="item",
+            message="Missing item(s): Rampino.",
+        ),
+        ValidationIssue(
+            severity="error",
+            step_idx=1,
+            kind="mask",
+            message="Missing mask(s): Garo's Mask.",
+        ),
+    ]
+
+    ui._render_plan(Plan(goal="goal", steps=steps), issues=issues, show_numbers=True)
+
+    markup = next(value for kind, value in stub.calls if kind == "markdown")
+    assert markup.count("tc-step bad") == 1
+    assert "plan_step_title" in markup
+    assert "missing_requirement" in markup
+    assert 'class="tc-item">Rampino' in markup
+    assert 'class="tc-mask">Garo' in markup
+
+
+def test_critic_tables_and_missing_chips_style_entities(monkeypatch) -> None:
+    from app.data.mock_knowledge import build_default_knowledge
+    from app.domain import ValidationIssue, ValidationResult
+
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: f"{key}:{kwargs}" if kwargs else key)
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(ui, "tr_msg", lambda value: value)
+
+    issues = [
+        ValidationIssue(
+            severity="error", step_idx=0, kind="item", message="Missing item(s): Room Key."
+        ),
+        ValidationIssue(
+            severity="error",
+            step_idx=1,
+            kind="mask",
+            message="Missing mask(s): Kafei's Mask.",
+        ),
+    ]
+    entities = ui._entity_index(build_default_knowledge())
+
+    table = ui._issues_table_html(issues, entities=entities)
+    assert 'class="tc-item">Room Key' in table
+    assert 'class="tc-mask">Kafei' in table
+
+    body = ui._registry_critic_body(
+        {"validation": ValidationResult(valid=False, issues=issues)}, entities
+    )
+    assert 'class="tc-item">Room Key' in body
+    assert 'class="tc-mask">Kafei' in body
+
+    chips = ui._missing_chips_html(issues, prefix=True)
+    assert 'class="tc-item">Room Key' in chips
+    assert 'class="tc-mask">Kafei' in chips
+
+
+def test_invalid_plan_renders_every_step(monkeypatch) -> None:
+    from app.domain import ClockTime, Plan, PlanStep, TimeWindow, ValidationIssue
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(ui, "st", stub)
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: f"{key}:{kwargs}")
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+    steps = [
+        PlanStep(
+            title=f"Step {index}",
+            location="Clock Town",
+            window=TimeWindow(
+                start=ClockTime(day=1, hour=8 + index),
+                end=ClockTime(day=1, hour=9 + index),
+            ),
+        )
+        for index in range(5)
+    ]
+    issue = ValidationIssue(
+        severity="error",
+        step_idx=2,
+        kind="item",
+        message="Missing item(s): Rampino.",
+    )
+
+    ui._render_last_plan(Plan(goal="goal", steps=steps), [issue])
+
+    markup = next(
+        value for kind, value in stub.calls if kind == "markdown" and "tc-timeline" in value
+    )
+    assert markup.count('class="tc-step-time"') == 5
+    assert 'class="tc-step last"' in markup
+    assert 'class="tc-step last ok"' not in markup
+    for index in range(5):
+        assert f"Step {index}" in markup
+
+
+def test_plan_details_keep_every_step_field(monkeypatch) -> None:
+    from app.domain import ClockTime, Plan, PlanStep, TimeWindow
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(ui, "st", stub)
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: f"{key}:{kwargs}")
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+
+    plan = Plan(
+        goal="goal",
+        steps=[
+            PlanStep(
+                title="Ottieni la Maschera di Kafei",
+                location="Stockpot Inn",
+                window=TimeWindow(
+                    start=ClockTime(day=1, hour=10),
+                    end=ClockTime(day=1, hour=11),
+                ),
+                requires_items=["Room Key"],
+                requires_masks=["Kafei's Mask"],
+                depends_on=[0],
+                actions=["Parla con Anju", "Apri la porta"],
+            )
+        ],
+    )
+
+    ui._render_why(plan)
+
+    markup = next(value for kind, value in stub.calls if kind == "markdown")
+    for expected in (
+        "Ottieni la Maschera di Kafei",
+        "Room Key",
+        "Kafei",
+        "depends_on",
+        "Parla con Anju",
+        "Apri la porta",
+    ):
+        assert expected in markup
+
+
+def test_semantic_entity_styles_are_shared_by_state_knowledge_and_plan(
+    monkeypatch,
+) -> None:
+    from app.data.mock_knowledge import build_default_knowledge
+    from app.domain import ClockTime, GameState, Plan, PlanStep, TimeWindow
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(ui, "st", stub)
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: f"{key}:{kwargs}")
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+
+    kb = build_default_knowledge()
+    index = ui._entity_index(kb)
+    kinds = index[1]
+    assert kinds["sun's mask"] == "mask"
+    assert kinds["room key"] == "item"
+    assert kinds["stockpot inn"] == "place"
+
+    state = GameState(
+        time=ClockTime(day=1, hour=6),
+        location="Stockpot Inn",
+        inventory=["Room Key"],
+        masks=["Kafei's Mask"],
+    )
+    state_html = ui._state_fields_html(state)
+    assert 'class="tc-place">Stockpot Inn' in state_html
+    assert 'class="tc-item">Room Key' in state_html
+    assert 'class="tc-mask">Kafei' in state_html
+
+    objective = next(o for o in kb.all_objectives if "Kafei's Mask" in o.title)
+    knowledge_html = ui._registry_knowledge_body({"relevant_objectives": [objective]}, index)
+    assert 'class="tc-mask">Kafei' in knowledge_html
+
+    plan = Plan(
+        goal="goal",
+        steps=[
+            PlanStep(
+                title="Get Kafei's Mask from Madame Aroma",
+                location="Stockpot Inn",
+                window=TimeWindow(
+                    start=ClockTime(day=1, hour=10),
+                    end=ClockTime(day=1, hour=11),
+                ),
+                requires_items=["Room Key"],
+                requires_masks=["Kafei's Mask"],
+            )
+        ],
+    )
+    ui._render_plan(plan, kb=kb)
+    markup = next(value for kind, value in stub.calls if kind == "markdown")
+    assert 'class="tc-place">Stockpot Inn' in markup
+    assert 'class="tc-item">Room Key' in markup
+    assert 'class="tc-mask">Kafei' in markup
+
+    ui._render_why(plan, kb=kb)
+    why_markup = next(
+        value for kind, value in stub.calls if kind == "markdown" and "tc-detail-card" in value
+    )
+    assert 'class="tc-item">Room Key' in why_markup
+    assert 'class="tc-mask">Kafei' in why_markup
+
+
+def test_fairy_greeting_accepts_a_custom_message() -> None:
+    import datetime
+
+    when = datetime.time(6, 0)
+    play = ui._fairy_html(1, when)
+    evaluation = ui._fairy_html(1, when, text="Prova generale")
+
+    assert "Prova generale" in evaluation
+    assert 'id="taiaw-play"' in play
+    assert 'id="taiaw-eval"' in evaluation
+    assert "url(#taiaw-play)" in play
+    assert "url(#taiaw-eval)" in evaluation
+
+
+def test_favicon_asset_is_available() -> None:
+    assert ui._FAVICON_PATH.is_file()
+    markup = ui._FAVICON_PATH.read_text(encoding="utf-8")
+    assert markup.lstrip().startswith("<svg")
+    assert 'viewBox="0 0 64 64"' in markup
+
+
+def test_failure_breakdown_handles_empty_and_wrapping_kinds(monkeypatch) -> None:
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+
+    empty = ui._failure_breakdown_html({})
+    many = ui._failure_breakdown_html({"run_error": 1, "temporal_ordering": 2})
+
+    assert "tc-failure-empty" in empty
+    assert "<b>1</b> kind_run_error" in many
+    assert "<b>2</b> kind_temporal_ordering" in many
 
 
 def test_failed_run_without_a_completed_attempt_renders_no_plan(monkeypatch) -> None:
@@ -583,39 +834,6 @@ def test_failed_run_without_a_completed_attempt_renders_no_plan(monkeypatch) -> 
     ui._render_planning_result(ui._PlanningTask(status="error"), kb=None)
 
     assert stub.calls == []
-
-
-def test_step_state_card_formats_fields_and_keeps_quest_progress(monkeypatch) -> None:
-    from app.domain import ClockTime, GameState
-
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key)
-    monkeypatch.setattr(ui, "tr", lambda value: value)
-    gs = GameState(
-        time=ClockTime(day=2, hour=8),
-        location="Stockpot Inn",
-        inventory=["Deku Leaf"],
-        masks=["Kafei's Mask"],
-    )
-    card = _Card()
-
-    ui._step_state(
-        card,
-        {
-            "game_state": gs,
-            "state_summary": "Stockpot Inn at Day 2 08:00.\nActive: Anju & Kafei.",
-        },
-    )
-
-    assert card.calls[0] == ("markdown", "**result_state**")
-    fields = card.calls[1]
-    assert fields[0] == "markdown"
-    assert fields[1].splitlines() == [
-        "- **trace_where** Stockpot Inn",
-        "- **trace_when** `Day 2 - 08:00`",
-        "- **trace_items** Deku Leaf",
-        "- **trace_masks** Kafei's Mask",
-    ]
-    assert ("caption", "Active: Anju & Kafei.") in card.calls
 
 
 def test_progress_templates_style_model_query_and_titles(monkeypatch) -> None:
@@ -648,13 +866,13 @@ def test_app_renders_headless_without_error() -> None:
 
     labels = [button.label for button in at.button]
     assert not at.exception
-    assert any("Termina Companion" in title.value for title in at.title)
-    assert any("Pianifica" in label for label in labels)
+    assert any("TaIA" in block.value for block in at.markdown)
+    assert any("Chiedi a TaIA" in label for label in labels)
     assert any(label == "Stop" for label in labels)
 
 
-def test_inventory_pills_add_custom_item_and_keep_it_selected() -> None:
-    """A typed custom item becomes a selected pill and clears the input.
+def test_inventory_multiselect_add_custom_item_and_keep_it_selected() -> None:
+    """A typed custom item becomes a selected tag and clears the input.
 
     Runs the real entry point in English: with translated labels AppTest
     cannot match the selectbox options (pre-existing formatter mismatch).
@@ -676,9 +894,9 @@ def test_inventory_pills_add_custom_item_and_keep_it_selected() -> None:
     at.run()
 
     assert not at.exception
-    pills = at.get_by_key("save_inventory")
-    assert "Deku Leaf" in pills.options
-    assert pills.value == ["Deku Leaf"]
+    inventory = at.get_by_key("save_inventory")
+    assert "Deku Leaf" in inventory.options
+    assert inventory.value == ["Deku Leaf"]
     assert at.get_by_key("save_inventory_new").value == ""
 
 
@@ -795,10 +1013,19 @@ def test_evaluation_tab_renders_the_report_of_a_finished_sweep(tmp_path, monkeyp
     assert metrics["Pass rate"] == "50%"
     assert metrics["Passed"] == "1/2"
     assert metrics["Failed"] == "1"
-    assert len(at.table) == 1
+    assert any(
+        "last_evaluation.json" in caption.value and "`" in caption.value for caption in at.caption
+    )
+    rendered = "\n".join(markdown.value for markdown in at.markdown)
+    assert "<code>anju-kafei</code>" in rendered
+    assert "<code>deed-chain</code>" in rendered
+    assert "tc-cell-pass" in rendered
+    assert "tc-cell-fail" in rendered
+    assert "Failures by check" in rendered
+    assert "tc-failure-chip" in rendered
     assert [expander.label for expander in at.expander] == [
-        "anju-kafei — PASS",
-        "deed-chain — FAIL",
+        "`anju-kafei` — PASS",
+        "`deed-chain` — FAIL",
     ]
 
 
@@ -859,8 +1086,11 @@ def test_evaluation_tab_flags_a_regression_against_the_stored_history(
         and "1/2" in warning
         for warning in warnings
     )
-    # The scenario table plus the comparison table.
-    assert len(at.table) == 2
+    # Both the scenario table and the comparison table are HTML.
+    assert not at.table
+    rendered = "\n".join(markdown.value for markdown in at.markdown)
+    assert "<code>anju-kafei</code>" in rendered
+    assert "<code>deed-chain</code>" in rendered
 
 
 def test_evaluation_run_error_never_shows_the_success_message(tmp_path, monkeypatch) -> None:
@@ -894,7 +1124,8 @@ def test_evaluation_run_error_never_shows_the_success_message(tmp_path, monkeypa
 
     assert not at.exception
     assert not at.success
-    assert any("LLM invocation failed" in error.value for error in at.error)
+    assert any("Run error" in error.value for error in at.error)
+    assert any("LLM invocation failed" in code.value for code in at.code)
 
 
 def test_evaluation_worker_saves_the_report(tmp_path, monkeypatch) -> None:
@@ -995,10 +1226,12 @@ def test_evaluation_tab_loads_the_saved_report(tmp_path, monkeypatch) -> None:
     metrics = {metric.label: metric.value for metric in at.metric}
     assert metrics["Pass rate"] == "50%"
     assert metrics["Passed"] == "1/2"
-    assert len(at.table) == 1
+    rendered = "\n".join(markdown.value for markdown in at.markdown)
+    assert "anju-kafei" in rendered
+    assert "deed-chain" in rendered
     assert [expander.label for expander in at.expander] == [
-        "anju-kafei — PASS",
-        "deed-chain — FAIL",
+        "`anju-kafei` — PASS",
+        "`deed-chain` — FAIL",
     ]
 
 
@@ -1022,3 +1255,75 @@ def test_evaluation_tab_reports_a_missing_saved_report(tmp_path, monkeypatch) ->
     assert not at.exception
     assert any("No saved evaluation report yet." in info.value for info in at.info)
     assert not at.table
+
+
+def test_configuration_cards_escape_values_and_gate_phoenix(monkeypatch) -> None:
+    """The sidebar cards escape settings and only link Phoenix when tracing is on."""
+    monkeypatch.setattr(ui.st, "session_state", {"lang": "en"})
+    settings = Settings(
+        llm_provider="<ollama>",
+        llm_model="llama&3",
+        rag=RAGSettings(embedding_model="sentence-transformers/model", enabled=True),
+        otel_exporter_otlp_endpoint="http://localhost:6006",
+    )
+
+    markup = ui._configuration_html(settings)
+
+    assert "&lt;ollama&gt;" in markup
+    assert "llama&amp;3" in markup
+    assert "<ollama>" not in markup
+    assert 'class="tc-side-pill"' in markup
+    assert "Open Phoenix" in markup
+    assert 'href="http://localhost:6006"' in markup
+
+    offline = Settings(
+        llm_provider="ollama",
+        llm_model="llama3.2",
+        rag=RAGSettings(enabled=False),
+        otel_exporter_otlp_endpoint=None,
+        phoenix_base_url=None,
+    )
+    offline_markup = ui._configuration_html(offline)
+    assert "tc-side-pill-off" in offline_markup
+    assert "Open Phoenix" not in offline_markup
+    assert ">None<" in offline_markup
+
+
+def test_plan_timeline_escapes_text_and_marks_the_last_step(monkeypatch) -> None:
+    """The timeline never injects plan text as HTML and flags the final step."""
+    from app.domain import ClockTime, Plan, PlanStep, TimeWindow
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(ui, "st", stub)
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+
+    plan = Plan(
+        goal="g",
+        steps=[
+            PlanStep(
+                title="<b>First</b>",
+                location="Clock Town",
+                window=TimeWindow(
+                    start=ClockTime(day=1, hour=8),
+                    end=ClockTime(day=1, hour=9),
+                ),
+            ),
+            PlanStep(
+                title="Last",
+                location="Stockpot Inn",
+                window=TimeWindow(
+                    start=ClockTime(day=1, hour=9),
+                    end=ClockTime(day=1, hour=10),
+                ),
+            ),
+        ],
+    )
+
+    ui._render_plan(plan, valid=True)
+
+    markup = "\n".join(value for kind, value in stub.calls if kind == "markdown")
+    assert "&lt;b&gt;First&lt;/b&gt;" in markup
+    assert "<b>First</b>" not in markup
+    assert markup.count('class="tc-step-card"') == 2
+    assert 'class="tc-step last ok"' in markup
