@@ -1715,6 +1715,8 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
 #MainMenu, footer, [data-testid="stToolbar"] { visibility: hidden; }
 [data-testid="stExpandSidebarButton"] {
   visibility: visible !important;
+  position: relative;
+  top: 26px;
   width: 36px;
   height: 36px;
   padding: 0;
@@ -1757,7 +1759,7 @@ h1, h2, h3, h4, h5, h6 {
   display: flex;
   justify-content: flex-end;
   position: absolute;
-  top: 18px;
+  top: 26px;
   right: 12px;
   padding: 0;
   z-index: 3;
