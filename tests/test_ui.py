@@ -597,6 +597,8 @@ def test_invalid_plan_renders_every_step(monkeypatch) -> None:
         value for kind, value in stub.calls if kind == "markdown" and "tc-timeline" in value
     )
     assert markup.count('class="tc-step-time"') == 5
+    assert 'class="tc-step last"' in markup
+    assert 'class="tc-step last ok"' not in markup
     for index in range(5):
         assert f"Step {index}" in markup
 
@@ -1170,10 +1172,10 @@ def test_plan_timeline_escapes_text_and_marks_the_last_step(monkeypatch) -> None
         ],
     )
 
-    ui._render_plan(plan)
+    ui._render_plan(plan, valid=True)
 
     markup = "\n".join(value for kind, value in stub.calls if kind == "markdown")
     assert "&lt;b&gt;First&lt;/b&gt;" in markup
     assert "<b>First</b>" not in markup
     assert markup.count('class="tc-step-card"') == 2
-    assert 'class="tc-step last"' in markup
+    assert 'class="tc-step last ok"' in markup

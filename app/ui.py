@@ -479,7 +479,7 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
         st.caption(t("plan_model_caption", model=_fmt_model(plan_model)))
 
     if validation.valid:
-        _render_plan(plan)
+        _render_plan(plan, valid=True)
 
     _section(t("behind_the_scenes"))
     tab_why, tab_sources, tab_trace = st.tabs([t("tab_why"), t("tab_sources"), t("tab_trace")])
@@ -841,6 +841,7 @@ def _render_plan(
     end: int | None = None,
     issues=None,
     show_numbers: bool = False,
+    valid: bool = False,
 ) -> None:
     """Render the final plan as the Majora's Mask vertical timeline.
 
@@ -850,6 +851,7 @@ def _render_plan(
         end (int | None, default None): exclusive last step index.
         issues: validation issues used to highlight steps and show chips.
         show_numbers (bool, default False): prefix each title with "Step N".
+        valid (bool, default False): paint the final step with the valid accent.
 
     returns:
         None: draws into the app.
@@ -884,6 +886,8 @@ def _render_plan(
         classes = "tc-step"
         if last:
             classes += " last"
+            if valid:
+                classes += " ok"
         if bad:
             classes += " bad"
         rows.append(
@@ -2395,6 +2399,13 @@ h1, h2, h3, h4, h5, h6 {
 .tc-step.last .tc-dot { background: var(--tc-red); }
 .tc-step.last .tc-step-card { background: #2a1a24; border-color: var(--tc-red); }
 .tc-step.last .tc-step-meta { color: #f0b5a8; }
+.tc-step.last.ok .tc-step-hour { color: var(--tc-teal); }
+.tc-step.last.ok .tc-dot { background: var(--tc-teal); }
+.tc-step.last.ok .tc-step-card {
+  background: #12302f;
+  border-color: var(--tc-teal);
+}
+.tc-step.last.ok .tc-step-meta { color: #b9e5e0; }
 .tc-step.bad .tc-step-hour { color: var(--tc-red); }
 .tc-step.bad .tc-dot { background: var(--tc-red); }
 .tc-step.bad .tc-step-card { background: #2a1a24; border-color: var(--tc-red); }
