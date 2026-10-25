@@ -1102,8 +1102,6 @@ def _render_plan(
         if step.depends_on:
             deps = ", ".join(str(d + 1) for d in step.depends_on)
             meta.append(html.escape(t("depends_on", deps=deps)))
-        actions = "".join(f"<li>{html.escape(tr(action))}</li>" for action in step.actions)
-        action_html = f'<ul class="tc-actions">{actions}</ul>' if actions else ""
         title = tr(step.title)
         if show_numbers:
             title = t("plan_step_title", n=index + 1, title=title)
@@ -1125,7 +1123,7 @@ def _render_plan(
             '<div class="tc-step-card">'
             f'<div class="tc-step-title">{html.escape(title)}</div>'
             f'<div class="tc-step-meta">{" \u00b7 ".join(meta)}</div>'
-            f"{chips}{action_html}"
+            f"{chips}"
             "</div></div>"
         )
     _html_block(f'<div class="tc-timeline">{"".join(rows)}</div>')
@@ -1182,6 +1180,10 @@ def _render_why(plan) -> None:
             if step.depends_on:
                 deps = ", ".join(str(d + 1) for d in step.depends_on)
                 st.write(t("depends_on", deps=deps))
+            if step.actions:
+                st.markdown(f"**{t('actions_label')}**")
+                for action in step.actions:
+                    st.markdown(f"- {tr(action)}")
 
 
 def _window_range(w: TimeWindow) -> str:
@@ -2307,7 +2309,6 @@ h1, h2, h3, h4, h5, h6 {
 }
 .tc-step-title { font-weight: 600; }
 .tc-step-meta { font-size: 13px; color: var(--tc-muted); }
-.tc-actions { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--tc-text); }
 .tc-step.last .tc-step-hour { color: var(--tc-red); }
 .tc-step.last .tc-dot { background: var(--tc-red); }
 .tc-step.last .tc-step-card { background: #2a1a24; border-color: var(--tc-red); }

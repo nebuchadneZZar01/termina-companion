@@ -615,7 +615,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         # output
         "your_plan": "Your Plan",
         "plan_valid": "\u2713 Plan valid",
-        "plan_not_valid": "\u2717 Plan not valid \u2014 check the issues below",
         "verdict_fail_title": "That won't work, Link",
         "verdict_missing_body": (
             "You are missing something. Get these, update your inventory and ask "
@@ -642,6 +641,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "agent_critic": "Critic Agent",
         "no_plan": "No plan produced.",
         "window_label": "Window",
+        "actions_label": "What to do",
         "needs": "Needs",
         "depends_on": "Depends on step(s) {deps}",
         "step_n": "Step {n}",
@@ -765,9 +765,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "registry_issue_count": "{n} issue(s)",
         "registry_stop_here": " \u00b7 last attempt, I stop",
         "problems_count": "{n} problem(s) to solve",
-        "agent_done": "completed",
-        "agent_running": "working",
-        "agent_pending": "waiting",
         "wiki_evidence": "Wiki evidence:",
         "indexed_pages_n": "{n} page(s) indexed",
         "verdict_ok_body": ("I rechecked every step and found no problems. Attempt {n} of {max}."),
@@ -992,7 +989,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         # output
         "your_plan": "Il Tuo Piano",
         "plan_valid": "\u2713 Piano valido",
-        "plan_not_valid": ("\u2717 Piano non valido \u2014 controlla i problemi qui sotto"),
         "verdict_fail_title": "Cos\u00ec non si pu\u00f2 fare, Link",
         "verdict_missing_body": (
             "Ti manca qualcosa. Procurati questi oggetti, aggiornali nell'inventario "
@@ -1019,6 +1015,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "agent_critic": "Agente Critico",
         "no_plan": "Nessun piano generato.",
         "window_label": "Finestra",
+        "actions_label": "Cosa fare",
         "needs": "Necessita",
         "depends_on": "Dipende dai passi {deps}",
         "step_n": "Passo {n}",
@@ -1152,9 +1149,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "registry_issue_count": "{n} problema/i",
         "registry_stop_here": " \u00b7 ultimo tentativo, mi fermo",
         "problems_count": "{n} problema/i da risolvere",
-        "agent_done": "completato",
-        "agent_running": "al lavoro",
-        "agent_pending": "in attesa",
         "wiki_evidence": "Evidenze dal wiki:",
         "indexed_pages_n": "{n} pagine indicizzate",
         "verdict_ok_body": (
