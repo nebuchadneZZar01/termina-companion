@@ -675,6 +675,68 @@ def test_plan_details_keep_every_step_field(monkeypatch) -> None:
         assert expected in markup
 
 
+def test_semantic_entity_styles_are_shared_by_state_knowledge_and_plan(
+    monkeypatch,
+) -> None:
+    from app.data.mock_knowledge import build_default_knowledge
+    from app.domain import ClockTime, GameState, Plan, PlanStep, TimeWindow
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(ui, "st", stub)
+    monkeypatch.setattr(ui, "t", lambda key, **kwargs: f"{key}:{kwargs}")
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+
+    kb = build_default_knowledge()
+    index = ui._entity_index(kb)
+    kinds = index[1]
+    assert kinds["sun's mask"] == "mask"
+    assert kinds["room key"] == "item"
+    assert kinds["stockpot inn"] == "place"
+
+    state = GameState(
+        time=ClockTime(day=1, hour=6),
+        location="Stockpot Inn",
+        inventory=["Room Key"],
+        masks=["Kafei's Mask"],
+    )
+    state_html = ui._state_fields_html(state)
+    assert 'class="tc-place">Stockpot Inn' in state_html
+    assert 'class="tc-item">Room Key' in state_html
+    assert 'class="tc-mask">Kafei' in state_html
+
+    objective = next(o for o in kb.all_objectives if "Kafei's Mask" in o.title)
+    knowledge_html = ui._registry_knowledge_body({"relevant_objectives": [objective]}, index)
+    assert 'class="tc-mask">Kafei' in knowledge_html
+
+    plan = Plan(
+        goal="goal",
+        steps=[
+            PlanStep(
+                title="Get Kafei's Mask from Madame Aroma",
+                location="Stockpot Inn",
+                window=TimeWindow(
+                    start=ClockTime(day=1, hour=10),
+                    end=ClockTime(day=1, hour=11),
+                ),
+                requires_items=["Room Key"],
+                requires_masks=["Kafei's Mask"],
+            )
+        ],
+    )
+    ui._render_plan(plan, kb=kb)
+    markup = next(value for kind, value in stub.calls if kind == "markdown")
+    assert 'class="tc-place">Stockpot Inn' in markup
+    assert 'class="tc-item">Room Key' in markup
+    assert 'class="tc-mask">Kafei' in markup
+
+    ui._render_why(plan, kb=kb)
+    why_markup = next(
+        value for kind, value in stub.calls if kind == "markdown" and "tc-detail-card" in value
+    )
+    assert 'class="tc-item">Room Key' in why_markup
+    assert 'class="tc-mask">Kafei' in why_markup
+
+
 def test_fairy_greeting_accepts_a_custom_message() -> None:
     import datetime
 

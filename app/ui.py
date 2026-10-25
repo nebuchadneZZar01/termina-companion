@@ -352,9 +352,9 @@ def _plain_progress(line: str) -> str:
     return line.replace("`", "").replace("*", "")
 
 
-def _render_planning_progress(task: _PlanningTask) -> None:
+def _render_planning_progress(task: _PlanningTask, kb=None) -> None:
     """Render the finished agent registry and any terminal error."""
-    _html_block(_agent_registry_html(task))
+    _html_block(_agent_registry_html(task, kb=kb))
     if task.status == "error":
         st.error(t("planning_error", error=task.error or "unknown error"))
     elif task.status == "stopped":
@@ -370,7 +370,7 @@ def _live_title_html(label: str) -> str:
     )
 
 
-def _planning_live(task: _PlanningTask) -> None:
+def _planning_live(task: _PlanningTask, kb=None) -> None:
     """Drive the live HTML registry until the run reaches a terminal state.
 
     The registry is redrawn only when a streamed event arrives, while the
@@ -390,7 +390,7 @@ def _planning_live(task: _PlanningTask) -> None:
         title.markdown(_live_title_html(label), unsafe_allow_html=True)
 
     def draw_registry() -> None:
-        registry.markdown(_agent_registry_html(task, live=True), unsafe_allow_html=True)
+        registry.markdown(_agent_registry_html(task, live=True, kb=kb), unsafe_allow_html=True)
 
     draw_title(0)
     draw_registry()
@@ -464,7 +464,7 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
         )
         if validation.issues:
             _html_block(_problems_panel_html(validation.issues))
-        _render_last_plan(plan, validation.issues)
+        _render_last_plan(plan, validation.issues, kb=kb)
         if failed:
             st.caption(
                 t(
@@ -479,14 +479,14 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
         st.caption(t("plan_model_caption", model=_fmt_model(plan_model)))
 
     if validation.valid:
-        _render_plan(plan, valid=True)
+        _render_plan(plan, valid=True, kb=kb)
 
     _section(t("behind_the_scenes"))
     tab_why, tab_sources, tab_trace = st.tabs([t("tab_why"), t("tab_sources"), t("tab_trace")])
 
     with tab_why:
         st.caption(t("tab_why_caption"))
-        _render_why(result.get("plan"))
+        _render_why(result.get("plan"), kb=kb)
     with tab_sources:
         st.caption(t("tab_sources_caption"))
         _render_sources(result["relevant_objectives"], kb)
@@ -586,15 +586,79 @@ def _markdown_windows(s: str) -> str:
     return _WINDOW_RE.sub(lambda m: f"`[{m.group(1)}]`", s)
 
 
+_ENTITY_CLASS = {"item": "tc-item", "mask": "tc-mask", "place": "tc-place"}
+
+
+def _entity_span(value: str, kind: str) -> str:
+    """Return one display value as its semantic game-entity span."""
+    return f'<span class="{_ENTITY_CLASS[kind]}">{html.escape(value)}</span>'
+
+
+def _entities_html(values, kind: str) -> str:
+    """Return a comma-separated, translated list of semantic entity spans."""
+    return ", ".join(_entity_span(tr(value), kind) for value in values)
+
+
+def _entity_index(kb) -> tuple[re.Pattern[str], dict[str, str]]:
+    """Build the longest-first matcher for known items, masks and places."""
+    if kb is None:
+        return re.compile(r"(?!x)x"), {}
+    items = {
+        item
+        for objective in kb.all_objectives
+        for item in (*objective.requires_items, *objective.provides_items)
+    }
+    masks = set(MASKS)
+    for objective in kb.all_objectives:
+        masks.update(objective.requires_masks)
+        masks.update(objective.provides_masks)
+    masks.update(item for item in items if "mask" in item.casefold())
+    items -= masks
+    places = {location.name for location in kb.locations} | {"Clock Town"}
+    pairs = [
+        *((tr(name), "mask") for name in masks),
+        *((tr(name), "item") for name in items),
+        *((tr(name), "place") for name in places),
+    ]
+    kinds: dict[str, str] = {}
+    for name, kind in pairs:
+        if name:
+            kinds.setdefault(name.casefold(), kind)
+    if not kinds:
+        return re.compile(r"(?!x)x"), {}
+    ordered = sorted(kinds, key=len, reverse=True)
+    pattern = re.compile(
+        "|".join(f"(?<!\\w){re.escape(name)}(?!\\w)" for name in ordered),
+        re.IGNORECASE,
+    )
+    return pattern, kinds
+
+
+def _highlight_entities(text: str, index: tuple[re.Pattern[str], dict[str, str]]) -> str:
+    """Escape *text* and wrap the game entities it mentions in semantic spans."""
+    raw = tr(text)
+    pattern, kinds = index
+    if not kinds:
+        return html.escape(raw)
+    parts: list[str] = []
+    position = 0
+    for match in pattern.finditer(raw):
+        parts.append(html.escape(raw[position : match.start()]))
+        parts.append(_entity_span(match.group(0), kinds[match.group(0).casefold()]))
+        position = match.end()
+    parts.append(html.escape(raw[position:]))
+    return "".join(parts)
+
+
 def _state_fields_html(gs) -> str:
     """Return the canonical game state as the trace card's rows."""
-    items = ", ".join(tr(item) for item in gs.inventory) or t("trace_none")
-    masks = ", ".join(tr(mask) for mask in gs.masks) or t("trace_none")
+    items = _entities_html(gs.inventory, "item") or html.escape(t("trace_none"))
+    masks = _entities_html(gs.masks, "mask") or html.escape(t("trace_none"))
     rows = [
-        (t("trace_where"), html.escape(tr(gs.location))),
+        (t("trace_where"), _entity_span(tr(gs.location), "place")),
         (t("trace_when"), _html_clock(gs.time)),
-        (t("trace_items"), html.escape(items)),
-        (t("trace_masks"), html.escape(masks)),
+        (t("trace_items"), items),
+        (t("trace_masks"), masks),
     ]
     body = "".join(
         f'<div class="tc-detail-line"><b>{html.escape(label)}</b> {value}</div>'
@@ -842,6 +906,7 @@ def _render_plan(
     issues=None,
     show_numbers: bool = False,
     valid: bool = False,
+    kb=None,
 ) -> None:
     """Render the final plan as the Majora's Mask vertical timeline.
 
@@ -852,6 +917,7 @@ def _render_plan(
         issues: validation issues used to highlight steps and show chips.
         show_numbers (bool, default False): prefix each title with "Step N".
         valid (bool, default False): paint the final step with the valid accent.
+        kb: knowledge base used to recognise named entities in step titles.
 
     returns:
         None: draws into the app.
@@ -859,6 +925,7 @@ def _render_plan(
     if not plan or not plan.steps:
         st.write(t("no_plan"))
         return
+    entities = _entity_index(kb)
     total = len(plan.steps)
     issues_by_step: dict[int, list] = {}
     for issue in issues or []:
@@ -872,14 +939,19 @@ def _render_plan(
         start_clock = step.window.start
         suffix = " (+1)" if start_clock.next_morning else ""
         hour = f"{start_clock.display_hour:02d}:{start_clock.minute:02d}{suffix}"
-        meta = [html.escape(tr(step.location))]
-        needs = [tr(x) for x in (*step.requires_items, *step.requires_masks)]
+        meta = []
+        if step.location:
+            meta.append(_entity_span(tr(step.location), "place"))
+        needs = [
+            *(_entity_span(tr(x), "item") for x in step.requires_items),
+            *(_entity_span(tr(x), "mask") for x in step.requires_masks),
+        ]
         if needs:
-            meta.append(f"{html.escape(t('needs'))} {html.escape(', '.join(needs))}")
+            meta.append(f"{html.escape(t('needs'))} {', '.join(needs)}")
         if step.depends_on:
             deps = ", ".join(str(d + 1) for d in step.depends_on)
             meta.append(html.escape(t("depends_on", deps=deps)))
-        title = tr(step.title)
+        title = _highlight_entities(step.title, entities)
         if show_numbers:
             title = t("plan_step_title", n=index + 1, title=title)
         chips = _missing_chips_html(issues_by_step.get(index, []), prefix=True)
@@ -900,7 +972,7 @@ def _render_plan(
             '<span class="tc-dot"></span><span class="tc-line"></span>'
             "</div>"
             '<div class="tc-step-card">'
-            f'<div class="tc-step-title">{html.escape(title)}</div>'
+            f'<div class="tc-step-title">{title}</div>'
             f'<div class="tc-step-meta">{" \u00b7 ".join(meta)}</div>'
             f"{chips}"
             "</div></div>"
@@ -908,7 +980,7 @@ def _render_plan(
     _html_block(f'<div class="tc-timeline">{"".join(rows)}</div>')
 
 
-def _render_last_plan(plan, issues) -> None:
+def _render_last_plan(plan, issues, kb=None) -> None:
     """Render the invalid plan around its first failing step."""
     _section(t("last_plan_title"))
     if not plan or not plan.steps:
@@ -924,14 +996,15 @@ def _render_last_plan(plan, issues) -> None:
     )
     if focus is not None:
         st.caption(t("last_plan_caption", n=focus + 1))
-    _render_plan(plan, issues=issues, show_numbers=True)
+    _render_plan(plan, issues=issues, show_numbers=True, kb=kb)
 
 
-def _render_why(plan) -> None:
+def _render_why(plan, kb=None) -> None:
     """Render the "why" tab: window, needs and dependencies per step.
 
     args:
         plan (Plan | None): the plan to explain.
+        kb: knowledge base used to recognise named entities in free text.
 
     returns:
         None: draws into the app.
@@ -939,6 +1012,7 @@ def _render_why(plan) -> None:
     if not plan or not plan.steps:
         st.write(t("no_plan"))
         return
+    entities = _entity_index(kb)
     cards = []
     for i, step in enumerate(plan.steps, 1):
         lines = [
@@ -946,17 +1020,19 @@ def _render_why(plan) -> None:
             f"{_html_clock(step.window.start)} \u2192 {_html_clock(step.window.end)}"
         ]
         if step.requires_items:
-            needs = ", ".join(tr(x) for x in step.requires_items)
-            lines.append(f"{html.escape(t('needs'))}: {html.escape(needs)}")
+            needs = _entities_html(step.requires_items, "item")
+            lines.append(f"{html.escape(t('needs'))}: {needs}")
         if step.requires_masks:
-            masks = ", ".join(tr(x) for x in step.requires_masks)
-            lines.append(f"{html.escape(t('source_masks'))} {html.escape(masks)}")
+            masks = _entities_html(step.requires_masks, "mask")
+            lines.append(f"{html.escape(t('source_masks'))} {masks}")
         if step.depends_on:
             deps = ", ".join(str(d + 1) for d in step.depends_on)
             lines.append(html.escape(t("depends_on", deps=deps)))
         body = "".join(f'<div class="tc-detail-line">{line}</div>' for line in lines)
         if step.actions:
-            actions = "".join(f"<li>{html.escape(tr(action))}</li>" for action in step.actions)
+            actions = "".join(
+                f"<li>{_highlight_entities(action, entities)}</li>" for action in step.actions
+            )
             body += (
                 f'<div class="tc-detail-muted">{html.escape(t("actions_label"))}</div>'
                 f"<ul>{actions}</ul>"
@@ -964,7 +1040,8 @@ def _render_why(plan) -> None:
         cards.append(
             '<div class="tc-detail-card">'
             f'<div class="tc-detail-title">'
-            f"{html.escape(t('step_n', n=i))} \u2014 {html.escape(tr(step.title))}"
+            f"{html.escape(t('step_n', n=i))} \u2014 "
+            f"{_highlight_entities(step.title, entities)}"
             "</div>"
             f"{body}</div>"
         )
@@ -1000,12 +1077,13 @@ def _render_sources(objectives, kb) -> None:
     if not objectives:
         st.write(t("no_sources"))
         return
+    entities = _entity_index(kb)
     cards = []
     for obj in objectives:
         lines = [
             f"{html.escape(t('source_when'))} {_html_clock(obj.window.start)} "
             f"\u2192 {_html_clock(obj.window.end)}",
-            f"{html.escape(t('source_where'))} {html.escape(tr(obj.location))}",
+            f"{html.escape(t('source_where'))} {_entity_span(tr(obj.location), 'place')}",
         ]
         if obj.npc_id:
             npc = kb.npc(obj.npc_id)
@@ -1023,21 +1101,20 @@ def _render_sources(objectives, kb) -> None:
                     f"\u00b7 {html.escape(_window_range(event.window))}"
                 )
         if obj.requires_items:
-            items = ", ".join(tr(x) for x in obj.requires_items)
-            lines.append(f"{html.escape(t('source_needs'))} {html.escape(items)}")
+            items = _entities_html(obj.requires_items, "item")
+            lines.append(f"{html.escape(t('source_needs'))} {items}")
         if obj.requires_masks:
-            masks = ", ".join(tr(x) for x in obj.requires_masks)
-            lines.append(f"{html.escape(t('source_masks'))} {html.escape(masks)}")
+            masks = _entities_html(obj.requires_masks, "mask")
+            lines.append(f"{html.escape(t('source_masks'))} {masks}")
         prereq_titles = [o.title for o in kb.all_objectives if o.id in obj.prerequisites]
         if prereq_titles:
-            lines.append(
-                f"{html.escape(t('source_after'))} "
-                f"{html.escape(', '.join(tr(x) for x in prereq_titles))}"
-            )
+            prereqs = ", ".join(_highlight_entities(title, entities) for title in prereq_titles)
+            lines.append(f"{html.escape(t('source_after'))} {prereqs}")
         body = "".join(f'<div class="tc-detail-line">{line}</div>' for line in lines)
         cards.append(
             '<div class="tc-detail-card">'
-            f'<div class="tc-detail-title">\U0001f50d {html.escape(tr(obj.title))}</div>'
+            f'<div class="tc-detail-title">\U0001f50d '
+            f"{_highlight_entities(obj.title, entities)}</div>"
             f"{body}</div>"
         )
     _html_block(f'<div class="tc-detail-list">{"".join(cards)}</div>')
@@ -1703,6 +1780,10 @@ _THEME_CSS = """
   --tc-red: #e5684f;
   --tc-text: #e8e6f2;
   --tc-muted: #a9a6c4;
+  --tc-item: #ffae6b;
+  --tc-mask: #c9b6ff;
+  --tc-place: #8ec5ff;
+  --tc-place-line: #4a6a99;
 }
 
 html, body, .stApp, [data-testid="stAppViewContainer"] {
@@ -2478,6 +2559,37 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 4px;
   white-space: nowrap;
 }
+.tc-item {
+  font-family: Inter, sans-serif;
+  font-weight: 600;
+  color: var(--tc-item);
+  white-space: nowrap;
+}
+.tc-item::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  vertical-align: 1px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+.tc-mask {
+  font-family: Cinzel, serif;
+  font-weight: 700;
+  color: var(--tc-mask);
+  letter-spacing: 0.02em;
+}
+.tc-place {
+  font-family: Inter, sans-serif;
+  font-weight: 600;
+  font-variant: small-caps;
+  letter-spacing: 0.03em;
+  color: var(--tc-place);
+  text-decoration: underline dotted var(--tc-place-line);
+  text-underline-offset: 3px;
+}
 .tc-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--tc-border);
@@ -2785,18 +2897,20 @@ def _registry_rows(task: _PlanningTask) -> list[dict]:
     return rows
 
 
-def _registry_activity_html(events: list[dict], running: bool) -> str:
+def _registry_activity_html(events: list[dict], running: bool, entities=None) -> str:
     """Return the live activity timeline for one agent row."""
     lines = [line for line in (_plain_progress(_progress_line(event)) for event in events) if line]
     if not lines:
         return ""
+    index = entities or _entity_index(None)
     items = []
-    for index, line in enumerate(lines):
-        current = running and index == len(lines) - 1
+    for position, line in enumerate(lines):
+        current = running and position == len(lines) - 1
         marker = "\u23f3" if current else "\u2713"
         tone = "current" if current else "done"
         items.append(
-            f'<li class="{tone}"><span class="tc-ev">{marker}</span> {html.escape(line)}</li>'
+            f'<li class="{tone}"><span class="tc-ev">{marker}</span> '
+            f"{_highlight_entities(line, index)}</li>"
         )
     return (
         '<div class="tc-reg-activity">'
@@ -2833,7 +2947,7 @@ def _registry_state_summary(data: dict) -> str:
     return t(
         "registry_state_summary",
         when=_plain_clock(gs.time),
-        where=tr(gs.location),
+        where=_entity_span(tr(gs.location), "place"),
         masks=len(gs.masks),
         items=len(gs.inventory),
     )
@@ -2862,36 +2976,38 @@ def _registry_state_body(data: dict) -> str:
     gs = data.get("game_state")
     if gs is None:
         return ""
-    items = ", ".join(tr(item) for item in gs.inventory) or t("trace_none")
-    masks = ", ".join(tr(mask) for mask in gs.masks) or t("trace_none")
+    items = _entities_html(gs.inventory, "item") or html.escape(t("trace_none"))
+    masks = _entities_html(gs.masks, "mask") or html.escape(t("trace_none"))
     return (
         '<div class="tc-reg-kv">'
-        f"<span><b>{html.escape(t('trace_items'))}</b> {html.escape(items)}</span>"
-        f"<span><b>{html.escape(t('trace_masks'))}</b> {html.escape(masks)}</span>"
+        f"<span><b>{html.escape(t('trace_items'))}</b> {items}</span>"
+        f"<span><b>{html.escape(t('trace_masks'))}</b> {masks}</span>"
         "</div>"
     )
 
 
-def _registry_knowledge_body(data: dict) -> str:
+def _registry_knowledge_body(data: dict, entities=None) -> str:
     """Return the expanded Knowledge Agent body, including RAG badges."""
     objectives = data.get("relevant_objectives") or []
+    index = entities if entities is not None else _entity_index(None)
     if objectives:
-        items = "".join(f"<li>{html.escape(tr(obj.title))}</li>" for obj in objectives)
+        items = "".join(f"<li>{_highlight_entities(obj.title, index)}</li>" for obj in objectives)
         body = f"<ul>{items}</ul>"
     else:
         body = f'<div class="tc-reg-kv">{html.escape(t("knowledge_empty_hint"))}</div>'
     return body + _rag_badges_html(data)
 
 
-def _registry_plan_body(data: dict) -> str:
+def _registry_plan_body(data: dict, entities=None) -> str:
     """Return the expanded Planning Agent body as a compact step list."""
     plan = data.get("plan")
     if not plan or not plan.steps:
         return f'<div class="tc-reg-kv">{html.escape(t("no_plan"))}</div>'
+    index = entities if entities is not None else _entity_index(None)
     items = "".join(
-        f"<li>{index}. {html.escape(tr(step.title))} "
+        f"<li>{position}. {_highlight_entities(step.title, index)} "
         f'<span class="tc-reg-time">{html.escape(_fmt_window(step.window))}</span></li>'
-        for index, step in enumerate(plan.steps, 1)
+        for position, step in enumerate(plan.steps, 1)
     )
     return f"<ul>{items}</ul>"
 
@@ -2919,47 +3035,59 @@ def _registry_critic_body(data: dict) -> str:
 
 
 def _registry_body(
-    node: str, data: dict, *, events: list[dict] | None = None, live: bool = False
+    node: str,
+    data: dict,
+    *,
+    events: list[dict] | None = None,
+    live: bool = False,
+    entities=None,
 ) -> str:
     """Dispatch the expanded body for one registry row."""
     if data:
         if node == "state":
             return _registry_state_body(data)
         if node == "knowledge":
-            return _registry_knowledge_body(data)
+            return _registry_knowledge_body(data, entities)
         if node == "plan":
-            return _registry_plan_body(data)
+            return _registry_plan_body(data, entities)
         if node == "critic":
             return _registry_critic_body(data)
         return ""
-    return _registry_activity_html(events or [], running=live)
+    return _registry_activity_html(events or [], running=live, entities=entities)
 
 
 def _registry_summary(
-    node: str, data: dict, *, events: list[dict] | None = None, live: bool = False
+    node: str,
+    data: dict,
+    *,
+    events: list[dict] | None = None,
+    live: bool = False,
+    entities=None,
 ) -> str:
-    """Dispatch the one-line result for one registry row."""
+    """Dispatch the HTML-safe one-line result for one registry row."""
+    index = entities if entities is not None else _entity_index(None)
     if not data:
         if live:
-            return _registry_live_summary(events or [])
+            return _highlight_entities(_registry_live_summary(events or []), index)
         lines = [line for line in (_progress_line(event) for event in events or []) if line]
-        return _plain_progress(lines[-1]) if lines else ""
+        return _highlight_entities(_plain_progress(lines[-1]), index) if lines else ""
     if node == "state":
         return _registry_state_summary(data)
     if node == "knowledge":
-        return t("knowledge_objectives", n=len(data.get("relevant_objectives") or []))
+        return html.escape(t("knowledge_objectives", n=len(data.get("relevant_objectives") or [])))
     if node == "plan":
-        return _registry_plan_summary(data)
+        return html.escape(_registry_plan_summary(data))
     if node == "critic":
-        return _registry_critic_summary(data)
+        return html.escape(_registry_critic_summary(data))
     return ""
 
 
-def _agent_registry_html(task: _PlanningTask, live: bool = False) -> str:
+def _agent_registry_html(task: _PlanningTask, live: bool = False, kb=None) -> str:
     """Return the agent registry, shared by live and finished runs."""
     rows = _registry_rows(task)
     if not rows:
         return ""
+    entities = _entity_index(kb)
     validation = task.result.get("validation")
     error_count = (
         len([issue for issue in validation.issues if issue.severity == "error"])
@@ -3002,8 +3130,8 @@ def _agent_registry_html(task: _PlanningTask, live: bool = False) -> str:
             classes += " bad"
         if running:
             classes += " running"
-        summary = _registry_summary(node, data, events=row["events"], live=live)
-        body = _registry_body(node, data, events=row["events"], live=running)
+        summary = _registry_summary(node, data, events=row["events"], live=live, entities=entities)
+        body = _registry_body(node, data, events=row["events"], live=running, entities=entities)
         cards.append(
             f'<details class="{classes}"{" open" if index == last else ""}>'
             "<summary>"
@@ -3014,7 +3142,7 @@ def _agent_registry_html(task: _PlanningTask, live: bool = False) -> str:
             f'<div class="tc-reg-sub">{html.escape(t(_AGENT_SUBTITLE_KEY[node]))}</div>'
             "</div>"
             '<div class="tc-reg-right">'
-            f'<div class="tc-reg-result">{html.escape(summary)}</div>'
+            f'<div class="tc-reg-result">{summary}</div>'
             f"{duration}</div>"
             '<span class="tc-chev" aria-hidden="true">⌄</span>'
             "</summary>"
@@ -3434,11 +3562,11 @@ def _render_play(editor: dict, kb) -> None:
     if _task_is_active(task):
         # Block here, redrawing the registry only on agent updates. The final
         # rerun re-enables Generate/Stop and renders the result below.
-        _planning_live(task)
+        _planning_live(task, kb)
         st.rerun()
 
     if task is not None:
-        _render_planning_progress(task)
+        _render_planning_progress(task, kb)
         _render_planning_result(task, kb)
         return
 
