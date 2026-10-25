@@ -1699,7 +1699,7 @@ _THEME_CSS = """
   --tc-red: #e5684f;
   --tc-text: #e8e6f2;
   --tc-muted: #a9a6c4;
-  --tc-gap: 18px;
+  --tc-gap: 28px;
 }
 
 html, body, .stApp, [data-testid="stAppViewContainer"] {
@@ -1932,7 +1932,11 @@ h1, h2, h3, h4, h5, h6 {
 }
 .st-key-evaluation_tab,
 .st-key-evaluation_tab [data-testid="stVerticalBlock"] {
-  gap: var(--tc-gap) !important;
+  gap: 0 !important;
+}
+.st-key-evaluation_tab > * + *,
+.st-key-evaluation_tab [data-testid="stVerticalBlock"] > * + * {
+  margin-top: var(--tc-gap);
 }
 [data-testid="stAlert"] {
   border-radius: 12px;
