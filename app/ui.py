@@ -1485,19 +1485,20 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
         )
     )
 
-    for result in report.results:
-        status = t("eval_pass") if result.passed else t("eval_fail")
-        with st.expander(f"{result.scenario_id} — {status}"):
-            if result.error:
-                st.error(f"{t('eval_run_error')}: {result.error}")
-            elif not result.issues:
-                st.success(t("eval_no_issues"))
-            for issue in result.issues:
-                _render_issue(st, issue, fallback="")
-                help_key = f"kind_{issue.kind}_help"
-                help_text = t(help_key)
-                if help_text != help_key:
-                    st.caption(help_text)
+    with st.container(key="eval_details"):
+        for result in report.results:
+            status = t("eval_pass") if result.passed else t("eval_fail")
+            with st.expander(f"{result.scenario_id} — {status}"):
+                if result.error:
+                    st.error(f"{t('eval_run_error')}: {result.error}")
+                elif not result.issues:
+                    st.success(t("eval_no_issues"))
+                for issue in result.issues:
+                    _render_issue(st, issue, fallback="")
+                    help_key = f"kind_{issue.kind}_help"
+                    help_text = t(help_key)
+                    if help_text != help_key:
+                        st.caption(help_text)
 
 
 def _format_timestamp(value: str) -> str:
@@ -1892,6 +1893,7 @@ h1, h2, h3, h4, h5, h6 {
 .st-key-eval_actions [data-testid="stButton"] button[kind="secondary"] {
   color: var(--tc-muted);
 }
+.st-key-eval_details { margin-top: 18px; }
 [data-testid="stAlert"] {
   border-radius: 12px;
   border: 1px solid var(--tc-border);
