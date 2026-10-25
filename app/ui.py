@@ -1699,6 +1699,7 @@ _THEME_CSS = """
   --tc-red: #e5684f;
   --tc-text: #e8e6f2;
   --tc-muted: #a9a6c4;
+  --tc-gap: 18px;
 }
 
 html, body, .stApp, [data-testid="stAppViewContainer"] {
@@ -1929,8 +1930,7 @@ h1, h2, h3, h4, h5, h6 {
 .st-key-eval_actions [data-testid="stButton"] button[kind="secondary"] {
   color: var(--tc-muted);
 }
-.st-key-eval_details { margin-top: 18px; }
-.st-key-eval_comparison_table { margin-bottom: 18px; }
+.st-key-evaluation_tab [data-testid="stVerticalBlock"] { gap: var(--tc-gap); }
 [data-testid="stAlert"] {
   border-radius: 12px;
   border: 1px solid var(--tc-border);
@@ -2986,7 +2986,8 @@ def render() -> None:
     with tab_play:
         _render_play(editor, kb)
     with tab_evaluation:
-        _render_evaluation(editor)
+        with st.container(key="evaluation_tab"):
+            _render_evaluation(editor)
 
 
 def _render_sidebar_editor(kb) -> dict:
