@@ -806,12 +806,11 @@ def test_fairy_greeting_accepts_a_custom_message() -> None:
     assert "url(#taiaw-eval)" in evaluation
 
 
-def test_favicon_reuses_the_fairy_with_its_orb() -> None:
-    favicon = ui._fairy_svg("taia-favicon", css_class="", with_orb=True)
-
-    assert 'id="taia-favicon"' in favicon
-    assert 'id="taia-favicon-orb"' in favicon
-    assert "tc-fairy-wings" not in favicon
+def test_favicon_asset_is_available() -> None:
+    assert ui._FAVICON_PATH.is_file()
+    markup = ui._FAVICON_PATH.read_text(encoding="utf-8")
+    assert markup.lstrip().startswith("<svg")
+    assert 'viewBox="0 0 64 64"' in markup
 
 
 def test_failure_breakdown_handles_empty_and_wrapping_kinds(monkeypatch) -> None:

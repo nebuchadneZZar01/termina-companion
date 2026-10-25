@@ -59,6 +59,7 @@ def _graph():
 
 
 _LANGS = {"en": "\U0001f1ec\U0001f1e7 English", "it": "\U0001f1ee\U0001f1f9 Italiano"}
+_FAVICON_PATH = Path(__file__).resolve().parent / "assets" / "favicon.svg"
 
 _PLANNING_TASK_KEY = "_planning_task"
 _EVALUATION_TASK_KEY = "_evaluation_task"
@@ -2757,33 +2758,16 @@ def _empty_plan_html() -> str:
 def _fairy_svg(
     gradient_id: str,
     css_class: str = "tc-fairy-wings",
-    with_orb: bool = False,
 ) -> str:
-    """Return TaIA's wings as inline SVG, optionally with her orb."""
+    """Return TaIA's wings as inline SVG."""
     fill = f"url(#{gradient_id})"
     class_attr = f' class="{css_class}"' if css_class else ""
-    orb_gradient_id = f"{gradient_id}-orb"
-    orb_defs = (
-        f'<radialGradient id="{orb_gradient_id}" cx="50%" cy="50%" r="50%">'
-        '<stop offset="0" stop-color="#ffffff"></stop>'
-        '<stop offset="0.3" stop-color="#fff3a0"></stop>'
-        '<stop offset="0.62" stop-color="#f5d142"></stop>'
-        '<stop offset="1" stop-color="#f5d142" stop-opacity="0.15"></stop>'
-        "</radialGradient>"
-        if with_orb
-        else ""
-    )
-    orb = (
-        f'<circle cx="48" cy="44" r="18" fill="url(#{orb_gradient_id})"></circle>'
-        if with_orb
-        else ""
-    )
     return (
         f'<svg{class_attr} viewBox="0 0 96 72" aria-hidden="true">'
         f'<defs><linearGradient id="{gradient_id}" x1="0" y1="0" x2="0" y2="1">'
         '<stop offset="0" stop-color="#bfe6f2" stop-opacity="0.75"></stop>'
         '<stop offset="1" stop-color="#fff3a0" stop-opacity="0.75"></stop>'
-        f"</linearGradient>{orb_defs}</defs>"
+        "</linearGradient></defs>"
         f'<path d="M40 38C28 30 16 16 12 3C26 8 38 22 40 38Z" fill="{fill}" '
         'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
         'stroke-linecap="round"></path>'
@@ -2800,7 +2784,6 @@ def _fairy_svg(
         f'<path d="M58 47C67 44 75 47 83 54C73 57 63 55 58 47Z" fill="{fill}" '
         'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
         'stroke-linecap="round"></path>'
-        f"{orb}"
         '<circle cx="70" cy="60" r="3.5" fill="none" stroke="#f5d142" '
         'stroke-width="1.2"></circle>'
         '<circle cx="80" cy="66" r="2.2" fill="#f5d142"></circle>'
@@ -3344,7 +3327,7 @@ def render() -> None:
 
     st.set_page_config(
         page_title="TaIA – Your Termina Fairy Companion",
-        page_icon=_fairy_svg("taia-favicon", css_class="", with_orb=True),
+        page_icon=str(_FAVICON_PATH),
         layout="wide",
         initial_sidebar_state="expanded",
     )
