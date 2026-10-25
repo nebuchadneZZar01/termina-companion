@@ -2001,6 +2001,38 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid var(--tc-border) !important;
   border-radius: 12px;
 }
+[data-testid="stToast"] {
+  background: var(--tc-card) !important;
+  border: 1px solid var(--tc-border-strong) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 18px 40px rgba(4, 6, 18, 0.55) !important;
+  color: var(--tc-text);
+  filter: none !important;
+  padding: 14px 16px;
+  font-family: Inter, sans-serif;
+}
+[data-testid="stToastText"] {
+  color: var(--tc-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+[data-testid="stToastDynamicIcon"] {
+  font-size: 18px;
+  line-height: 1;
+}
+[data-testid="stToast"] button[aria-label="Close"] {
+  color: var(--tc-muted);
+}
+[data-testid="stToast"] button[aria-label="Close"]:hover {
+  color: var(--tc-gold);
+}
+[data-testid="stToastViewButton"] {
+  color: var(--tc-teal);
+  font-size: 12px;
+}
+[data-testid="stToastViewButton"]:hover {
+  color: var(--tc-gold);
+}
 
 .tc-brand { padding-right: 44px; }
 .tc-brand-name {
