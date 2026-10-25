@@ -2398,26 +2398,30 @@ def _fairy_html(day: int, value: datetime.time, text: str | None = None) -> str:
     """
     hours = _hours_left(day, _internal_hour(value.hour), value.minute)
     message = text if text is not None else t("fairy_greeting", hours=hours)
+    # Both tabs stay in the DOM, so a shared gradient id would let the
+    # evaluation fairy resolve the hidden play tab's defs.
+    gradient_id = "taiaw-eval" if text is not None else "taiaw-play"
+    fill = f"url(#{gradient_id})"
     wings = (
         '<svg class="tc-fairy-wings" viewBox="0 0 96 72" aria-hidden="true">'
-        '<defs><linearGradient id="taiaw" x1="0" y1="0" x2="0" y2="1">'
+        f'<defs><linearGradient id="{gradient_id}" x1="0" y1="0" x2="0" y2="1">'
         '<stop offset="0" stop-color="#bfe6f2" stop-opacity="0.75"></stop>'
         '<stop offset="1" stop-color="#fff3a0" stop-opacity="0.75"></stop>'
         "</linearGradient></defs>"
-        '<path d="M40 38C28 30 16 16 12 3C26 8 38 22 40 38Z" fill="url(#taiaw)" '
+        f'<path d="M40 38C28 30 16 16 12 3C26 8 38 22 40 38Z" fill="{fill}" '
         'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
         'stroke-linecap="round"></path>'
         '<path d="M39 35C29 25 21 14 14 5" fill="none" stroke="#8fb8c4" '
         'stroke-width="0.9" stroke-linecap="round"></path>'
-        '<path d="M56 38C68 30 80 16 84 3C70 8 58 22 56 38Z" fill="url(#taiaw)" '
+        f'<path d="M56 38C68 30 80 16 84 3C70 8 58 22 56 38Z" fill="{fill}" '
         'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
         'stroke-linecap="round"></path>'
         '<path d="M57 35C67 25 75 14 82 5" fill="none" stroke="#8fb8c4" '
         'stroke-width="0.9" stroke-linecap="round"></path>'
-        '<path d="M38 47C29 44 21 47 13 54C23 57 33 55 38 47Z" fill="url(#taiaw)" '
+        f'<path d="M38 47C29 44 21 47 13 54C23 57 33 55 38 47Z" fill="{fill}" '
         'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
         'stroke-linecap="round"></path>'
-        '<path d="M58 47C67 44 75 47 83 54C73 57 63 55 58 47Z" fill="url(#taiaw)" '
+        f'<path d="M58 47C67 44 75 47 83 54C73 57 63 55 58 47Z" fill="{fill}" '
         'stroke="#8fb8c4" stroke-width="1" stroke-linejoin="round" '
         'stroke-linecap="round"></path>'
         '<circle cx="70" cy="60" r="3.5" fill="none" stroke="#f5d142" '

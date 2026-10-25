@@ -643,9 +643,15 @@ def test_plan_details_keep_every_step_field(monkeypatch) -> None:
 def test_fairy_greeting_accepts_a_custom_message() -> None:
     import datetime
 
-    markup = ui._fairy_html(1, datetime.time(6, 0), text="Prova generale")
+    when = datetime.time(6, 0)
+    play = ui._fairy_html(1, when)
+    evaluation = ui._fairy_html(1, when, text="Prova generale")
 
-    assert "Prova generale" in markup
+    assert "Prova generale" in evaluation
+    assert 'id="taiaw-play"' in play
+    assert 'id="taiaw-eval"' in evaluation
+    assert "url(#taiaw-play)" in play
+    assert "url(#taiaw-eval)" in evaluation
 
 
 def test_failed_run_without_a_completed_attempt_renders_no_plan(monkeypatch) -> None:
