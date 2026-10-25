@@ -1929,6 +1929,9 @@ h1, h2, h3, h4, h5, h6 {
 .st-key-eval_actions [data-testid="stButton"] button[kind="secondary"] {
   color: var(--tc-muted);
 }
+.st-key-evaluation_tab [data-testid="stMarkdownContainer"]:has(> [class^="tc-"]) {
+  margin-bottom: 0 !important;
+}
 [data-testid="stAlert"] {
   border-radius: 12px;
   border: 1px solid var(--tc-border);
