@@ -207,6 +207,38 @@ def test_progress_label_rotates_with_the_wall_clock_tick(monkeypatch) -> None:
     assert ui._progress_label(3) == "one..."
 
 
+def test_apply_pending_load_sets_widget_keys_before_render(monkeypatch) -> None:
+    from app.domain import ClockTime
+    from app.save import SaveSnapshot
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(ui, "st", stub)
+    snapshot = SaveSnapshot(
+        time=ClockTime(day=2, hour=26, minute=30),
+        location="Stock Pot Inn",
+        masks=["Kafei's Mask"],
+        inventory=["Room Key"],
+        quest_progress=["Anju & Kafei"],
+        goal="Help Anju",
+        migration_warning="migrated",
+    )
+    stub.session_state["_load_pending"] = snapshot
+
+    ui._apply_pending_load()
+
+    assert "_load_pending" not in stub.session_state
+    assert stub.session_state["save_day"] == 2
+    assert stub.session_state["save_time"].hour == 2
+    assert stub.session_state["save_time"].minute == 30
+    assert stub.session_state["save_location"] == "Stock Pot Inn"
+    assert stub.session_state["save_masks"] == ["Kafei's Mask"]
+    assert stub.session_state["save_inventory"] == ["Room Key"]
+    assert stub.session_state["save_quests"] == ["Anju & Kafei"]
+    assert stub.session_state["save_goal"] == "Help Anju"
+    assert stub.session_state["_save_warning"] == "migrated"
+    assert stub.session_state["_load_ok"] is True
+
+
 def test_progress_line_formats_lists_and_skips_unknown_phases(monkeypatch) -> None:
     monkeypatch.setattr(ui, "t", lambda key, **kw: key if not kw else key + repr(kw))
 

@@ -3118,6 +3118,29 @@ def _render_configuration() -> None:
         )
 
 
+def _apply_pending_load() -> None:
+    """Apply a pending save before the sidebar widgets own their keys."""
+    snapshot = st.session_state.pop("_load_pending", None)
+    if snapshot is None:
+        return
+    try:
+        st.session_state["save_day"] = int(snapshot.time.day)
+        st.session_state["save_time"] = _datetime.time(
+            snapshot.time.display_hour, snapshot.time.minute
+        )
+        if snapshot.migration_warning:
+            st.session_state["_save_warning"] = snapshot.migration_warning
+        if snapshot.location:
+            st.session_state["save_location"] = snapshot.location
+        st.session_state["save_masks"] = list(snapshot.masks)
+        st.session_state["save_inventory"] = list(snapshot.inventory)
+        st.session_state["save_quests"] = list(snapshot.quest_progress)
+        st.session_state["save_goal"] = snapshot.goal or ""
+        st.session_state["_load_ok"] = True
+    except Exception as exc:
+        st.toast(str(exc), icon="❌", duration=6)
+
+
 def render() -> None:
     """Main Streamlit UI: state editor, planning action and result tabs.
 
@@ -3139,6 +3162,7 @@ def render() -> None:
     _inject_styles()
     kb = build_default_knowledge()
 
+    _apply_pending_load()
     with st.sidebar:
         editor = _render_sidebar_editor(kb)
         st.divider()
@@ -3171,23 +3195,10 @@ def render() -> None:
                 if not snapshot:
                     st.toast(t("load_none"), icon="⚠️", duration=4)
                 else:
-                    try:
-                        st.session_state["save_day"] = int(snapshot.time.day)
-                        st.session_state["save_time"] = _datetime.time(
-                            snapshot.time.display_hour, snapshot.time.minute
-                        )
-                        if snapshot.migration_warning:
-                            st.session_state["_save_warning"] = snapshot.migration_warning
-                        if snapshot.location:
-                            st.session_state["save_location"] = snapshot.location
-                        st.session_state["save_masks"] = list(snapshot.masks)
-                        st.session_state["save_inventory"] = list(snapshot.inventory)
-                        st.session_state["save_quests"] = list(snapshot.quest_progress)
-                        st.session_state["save_goal"] = snapshot.goal or ""
-                        st.toast(t("load_ok"), icon="✅", duration=4)
-                        st.rerun()
-                    except Exception as exc:
-                        st.toast(str(exc), icon="❌", duration=6)
+                    st.session_state["_load_pending"] = snapshot
+                    st.rerun()
+        if st.session_state.pop("_load_ok", False):
+            st.toast(t("load_ok"), icon="✅", duration=4)
         save_warning = st.session_state.pop("_save_warning", "")
         if save_warning:
             st.toast(save_warning, icon="⚠️", duration=8)
