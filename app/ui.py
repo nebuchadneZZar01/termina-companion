@@ -1769,8 +1769,8 @@ h1, h2, h3, h4, h5, h6 {
   border-color: #efc46e;
   color: #1a1630;
 }
-.st-key-goal_row [data-testid="stButton"] button,
-.st-key-goal_row [data-testid="stButton"] button * {
+.st-key-goal_row [data-testid="stButton"] button[kind="primary"],
+.st-key-goal_row [data-testid="stButton"] button[kind="primary"] * {
   font-family: Cinzel, serif !important;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -2949,7 +2949,7 @@ def render() -> None:
         st.session_state["lang"] = "it"
 
     st.set_page_config(
-        page_title="TaIA — Your Termina Fairy Companion",
+        page_title="TaIA – Your Termina Fairy Companion",
         page_icon=_fairy_svg("taia-favicon", css_class="", with_orb=True),
         layout="wide",
         initial_sidebar_state="expanded",
