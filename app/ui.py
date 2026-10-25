@@ -1508,7 +1508,7 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
         )
     )
 
-    with st.container(key="eval_details"):
+    with st.container(key="eval_details", gap=28):
         for result in report.results:
             status = t("eval_pass") if result.passed else t("eval_fail")
             with st.expander(f"`{result.scenario_id}` — {status}"):
@@ -1699,7 +1699,6 @@ _THEME_CSS = """
   --tc-red: #e5684f;
   --tc-text: #e8e6f2;
   --tc-muted: #a9a6c4;
-  --tc-gap: 28px;
 }
 
 html, body, .stApp, [data-testid="stAppViewContainer"] {
@@ -1929,14 +1928,6 @@ h1, h2, h3, h4, h5, h6 {
 }
 .st-key-eval_actions [data-testid="stButton"] button[kind="secondary"] {
   color: var(--tc-muted);
-}
-.st-key-evaluation_tab,
-.st-key-evaluation_tab [data-testid="stVerticalBlock"] {
-  gap: 0 !important;
-}
-.st-key-evaluation_tab > * + *,
-.st-key-evaluation_tab [data-testid="stVerticalBlock"] > * + * {
-  margin-top: var(--tc-gap);
 }
 [data-testid="stAlert"] {
   border-radius: 12px;
@@ -2993,7 +2984,7 @@ def render() -> None:
     with tab_play:
         _render_play(editor, kb)
     with tab_evaluation:
-        with st.container(key="evaluation_tab"):
+        with st.container(key="evaluation_tab", gap=28):
             _render_evaluation(editor)
 
 
