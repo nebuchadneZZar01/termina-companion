@@ -727,6 +727,11 @@ def _table_html(headers, rows, numeric=()) -> str:
     )
 
 
+def _code_html(value: str) -> str:
+    """Return an escaped value as inline code for the HTML tables."""
+    return f"<code>{html.escape(value)}</code>"
+
+
 def _section(title: str, caption: str = "") -> None:
     """Draw a section header with optional caption.
 
@@ -1442,10 +1447,12 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
     c_passed.metric(t("eval_passed"), f"{report.passed}/{report.total}")
     c_failed.metric(t("eval_failed"), str(report.failed))
     kinds = report.failures_by_kind
-    c_kinds.metric(
-        t("eval_failures_by_kind"),
-        ", ".join(f"{_check_label(kind)}: {count}" for kind, count in kinds.items()) or "-",
-    )
+    with c_kinds:
+        with st.container(key="eval_failure_metric"):
+            st.metric(
+                t("eval_failures_by_kind"),
+                ", ".join(f"{_check_label(kind)}: {count}" for kind, count in kinds.items()) or "-",
+            )
 
     _render_comparison(report)
 
@@ -1458,15 +1465,21 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
             if result.warning_count
             else "0"
         )
+        error = _short_error(result.error)
+        error_cell = (
+            _code_html(error)
+            if result.error
+            else f'<span class="tc-cell-muted">{html.escape(error)}</span>'
+        )
         rows.append(
             [
-                html.escape(result.scenario_id),
+                _code_html(result.scenario_id),
                 f'<span class="{status_class}">{html.escape(status)}</span>',
                 str(result.step_count),
                 f'<span class="tc-cell-muted">{result.duration_s:.1f}s</span>',
                 str(result.error_count),
                 warnings,
-                f'<span class="tc-cell-muted">{html.escape(_short_error(result.error))}</span>',
+                error_cell,
             ]
         )
     _html_block(
@@ -1488,9 +1501,10 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
     with st.container(key="eval_details"):
         for result in report.results:
             status = t("eval_pass") if result.passed else t("eval_fail")
-            with st.expander(f"{result.scenario_id} — {status}"):
+            with st.expander(f"`{result.scenario_id}` — {status}"):
                 if result.error:
-                    st.error(f"{t('eval_run_error')}: {result.error}")
+                    st.error(t("eval_run_error"))
+                    st.code(result.error, language="text")
                 elif not result.issues:
                     st.success(t("eval_no_issues"))
                 for issue in result.issues:
@@ -1545,22 +1559,24 @@ def _render_comparison(report: EvaluationReport) -> None:
     when = _format_timestamp(baseline.created_at) or t("eval_unknown")
     before = f"{comparison.baseline_passed}/{comparison.baseline_total}"
     after = f"{comparison.current_passed}/{comparison.current_total}"
-    rows = [
-        {
-            t("eval_compare_scenario"): change.scenario_id,
-            t("eval_compare_change"): t(f"eval_compare_{change.status}"),
-            t("eval_compare_detail"): (
-                t(
-                    "eval_compare_new_failure",
-                    kinds=", ".join(_check_label(kind) for kind in change.new_failure_kinds),
-                )
-                if change.new_failure_kinds
-                else t(f"eval_compare_{change.status}_help")
-            ),
-        }
-        for change in comparison.changes
-        if change.status != "same"
-    ]
+    changes = [change for change in comparison.changes if change.status != "same"]
+    rows = []
+    for change in changes:
+        detail = (
+            t(
+                "eval_compare_new_failure",
+                kinds=", ".join(_check_label(kind) for kind in change.new_failure_kinds),
+            )
+            if change.new_failure_kinds
+            else t(f"eval_compare_{change.status}_help")
+        )
+        rows.append(
+            [
+                _code_html(change.scenario_id),
+                html.escape(t(f"eval_compare_{change.status}")),
+                html.escape(detail),
+            ]
+        )
     if comparison.has_regressions:
         st.warning(t("eval_compare_summary", when=when, before=before, after=after))
     elif rows:
@@ -1599,7 +1615,16 @@ def _render_comparison(report: EvaluationReport) -> None:
         )
 
     if rows:
-        st.table(rows)
+        _html_block(
+            _table_html(
+                [
+                    t("eval_compare_scenario"),
+                    t("eval_compare_change"),
+                    t("eval_compare_detail"),
+                ],
+                rows,
+            )
+        )
 
 
 def _check_label(kind: str) -> str:
@@ -1894,6 +1919,13 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--tc-muted);
 }
 .st-key-eval_details { margin-top: 18px; }
+.st-key-eval_failure_metric [data-testid="stMetricValue"] {
+  font-family: Inter, sans-serif;
+  font-size: 16px;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 [data-testid="stAlert"] {
   border-radius: 12px;
   border: 1px solid var(--tc-border);
@@ -2303,6 +2335,7 @@ h1, h2, h3, h4, h5, h6 {
   white-space: nowrap;
 }
 .tc-table td { padding: 12px 18px; border-top: 1px solid var(--tc-border); }
+.tc-table code { white-space: normal; overflow-wrap: anywhere; }
 .tc-table th.num, .tc-table td.num { text-align: right; }
 .tc-cell-pass { color: var(--tc-teal); font-weight: 600; }
 .tc-cell-fail { color: var(--tc-red); font-weight: 600; }
@@ -3169,7 +3202,7 @@ def _render_evaluation(editor: dict) -> None:
     with hint_col:
         report_path = _saved_report_path()
         if report_path is not None:
-            st.caption(t("eval_saved_report", path=str(report_path)))
+            st.caption(t("eval_saved_report", path=f"`{report_path}`"))
     if load:
         saved = load_report()
         if saved is None:

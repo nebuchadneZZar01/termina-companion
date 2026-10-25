@@ -842,14 +842,17 @@ def test_evaluation_tab_renders_the_report_of_a_finished_sweep(tmp_path, monkeyp
     assert metrics["Pass rate"] == "50%"
     assert metrics["Passed"] == "1/2"
     assert metrics["Failed"] == "1"
+    assert any(
+        "last_evaluation.json" in caption.value and "`" in caption.value for caption in at.caption
+    )
     rendered = "\n".join(markdown.value for markdown in at.markdown)
-    assert "anju-kafei" in rendered
-    assert "deed-chain" in rendered
+    assert "<code>anju-kafei</code>" in rendered
+    assert "<code>deed-chain</code>" in rendered
     assert "tc-cell-pass" in rendered
     assert "tc-cell-fail" in rendered
     assert [expander.label for expander in at.expander] == [
-        "anju-kafei — PASS",
-        "deed-chain — FAIL",
+        "`anju-kafei` — PASS",
+        "`deed-chain` — FAIL",
     ]
 
 
@@ -910,11 +913,11 @@ def test_evaluation_tab_flags_a_regression_against_the_stored_history(
         and "1/2" in warning
         for warning in warnings
     )
-    # The scenario table is HTML; only the comparison table stays native.
-    assert len(at.table) == 1
+    # Both the scenario table and the comparison table are HTML.
+    assert not at.table
     rendered = "\n".join(markdown.value for markdown in at.markdown)
-    assert "anju-kafei" in rendered
-    assert "deed-chain" in rendered
+    assert "<code>anju-kafei</code>" in rendered
+    assert "<code>deed-chain</code>" in rendered
 
 
 def test_evaluation_run_error_never_shows_the_success_message(tmp_path, monkeypatch) -> None:
@@ -948,7 +951,8 @@ def test_evaluation_run_error_never_shows_the_success_message(tmp_path, monkeypa
 
     assert not at.exception
     assert not at.success
-    assert any("LLM invocation failed" in error.value for error in at.error)
+    assert any("Run error" in error.value for error in at.error)
+    assert any("LLM invocation failed" in code.value for code in at.code)
 
 
 def test_evaluation_worker_saves_the_report(tmp_path, monkeypatch) -> None:
@@ -1053,8 +1057,8 @@ def test_evaluation_tab_loads_the_saved_report(tmp_path, monkeypatch) -> None:
     assert "anju-kafei" in rendered
     assert "deed-chain" in rendered
     assert [expander.label for expander in at.expander] == [
-        "anju-kafei — PASS",
-        "deed-chain — FAIL",
+        "`anju-kafei` — PASS",
+        "`deed-chain` — FAIL",
     ]
 
 
