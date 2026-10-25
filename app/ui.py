@@ -3228,18 +3228,20 @@ def _render_sidebar_editor(kb) -> dict:
     """
     _html_block(_brand_html())
     st.selectbox(t("language"), list(_LANGS), key="lang", format_func=lambda c: _LANGS[c])
+    if st.session_state.get("save_time") is None:
+        st.session_state["save_time"] = datetime.time(6, 0)
     day = int(st.session_state.get("save_day", 1))
-    when = st.session_state.get("save_time") or datetime.time(6, 0)
+    when = st.session_state["save_time"]
     _html_block(_time_card_html(day, when))
 
     locations = sorted({loc.name for loc in kb.locations})
+    options = locations or ["Termina Field"]
     default_loc = "South Clock Town"
-    current_loc = st.session_state.get("save_location", default_loc)
-    idx = locations.index(current_loc) if current_loc in locations else 0
+    if st.session_state.get("save_location") not in options:
+        st.session_state["save_location"] = default_loc if default_loc in options else options[0]
     location = st.selectbox(
         t("sidebar_location"),
-        locations or ["Termina Field"],
-        index=idx,
+        options,
         format_func=tr,
         key="save_location",
     )
@@ -3248,13 +3250,14 @@ def _render_sidebar_editor(kb) -> dict:
     with c1:
         day = st.selectbox(t("day"), [1, 2, 3], index=0, key="save_day")
     with c2:
-        when = st.time_input(t("time"), datetime.time(6, 0), step=60, key="save_time")
+        when = st.time_input(t("time"), value=None, step=60, key="save_time")
     st.caption(_time_label(day, when))
 
+    if st.session_state.get("save_masks") is None:
+        st.session_state["save_masks"] = []
     masks = st.multiselect(
         t("sidebar_masks"),
         list(MASKS),
-        default=list(st.session_state.get("save_masks") or []),
         format_func=tr,
         help=t("masks_help"),
         placeholder=t("select_placeholder"),
@@ -3266,20 +3269,21 @@ def _render_sidebar_editor(kb) -> dict:
     # Custom items enter through the input below the pills; the add is
     # applied at the start of the next run, before the widgets exist, so
     # save_inventory/save_inventory_new are only written pre-instantiation.
+    if st.session_state.get("save_inventory") is None:
+        st.session_state["save_inventory"] = []
     pending_add = st.session_state.pop("_inventory_add_pending", None)
     if pending_add:
-        current = list(st.session_state.get("save_inventory") or [])
+        current = list(st.session_state["save_inventory"])
         if pending_add not in current:
             st.session_state["save_inventory"] = [*current, pending_add]
         st.session_state["save_inventory_new"] = ""
     # The multiselect renders only options: merge the current selection so
     # custom items (typed or loaded from a save) stay visible and removable.
-    owned_now = st.session_state.get("save_inventory") or []
+    owned_now = list(st.session_state["save_inventory"])
     inventory_options = sorted(set(item_options) | set(owned_now))
     inventory = st.multiselect(
         t("sidebar_items"),
         inventory_options or ["Hookshot"],
-        default=list(owned_now),
         format_func=tr,
         help=t("inventory_help"),
         placeholder=t("select_placeholder"),
@@ -3296,10 +3300,11 @@ def _render_sidebar_editor(kb) -> dict:
             st.session_state["_inventory_add_pending"] = typed
             st.rerun()
     quest_names = {q.name: q.id for q in kb.quests}
+    if st.session_state.get("save_quests") is None:
+        st.session_state["save_quests"] = []
     done_q = st.multiselect(
         t("quest_progress"),
         list(quest_names),
-        default=list(st.session_state.get("save_quests") or []),
         format_func=tr,
         help=t("quest_progress_help"),
         placeholder=t("select_placeholder"),
