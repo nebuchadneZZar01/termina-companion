@@ -616,6 +616,22 @@ _STRINGS: dict[str, dict[str, str]] = {
         "your_plan": "Your Plan",
         "plan_valid": "\u2713 Plan valid",
         "plan_not_valid": "\u2717 Plan not valid \u2014 check the issues below",
+        "verdict_fail_title": "That won't work, Link",
+        "verdict_missing_body": (
+            "You are missing something. Get these, update your inventory and ask "
+            "me for the plan again."
+        ),
+        "last_plan_title": "The last plan I tried",
+        "last_plan_caption": (
+            "It is not valid: you cannot do step {n} without the items marked in "
+            "red. Here are steps {start}-{end}."
+        ),
+        "plan_step_title": "Step {n} \u00b7 {title}",
+        "missing_requirement": "You're missing: {name}",
+        "issue_severity": "Severity",
+        "issue_kind": "Type",
+        "issue_step": "Step",
+        "issue_detail": "Detail",
         "plan_last_attempt": (
             "Last completed attempt ({n}/{max}) \u2014 shown despite the planning failure."
         ),
@@ -747,6 +763,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         "registry_plan_steps": "{n} step(s)",
         "registry_issue_count": "{n} issue(s)",
+        "registry_stop_here": " \u00b7 last attempt, I stop",
         "problems_count": "{n} problem(s) to solve",
         "agent_done": "completed",
         "agent_running": "working",
@@ -976,6 +993,22 @@ _STRINGS: dict[str, dict[str, str]] = {
         "your_plan": "Il Tuo Piano",
         "plan_valid": "\u2713 Piano valido",
         "plan_not_valid": ("\u2717 Piano non valido \u2014 controlla i problemi qui sotto"),
+        "verdict_fail_title": "Cos\u00ec non si pu\u00f2 fare, Link",
+        "verdict_missing_body": (
+            "Ti manca qualcosa. Procurati questi oggetti, aggiornali nell'inventario "
+            "e richiedimi il piano."
+        ),
+        "last_plan_title": "L'ultimo piano che ho provato",
+        "last_plan_caption": (
+            "Non \u00e8 valido: il passo {n} non puoi farlo senza gli oggetti segnati "
+            "in rosso. Qui vedi i passi {start}-{end}."
+        ),
+        "plan_step_title": "Passo {n} \u00b7 {title}",
+        "missing_requirement": "Ti manca: {name}",
+        "issue_severity": "Gravit\u00e0",
+        "issue_kind": "Tipo",
+        "issue_step": "Passo",
+        "issue_detail": "Dettaglio",
         "plan_last_attempt": (
             "Ultimo tentativo completato ({n}/{max}) \u2014 mostrato nonostante l'errore."
         ),
@@ -1117,6 +1150,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         "registry_plan_steps": "{n} passo/i",
         "registry_issue_count": "{n} problema/i",
+        "registry_stop_here": " \u00b7 ultimo tentativo, mi fermo",
         "problems_count": "{n} problema/i da risolvere",
         "agent_done": "completato",
         "agent_running": "al lavoro",

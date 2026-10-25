@@ -644,11 +644,58 @@ def test_failed_run_still_renders_the_last_completed_attempt(monkeypatch) -> Non
     ui._render_planning_result(task, kb=None)
 
     rendered = "\n".join(value for _kind, value in stub.calls)
-    assert ("subheader", "your_plan") in stub.calls
+    assert ("subheader", "last_plan_title") in stub.calls
     assert "plan_last_attempt" in rendered
-    assert any(kind == "markdown" and "plan_not_valid" in value for kind, value in stub.calls)
-    assert ("markdown", "**problems**") in stub.calls
-    assert rendered_issues == [issue]
+    assert any(kind == "markdown" and "verdict_fail_title" in value for kind, value in stub.calls)
+    assert any(kind == "markdown" and "problems" in value for kind, value in stub.calls)
+    assert rendered_issues == []
+
+
+def test_invalid_plan_marks_the_failing_step_and_missing_items(monkeypatch) -> None:
+    from app.domain import ClockTime, Plan, PlanStep, TimeWindow, ValidationIssue
+
+    def _t(key: str, **kwargs) -> str:
+        return f"{key}:{kwargs}" if kwargs else key
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(ui, "st", stub)
+    monkeypatch.setattr(ui, "t", _t)
+    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(ui, "tr_msg", lambda value: value)
+    steps = [
+        PlanStep(
+            title=f"Step {index}",
+            location="Clock Town",
+            window=TimeWindow(
+                start=ClockTime(day=1, hour=8 + index),
+                end=ClockTime(day=1, hour=9 + index),
+            ),
+        )
+        for index in (0, 1, 2)
+    ]
+    issues = [
+        ValidationIssue(
+            severity="error",
+            step_idx=1,
+            kind="item",
+            message="Missing item(s): Rampino.",
+        ),
+        ValidationIssue(
+            severity="error",
+            step_idx=1,
+            kind="mask",
+            message="Missing mask(s): Garo's Mask.",
+        ),
+    ]
+
+    ui._render_plan(Plan(goal="goal", steps=steps), issues=issues, show_numbers=True)
+
+    markup = next(value for kind, value in stub.calls if kind == "markdown")
+    assert markup.count("tc-step bad") == 1
+    assert "plan_step_title" in markup
+    assert "missing_requirement" in markup
+    assert "Rampino" in markup
+    assert "Garo" in markup
 
 
 def test_failed_run_without_a_completed_attempt_renders_no_plan(monkeypatch) -> None:

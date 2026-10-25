@@ -530,38 +530,63 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
             st.warning(t("planning_incomplete"))
         return
 
-    _section(t("your_plan"))
-    if failed:
-        st.caption(
-            t(
-                "plan_last_attempt",
-                n=result.get("replan_attempts", 0),
+    attempt = result.get("replan_attempts", 0)
+    plan = result.get("plan")
+    if validation.valid:
+        _section(t("your_plan"))
+        if failed:
+            st.caption(
+                t(
+                    "plan_last_attempt",
+                    n=attempt,
+                    max=MAX_PLANNING_ATTEMPTS,
+                )
+            )
+        _html_block(
+            _verdict_html(
+                True,
+                t("plan_valid"),
+                t("verdict_ok_body", n=attempt, max=MAX_PLANNING_ATTEMPTS),
+            )
+        )
+    else:
+        missing = _missing_requirements(validation.issues)
+        body = (
+            t("verdict_missing_body")
+            if missing
+            else t(
+                "verdict_fail_body",
+                n=len(validation.issues),
+                n_attempt=attempt,
                 max=MAX_PLANNING_ATTEMPTS,
             )
         )
-    attempt = result.get("replan_attempts", 0)
-    if validation.valid:
-        title = t("plan_valid")
-        body = t("verdict_ok_body", n=attempt, max=MAX_PLANNING_ATTEMPTS)
-    else:
-        title = t("plan_not_valid")
-        body = t(
-            "verdict_fail_body",
-            n=len(validation.issues),
-            n_attempt=attempt,
-            max=MAX_PLANNING_ATTEMPTS,
+        _html_block(
+            _verdict_html(
+                False,
+                t("verdict_fail_title"),
+                body,
+                _missing_chips_html(validation.issues),
+            )
         )
-    _html_block(_verdict_html(validation.valid, title, body))
-    if not validation.valid and validation.issues:
-        st.markdown(f"**{t('problems')}**")
-        for issue in validation.issues:
-            _render_issue(st, issue)
+        if validation.issues:
+            _html_block(_problems_panel_html(validation.issues))
+        _render_last_plan(plan, validation.issues)
+        if failed:
+            st.caption(
+                t(
+                    "plan_last_attempt",
+                    n=attempt,
+                    max=MAX_PLANNING_ATTEMPTS,
+                )
+            )
 
     plan_model = result.get("plan_model")
     if plan_model:
         st.caption(t("plan_model_caption", model=_fmt_model(plan_model)))
 
-    _render_plan(result.get("plan"))
+    if validation.valid:
+        _render_plan(plan)
 
     tab_why, tab_sources, tab_trace = st.tabs([t("tab_why"), t("tab_sources"), t("tab_trace")])
 
@@ -881,6 +906,73 @@ def _render_issue(scope, issue, fallback: str = "plan") -> None:
     col_msg.markdown(tr_msg(_markdown_windows(issue.message)))
 
 
+_MISSING_RE = re.compile(r"^Missing (item|mask)\(s\): (.+)\.$")
+
+
+def _missing_requirements(issues) -> list[str]:
+    """Extract missing item/mask names from the Critic's English issue text."""
+    names: list[str] = []
+    for issue in issues:
+        match = _MISSING_RE.match(issue.message.strip())
+        if match is None:
+            continue
+        for name in match.group(2).split(","):
+            name = name.strip()
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
+def _missing_chips_html(issues, prefix: bool = False) -> str:
+    """Return requirement chips for the issues, optionally prefixed with 'missing'."""
+    names = _missing_requirements(issues)
+    if not names:
+        return ""
+    chips = []
+    for name in names:
+        label = t("missing_requirement", name=tr(name)) if prefix else tr(name)
+        chips.append(f'<span class="tc-missing-chip">{html.escape(label)}</span>')
+    return f'<div class="tc-missing-chips">{"".join(chips)}</div>'
+
+
+def _issues_table_html(issues, fallback: str = "plan") -> str:
+    """Return the Critic issue table shared by the registry and problems panels."""
+    rows = []
+    for issue in issues:
+        severity = t("sev_error") if issue.severity == "error" else t("sev_warning")
+        tone = "error" if issue.severity == "error" else "warning"
+        kind = t(f"kind_{issue.kind}")
+        where = t("step_n", n=issue.step_idx + 1) if issue.step_idx is not None else t(fallback)
+        rows.append(
+            '<div class="tc-issue-row">'
+            f'<span><span class="tc-sev-tag {tone}">{html.escape(severity.upper())}</span></span>'
+            f'<span><span class="tc-kind-tag">{html.escape(kind.upper())}</span></span>'
+            f'<span class="tc-issue-step">{html.escape(where)}</span>'
+            f"<span>{html.escape(tr_msg(issue.message))}</span>"
+            "</div>"
+        )
+    return (
+        '<div class="tc-issues-table">'
+        '<div class="tc-issue-row tc-issue-head">'
+        f"<span>{html.escape(t('issue_severity').upper())}</span>"
+        f"<span>{html.escape(t('issue_kind').upper())}</span>"
+        f"<span>{html.escape(t('issue_step').upper())}</span>"
+        f"<span>{html.escape(t('issue_detail').upper())}</span>"
+        "</div>"
+        f"{''.join(rows)}</div>"
+    )
+
+
+def _problems_panel_html(issues) -> str:
+    """Return the full-width problems table shown under an invalid plan."""
+    return (
+        '<section class="tc-problems-panel">'
+        f'<div class="tc-panel-title">{html.escape(t("problems"))}</div>'
+        f"{_issues_table_html(issues)}"
+        "</section>"
+    )
+
+
 def _section(title: str, caption: str = "") -> None:
     """Draw a section header with optional caption.
 
@@ -967,11 +1059,22 @@ def _fmt_timestamp(iso: str | None) -> str:
     return f"{dt.day} {months[dt.month - 1]} {dt.year}, {dt.hour:02d}:{dt.minute:02d} UTC"
 
 
-def _render_plan(plan) -> None:
+def _render_plan(
+    plan,
+    *,
+    start: int = 0,
+    end: int | None = None,
+    issues=None,
+    show_numbers: bool = False,
+) -> None:
     """Render the final plan as the Majora's Mask vertical timeline.
 
     args:
         plan (Plan | None): the plan to display.
+        start (int, default 0): first step index to render.
+        end (int | None, default None): exclusive last step index.
+        issues: validation issues used to highlight steps and show chips.
+        show_numbers (bool, default False): prefix each title with "Step N".
 
     returns:
         None: draws into the app.
@@ -980,12 +1083,18 @@ def _render_plan(plan) -> None:
         st.write(t("no_plan"))
         return
     total = len(plan.steps)
+    issues_by_step: dict[int, list] = {}
+    for issue in issues or []:
+        if issue.severity == "error" and issue.step_idx is not None:
+            issues_by_step.setdefault(issue.step_idx, []).append(issue)
+    selected = list(enumerate(plan.steps))[start:end]
     rows = []
-    for index, step in enumerate(plan.steps):
+    for index, step in selected:
         last = index == total - 1
-        start = step.window.start
-        suffix = " (+1)" if start.next_morning else ""
-        hour = f"{start.display_hour:02d}:{start.minute:02d}{suffix}"
+        bad = index in issues_by_step
+        start_clock = step.window.start
+        suffix = " (+1)" if start_clock.next_morning else ""
+        hour = f"{start_clock.display_hour:02d}:{start_clock.minute:02d}{suffix}"
         meta = [html.escape(tr(step.location))]
         needs = [tr(x) for x in (*step.requires_items, *step.requires_masks)]
         if needs:
@@ -995,22 +1104,54 @@ def _render_plan(plan) -> None:
             meta.append(html.escape(t("depends_on", deps=deps)))
         actions = "".join(f"<li>{html.escape(tr(action))}</li>" for action in step.actions)
         action_html = f'<ul class="tc-actions">{actions}</ul>' if actions else ""
+        title = tr(step.title)
+        if show_numbers:
+            title = t("plan_step_title", n=index + 1, title=title)
+        chips = _missing_chips_html(issues_by_step.get(index, []), prefix=True)
+        classes = "tc-step"
+        if last:
+            classes += " last"
+        if bad:
+            classes += " bad"
         rows.append(
-            f'<div class="tc-step{" last" if last else ""}">'
+            f'<div class="{classes}">'
             '<div class="tc-step-time">'
             f'<div class="tc-step-hour">{hour}</div>'
-            f'<div class="tc-step-day">{html.escape(t("day_n", n=start.day))}</div>'
+            f'<div class="tc-step-day">{html.escape(t("day_n", n=start_clock.day))}</div>'
             "</div>"
             '<div class="tc-step-rail">'
             '<span class="tc-dot"></span><span class="tc-line"></span>'
             "</div>"
             '<div class="tc-step-card">'
-            f'<div class="tc-step-title">{html.escape(tr(step.title))}</div>'
+            f'<div class="tc-step-title">{html.escape(title)}</div>'
             f'<div class="tc-step-meta">{" \u00b7 ".join(meta)}</div>'
-            f"{action_html}"
+            f"{chips}{action_html}"
             "</div></div>"
         )
     _html_block(f'<div class="tc-timeline">{"".join(rows)}</div>')
+
+
+def _render_last_plan(plan, issues) -> None:
+    """Render the invalid plan around its first failing step."""
+    _section(t("last_plan_title"))
+    if not plan or not plan.steps:
+        st.write(t("no_plan"))
+        return
+    focus = next(
+        (
+            issue.step_idx
+            for issue in issues
+            if issue.severity == "error" and issue.step_idx is not None
+        ),
+        None,
+    )
+    if focus is None:
+        _render_plan(plan, issues=issues)
+        return
+    start = max(0, focus - 1)
+    end = min(len(plan.steps), focus + 2)
+    st.caption(t("last_plan_caption", n=focus + 1, start=start + 1, end=end))
+    _render_plan(plan, start=start, end=end, issues=issues, show_numbers=True)
 
 
 def _render_why(plan) -> None:
@@ -2015,8 +2156,15 @@ h1, h2, h3, h4, h5, h6 {
 .tc-reg-body { padding: 12px 14px 14px; font-size: 13px; }
 .tc-reg-body ul { margin: 0; padding-left: 18px; }
 .tc-reg-body li { margin: 3px 0; }
-.tc-reg-issues { color: #f0b5a8; }
 .tc-reg-kv { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--tc-muted); }
+.tc-reg-issues-box {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #2a1a24;
+  border: 1px solid var(--tc-red);
+}
+.tc-reg-issue-head { color: #f0b5a8; margin-bottom: 6px; }
+.tc-reg-stop { color: var(--tc-muted); }
 .tc-problems-pill {
   padding: 2px 10px;
   border-radius: 999px;
@@ -2061,6 +2209,51 @@ h1, h2, h3, h4, h5, h6 {
 .tc-verdict.fail .tc-verdict-title { color: var(--tc-red); }
 .tc-verdict-body { font-size: 13px; color: #b9e5e0; }
 .tc-verdict.fail .tc-verdict-body { color: #f0b5a8; }
+
+.tc-issues-table { display: flex; flex-direction: column; }
+.tc-issue-row {
+  display: grid;
+  grid-template-columns: 86px 108px 80px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--tc-border);
+  font-size: 13px;
+}
+.tc-issue-head {
+  padding: 4px 0;
+  border-top: 0;
+  color: var(--tc-muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.tc-sev-tag,
+.tc-kind-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.tc-sev-tag.error { background: #3a1c26; color: #f0757a; }
+.tc-sev-tag.warning { background: #3a3320; color: var(--tc-gold); }
+.tc-kind-tag { background: #14305a; color: #7ab8ff; }
+.tc-issue-step { font-weight: 600; }
+.tc-problems-panel {
+  padding: 16px 20px;
+  border-radius: 14px;
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+}
+.tc-problems-panel .tc-issues-table { margin-top: 6px; }
+.tc-missing-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tc-missing-chip {
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--tc-red);
+  background: #1b2046;
+  color: #f0b5a8;
+  font-size: 12px;
+}
 
 .tc-empty {
   display: flex;
@@ -2119,6 +2312,10 @@ h1, h2, h3, h4, h5, h6 {
 .tc-step.last .tc-dot { background: var(--tc-red); }
 .tc-step.last .tc-step-card { background: #2a1a24; border-color: var(--tc-red); }
 .tc-step.last .tc-step-meta { color: #f0b5a8; }
+.tc-step.bad .tc-step-hour { color: var(--tc-red); }
+.tc-step.bad .tc-dot { background: var(--tc-red); }
+.tc-step.bad .tc-step-card { background: #2a1a24; border-color: var(--tc-red); }
+.tc-step.bad .tc-step-meta { color: #f0b5a8; }
 
 @media (max-width: 700px) {
   .tc-step-time { width: 64px; }
@@ -2387,17 +2584,19 @@ def _registry_critic_body(data: dict) -> str:
         return ""
     if validation.valid:
         return f'<div class="tc-reg-kv">{html.escape(t("plan_valid"))}</div>'
-    items = []
-    for issue in validation.issues:
-        severity = t("sev_error") if issue.severity == "error" else t("sev_warning")
-        kind = t(f"kind_{issue.kind}")
-        where = t("step_n", n=issue.step_idx + 1) if issue.step_idx is not None else t("plan")
-        message = tr_msg(issue.message)
-        items.append(
-            f"<li><b>{html.escape(severity.upper())}</b> · {html.escape(kind)} · "
-            f"{html.escape(where)} — {html.escape(message)}</li>"
-        )
-    return f'<ul class="tc-reg-issues">{"".join(items)}</ul>'
+    stop = (
+        f'<span class="tc-reg-stop">{html.escape(t("registry_stop_here"))}</span>'
+        if len(data.get("attempt_log") or []) >= MAX_PLANNING_ATTEMPTS
+        else ""
+    )
+    head = t("replan_line", n=len(validation.issues), max=MAX_PLANNING_ATTEMPTS)
+    return (
+        '<div class="tc-reg-issues-box">'
+        f'<div class="tc-reg-issue-head">{html.escape(head)}{stop}</div>'
+        f"{_issues_table_html(validation.issues)}"
+        f"{_missing_chips_html(validation.issues, prefix=True)}"
+        "</div>"
+    )
 
 
 def _registry_body(node: str, data: dict) -> str:
@@ -2495,7 +2694,7 @@ def _agent_registry_html(task: _PlanningTask) -> str:
     )
 
 
-def _verdict_html(valid: bool, title: str, body: str) -> str:
+def _verdict_html(valid: bool, title: str, body: str, extra_html: str = "") -> str:
     """Return the Critic's verdict banner."""
     cls = "" if valid else " fail"
     icon = "\u2713" if valid else "\u2717"
@@ -2503,8 +2702,8 @@ def _verdict_html(valid: bool, title: str, body: str) -> str:
         f'<section class="tc-verdict{cls}">'
         f'<div class="tc-verdict-icon" aria-hidden="true">{icon}</div>'
         f'<div><div class="tc-verdict-title">{html.escape(title)}</div>'
-        f'<div class="tc-verdict-body">{html.escape(body)}</div></div>'
-        "</section>"
+        f'<div class="tc-verdict-body">{html.escape(body)}</div>'
+        f"{extra_html}</div></section>"
     )
 
 
