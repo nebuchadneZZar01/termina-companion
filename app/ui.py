@@ -1643,6 +1643,12 @@ h1, h2, h3, h4, h5, h6 {
   border-color: #efc46e;
   color: #1a1630;
 }
+.st-key-goal_row [data-testid="stButton"] button,
+.st-key-goal_row [data-testid="stButton"] button * {
+  font-family: Cinzel, serif !important;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
 
 [data-testid="stTextInput"] input,
 [data-testid="stTextArea"] textarea,
@@ -1688,9 +1694,21 @@ h1, h2, h3, h4, h5, h6 {
   background: transparent;
 }
 [data-testid="stTabs"] [data-testid="stTab"],
-[data-testid="stTabs"] [role="tab"] {
-  font-family: Cinzel, serif;
+[data-testid="stTabs"] [role="tab"],
+[data-testid="stTabs"] [data-baseweb="tab"],
+[data-testid="stTabs"] [role="tablist"] button,
+[data-testid="stTabs"] [data-testid="stTab"] *,
+[data-testid="stTabs"] [role="tab"] *,
+[data-testid="stTabs"] [data-baseweb="tab"] *,
+[data-testid="stTabs"] [role="tablist"] button * {
+  font-family: Cinzel, serif !important;
   font-weight: 700;
+  letter-spacing: 0.02em;
+}
+[data-testid="stTabs"] [data-testid="stTab"],
+[data-testid="stTabs"] [role="tab"],
+[data-testid="stTabs"] [data-baseweb="tab"],
+[data-testid="stTabs"] [role="tablist"] button {
   color: var(--tc-muted);
   background: transparent;
   padding: 8px 2px;
@@ -2793,32 +2811,33 @@ def _render_play(editor: dict, kb) -> None:
     """
     _html_block(_fairy_html(editor["day"], editor["time"]))
     task = st.session_state.get(_PLANNING_TASK_KEY)
-    goal_col, ask_col, stop_col = st.columns([7, 2, 1], vertical_alignment="bottom")
-    with goal_col:
-        goal_text = st.text_input(
-            t("goal_label"),
-            placeholder=t("goal_example"),
-            key="save_goal",
-        )
-    generate_disabled, stop_disabled = _plan_controls_disabled(task)
-    if not (goal_text or "").strip():
-        generate_disabled = True
-    with ask_col:
-        run = st.button(
-            t("ask_taia"),
-            type="primary",
-            use_container_width=True,
-            disabled=generate_disabled,
-            key="generate_plan_button",
-        )
-    with stop_col:
-        stop = st.button(
-            t("stop_plan"),
-            use_container_width=True,
-            disabled=stop_disabled,
-            help=t("stop_plan_help"),
-            key="stop_plan_button",
-        )
+    with st.container(key="goal_row"):
+        goal_col, ask_col, stop_col = st.columns([7, 2, 1], vertical_alignment="bottom")
+        with goal_col:
+            goal_text = st.text_input(
+                t("goal_label"),
+                placeholder=t("goal_example"),
+                key="save_goal",
+            )
+        generate_disabled, stop_disabled = _plan_controls_disabled(task)
+        if not (goal_text or "").strip():
+            generate_disabled = True
+        with ask_col:
+            run = st.button(
+                t("ask_taia"),
+                type="primary",
+                use_container_width=True,
+                disabled=generate_disabled,
+                key="generate_plan_button",
+            )
+        with stop_col:
+            stop = st.button(
+                t("stop_plan"),
+                use_container_width=True,
+                disabled=stop_disabled,
+                help=t("stop_plan_help"),
+                key="stop_plan_button",
+            )
 
     if stop and _task_is_active(task):
         task.stop_event.set()
