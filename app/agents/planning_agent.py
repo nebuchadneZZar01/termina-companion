@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from app.data.mock_knowledge import Objective, build_default_knowledge
 from app.domain import ClockTime, Plan, PlanStep, TimeWindow
+from app.domain import clock_key as _clock
 from app.llm import get_chat_model, llm_error_hint
 from app.progress import report
 from app.state import PlanningState
@@ -832,18 +833,6 @@ def _max_clock(*times: ClockTime) -> ClockTime:
         ClockTime: the latest one.
     """
     return max(times, key=_clock)
-
-
-def _clock(t: ClockTime) -> tuple[int, int, int]:
-    """Collapse a clock into a sortable (day, hour, minute) tuple.
-
-    args:
-        t (ClockTime): the time to convert.
-
-    returns:
-        tuple: (day, hour, minute).
-    """
-    return (t.day, t.hour, t.minute)
 
 
 def _add_hours(t: ClockTime, hours: int) -> ClockTime:

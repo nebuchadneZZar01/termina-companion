@@ -17,6 +17,7 @@ from app.domain import (
     PlanStep,
     ValidationIssue,
     ValidationResult,
+    clock_key,
 )
 from app.state import AttemptRecord, PlanningState
 from app.trace import set_output
@@ -346,7 +347,7 @@ def _lt(a: ClockTime, b: ClockTime) -> bool:
     returns:
         bool: True when ``a`` is strictly before ``b``.
     """
-    return (a.day, a.hour, a.minute) < (b.day, b.hour, b.minute)
+    return clock_key(a) < clock_key(b)
 
 
 def _lte(a: ClockTime, b: ClockTime) -> bool:
@@ -359,7 +360,7 @@ def _lte(a: ClockTime, b: ClockTime) -> bool:
     returns:
         bool: True when ``a`` is before or equal to ``b``.
     """
-    return (a.day, a.hour, a.minute) <= (b.day, b.hour, b.minute)
+    return clock_key(a) <= clock_key(b)
 
 
 def _issue(kind: str, step_idx: int, message: str) -> ValidationIssue:
@@ -438,6 +439,3 @@ def _log_result(result: ValidationResult) -> None:
     for issue in result.issues:
         step = f"step {issue.step_idx + 1}" if issue.step_idx is not None else "plan"
         logger.info("  - [%s/%s] %s: %s", issue.severity, issue.kind, step, issue.message)
-
-
-_KB = build_default_knowledge()

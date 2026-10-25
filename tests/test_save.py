@@ -7,9 +7,8 @@ from app.save import DEFAULT_SAVE_NAME, SaveSnapshot, get_save_path, load_state,
 
 
 @pytest.fixture(autouse=True)
-def _save_dir(tmp_path, monkeypatch):
+def _store(store_dir):
     """Point the save directory inside pytest's tmp_path."""
-    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
 
 
 def _payload() -> dict:

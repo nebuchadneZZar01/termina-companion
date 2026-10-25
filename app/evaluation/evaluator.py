@@ -37,7 +37,8 @@ import logging
 from collections.abc import Sequence
 
 from app.data.mock_knowledge import Objective
-from app.domain import ClockTime, Plan, ValidationResult
+from app.domain import Plan, ValidationResult
+from app.domain import clock_key as _clock
 from app.evaluation.models import EvaluationIssue, PlanScenario, ScenarioResult
 from app.graph import MAX_PLANNING_ATTEMPTS
 from app.mcp.tools import check_prerequisites, search_quests
@@ -630,15 +631,3 @@ def _check_proposal(
                 message="The LLM proposal omitted expected objectives: " + ", ".join(titles),
             )
         )
-
-
-def _clock(t: ClockTime) -> tuple[int, int, int]:
-    """Collapse a clock into a sortable (day, hour, minute) tuple.
-
-    args:
-        t (ClockTime): the time to convert.
-
-    returns:
-        tuple: (day, hour, minute).
-    """
-    return (t.day, t.hour, t.minute)

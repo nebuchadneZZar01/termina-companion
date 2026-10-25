@@ -1224,7 +1224,7 @@ def _render_rag_evidence(
     cards = []
     for item in evidence:
         metadata = item.chunk.metadata
-        source = metadata.source_url or metadata.canonical_url or "Zelda Wiki"
+        source = metadata.display_url
         excerpt = " ".join(item.chunk.text.split())
         if len(excerpt) > 600:
             excerpt = excerpt[:597].rstrip() + "..."

@@ -10,7 +10,17 @@ from __future__ import annotations
 import pytest
 
 from app.data.mock_knowledge import build_default_knowledge
-from app.domain import ClockTime, Goal, Plan, PlanStep, TimeWindow, ValidationResult
+from app.domain import (
+    ClockTime,
+    Goal,
+    Plan,
+    PlanStep,
+    TimeWindow,
+    ValidationResult,
+)
+from app.domain import (
+    clock_key as _clock,
+)
 from app.evaluation.evaluator import evaluate_plan, relevant_objectives
 from app.evaluation.models import EvaluationReport, PlanScenario, ScenarioResult
 from app.evaluation.scenarios import EVALUATION_SCENARIOS, SCENARIOS_BY_ID
@@ -26,10 +36,6 @@ _QUEST_OF_OBJECTIVE = {
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _clock(t: ClockTime) -> tuple[int, int, int]:
-    return (t.day, t.hour, t.minute)
 
 
 def _later(a: ClockTime, b: ClockTime) -> ClockTime:

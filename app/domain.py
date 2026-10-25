@@ -13,6 +13,33 @@ from pydantic import BaseModel, Field, field_validator
 Day = Literal[1, 2, 3]
 
 
+def internal_hour(hour: int) -> int:
+    """Map a wall-clock hour to the internal 06:00-29:59 game clock.
+
+    Hours 00:00-05:59 belong to the night at the end of the selected game
+    day, so they become 24-29 rather than the start of that day.
+
+    args:
+        hour (int): the wall-clock hour, 0-23.
+
+    returns:
+        int: the internal hour, 6-29.
+    """
+    return hour if hour >= 6 else hour + 24
+
+
+def clock_key(t: "ClockTime") -> tuple[int, int, int]:
+    """Collapse a clock into a sortable (day, hour, minute) tuple.
+
+    args:
+        t (ClockTime): the time to convert.
+
+    returns:
+        tuple: (day, hour, minute).
+    """
+    return (t.day, t.hour, t.minute)
+
+
 class ClockTime(BaseModel):
     """The three-day cycle clock of Majora's Mask.
 
@@ -40,7 +67,7 @@ class ClockTime(BaseModel):
         if isinstance(hour, str) and hour.strip().isdigit():
             hour = int(hour.strip())
         if isinstance(hour, int) and 0 <= hour < 6:
-            return hour + 24
+            return internal_hour(hour)
         return hour
 
     @property
@@ -85,7 +112,7 @@ class TimeWindow(BaseModel):
             ClockTime: the validated end.
         """
         start = info.data["start"]
-        if start and not _clock(start) < _clock(end):
+        if start and not clock_key(start) < clock_key(end):
             raise ValueError("end must be after start")
         return end
 
@@ -111,19 +138,7 @@ class TimeWindow(BaseModel):
         returns:
             bool: True when ``start <= t < end``.
         """
-        return _clock(self.start) <= _clock(t) < _clock(self.end)
-
-
-def _clock(t: ClockTime) -> tuple[int, int, int]:
-    """Collapse a clock into a sortable (day, hour, minute) tuple.
-
-    args:
-        t (ClockTime): the time to convert.
-
-    returns:
-        tuple: (day, hour, minute).
-    """
-    return (t.day, t.hour, t.minute)
+        return clock_key(self.start) <= clock_key(t) < clock_key(self.end)
 
 
 class GameState(BaseModel):

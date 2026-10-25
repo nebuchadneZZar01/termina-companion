@@ -288,7 +288,7 @@ def _format_evidence(retrieval: RetrievalResult) -> list[str]:
     lines: list[str] = []
     for item in retrieval.evidence:
         metadata = item.chunk.metadata
-        source = metadata.source_url or metadata.canonical_url or "Zelda Wiki"
+        source = metadata.display_url
         excerpt = " ".join(item.chunk.text.split())
         if len(excerpt) > 700:
             excerpt = excerpt[:697].rstrip() + "..."
