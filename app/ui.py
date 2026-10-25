@@ -73,7 +73,7 @@ _NO_MESSAGE = object()
 _IDLE_WAIT = 0.25
 # The reasoning title rotates on a wall-clock timer, independent of agent
 # updates, so a long LLM call still shows fresh activity.
-_TICK_SECONDS = 2.0
+_TICK_SECONDS = 3.0
 
 _AGENT_LABEL_KEY = {
     "state": "agent_state",
