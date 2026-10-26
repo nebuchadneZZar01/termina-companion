@@ -879,6 +879,13 @@ def test_progress_templates_style_model_query_and_titles(monkeypatch) -> None:
         assert templates["prog_wiki_indexed"].endswith("*{pages}*")
 
 
+def test_language_dictionaries_share_the_same_keys() -> None:
+    """English and Italian must expose exactly the same translation keys."""
+    from app.i18n import _STRINGS
+
+    assert set(_STRINGS["en"]) == set(_STRINGS["it"])
+
+
 def test_plan_controls_require_a_model_before_planning() -> None:
     assert tasks._plan_controls_disabled(None) == (False, True)
 

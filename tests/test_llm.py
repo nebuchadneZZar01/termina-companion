@@ -1,3 +1,8 @@
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
@@ -96,6 +101,31 @@ def test_google_builds_chat_model(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "google")
     monkeypatch.setenv("LLM_API_KEY", "secret")
     assert type(get_chat_model()).__name__ == "ChatGoogleGenerativeAI"
+
+
+def test_google_import_does_not_leak_the_typing_deprecation():
+    """The third-party warning is contained to the lazy Google import."""
+    script = """
+import warnings
+
+warnings.filterwarnings(
+    "error",
+    message=r"'_UnionGenericAlias' is deprecated.*",
+    category=DeprecationWarning,
+)
+from app.llm import get_chat_model
+
+get_chat_model()
+"""
+    env = {**os.environ, "LLM_PROVIDER": "google", "LLM_API_KEY": "secret"}
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_unknown_provider_raises(monkeypatch):
