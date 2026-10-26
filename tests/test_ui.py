@@ -15,8 +15,10 @@ from app.ui import (
     issues,
     page,
     plan_view,
+    progress,
     registry,
     sidebar,
+    sources_view,
     tasks,
     theme,
     trace_view,
@@ -106,13 +108,13 @@ def _source() -> IndexedSource:
 
 def test_render_rag_manifest_shows_sources_when_evidence_is_empty(monkeypatch):
     stub = _StreamlitStub()
-    monkeypatch.setattr(plan_view, "st", stub)
+    monkeypatch.setattr(sources_view, "st", stub)
     monkeypatch.setattr(
-        plan_view, "t", lambda key, **kwargs: key.format(**kwargs) if kwargs else key
+        sources_view, "t", lambda key, **kwargs: key.format(**kwargs) if kwargs else key
     )
-    monkeypatch.setattr(plan_view, "tr", lambda value: value)
+    monkeypatch.setattr(sources_view, "tr", lambda value: value)
 
-    plan_view._render_rag_evidence(
+    sources_view._render_rag_evidence(
         [],
         engine="qdrant-fastembed",
         status="wiki_miss",
@@ -212,12 +214,12 @@ def test_planning_task_drains_stream_updates_and_completes() -> None:
 
 
 def test_progress_label_rotates_with_the_wall_clock_tick(monkeypatch) -> None:
-    monkeypatch.setattr(registry, "spinner_lines", lambda: ("one", "two", "three"))
+    monkeypatch.setattr(progress, "spinner_lines", lambda: ("one", "two", "three"))
 
-    assert registry._progress_label(0) == "one..."
-    assert registry._progress_label(1) == "two..."
+    assert progress._progress_label(0) == "one..."
+    assert progress._progress_label(1) == "two..."
     # Wraps around the phrase list.
-    assert registry._progress_label(3) == "one..."
+    assert progress._progress_label(3) == "one..."
 
 
 def test_apply_pending_load_sets_widget_keys_before_render(monkeypatch) -> None:
@@ -253,14 +255,14 @@ def test_apply_pending_load_sets_widget_keys_before_render(monkeypatch) -> None:
 
 
 def test_progress_line_formats_lists_and_skips_unknown_phases(monkeypatch) -> None:
-    monkeypatch.setattr(registry, "t", lambda key, **kw: key if not kw else key + repr(kw))
+    monkeypatch.setattr(progress, "t", lambda key, **kw: key if not kw else key + repr(kw))
 
-    line = registry._progress_line(
+    line = progress._progress_line(
         {"node": "knowledge", "phase": "wiki_fetch", "titles": ["A", "B", "C", "D"]}
     )
     assert line.startswith("prog_wiki_fetch")
     assert "'titles': 'A, B, C\u2026'" in line
-    assert registry._progress_line({"node": "knowledge", "phase": "not_a_phase"}) == ""
+    assert progress._progress_line({"node": "knowledge", "phase": "not_a_phase"}) == ""
 
 
 def test_drain_records_agent_starts_and_progress_events() -> None:
@@ -419,12 +421,13 @@ def test_planning_live_draws_the_html_registry_with_progress(monkeypatch) -> Non
             events.put(None)
         return drain(_task, wait=wait)
 
-    monkeypatch.setattr(registry, "st", stub)
+    monkeypatch.setattr(progress, "st", stub)
+    monkeypatch.setattr(progress, "t", lambda key, **kwargs: key)
     monkeypatch.setattr(registry, "t", lambda key, **kwargs: key)
-    monkeypatch.setattr(registry, "_drain_planning_task", _wait)
-    monkeypatch.setattr(registry, "_IDLE_WAIT", 0.001)
+    monkeypatch.setattr(progress, "_drain_planning_task", _wait)
+    monkeypatch.setattr(progress, "_IDLE_WAIT", 0.001)
 
-    registry._planning_live(task)
+    progress._planning_live(task)
 
     assert ("start", "state") in task.log
     assert any("tc-live-title" in value for value in stub.live_markdowns)
@@ -438,6 +441,7 @@ def test_planning_live_draws_the_html_registry_with_progress(monkeypatch) -> Non
 
 def test_registry_activity_highlights_the_current_event(monkeypatch) -> None:
     monkeypatch.setattr(registry, "t", lambda key, **kwargs: key)
+    monkeypatch.setattr(progress, "t", lambda key, **kwargs: key)
 
     markup = registry._registry_activity_html(
         [
@@ -454,8 +458,9 @@ def test_registry_activity_highlights_the_current_event(monkeypatch) -> None:
 
 
 def test_registry_activity_renders_the_model_as_code(monkeypatch) -> None:
+    monkeypatch.setattr(registry, "t", lambda key, **kwargs: key)
     monkeypatch.setattr(
-        registry,
+        progress,
         "t",
         lambda key, **kwargs: (
             "Calling `{model}` (attempt {attempt})" if key == "prog_llm" else key
@@ -537,13 +542,10 @@ def _patch_result_renderers(monkeypatch) -> list:
         rendered_issues.append(issue)
 
     monkeypatch.setattr(issues, "_render_issue", _issue)
-    for name in (
-        "_render_plan",
-        "_render_why",
-        "_render_sources",
-        "_render_rag_evidence",
-    ):
+    for name in ("_render_plan", "_render_why"):
         monkeypatch.setattr(plan_view, name, lambda *args, **kwargs: None)
+    for name in ("_render_sources", "_render_rag_evidence"):
+        monkeypatch.setattr(sources_view, name, lambda *args, **kwargs: None)
     for name in (
         "_render_run_audit",
         "_render_trace_state",

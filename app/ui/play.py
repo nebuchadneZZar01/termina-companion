@@ -11,7 +11,7 @@ from app.domain import internal_hour as _internal_hour
 from app.i18n import t
 from app.ui.formatting import _fairy_html
 from app.ui.plan_view import _render_planning_result
-from app.ui.registry import _planning_live, _render_planning_progress
+from app.ui.progress import _planning_live, _render_planning_progress
 from app.ui.tasks import (
     _PLANNING_TASK_KEY,
     _graph,

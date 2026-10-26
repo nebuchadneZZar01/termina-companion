@@ -454,7 +454,7 @@ validation.
 | `app/rag/` | Adaptive wiki client, cleanup/chunking, FastEmbed adapter, Qdrant store and cache-aside retrieval. |
 | `app/state.py` | `PlanningState`, including RAG evidence, status, warning, ingested pages and indexed-source manifest. |
 | `app/graph.py` | LangGraph wiring and `MAX_PLANNING_ATTEMPTS = 3` loop. |
-| `app/ui/` | Streamlit frontend, split by page, theme, formatting, sidebar, plan, registry, trace, issues, tasks and evaluation. |
+| `app/ui/` | Streamlit frontend, split by page, theme, formatting, sidebar, plan, sources, registry, progress, trace, issues, tasks and evaluation. |
 | `app/evaluation/` | Plan-evaluation scenarios, deterministic evaluator, shared sweep runner and report storage. |
 | `scripts/evaluate_plans.py` | CLI harness for the evaluation sweep. |
 | `app/trace.py` | OpenTelemetry tracing seam: run spans, LLM prompt capture and the no-op/OTLP setup. |
