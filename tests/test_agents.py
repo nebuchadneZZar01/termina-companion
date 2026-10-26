@@ -2,7 +2,15 @@
 
 import pytest
 
-from app.agents import critic_agent, knowledge_agent, planning_agent, state_agent
+from app.agents import (
+    critic_agent,
+    knowledge_agent,
+    planning_agent,
+    planning_chain,
+    planning_clock,
+    planning_draft,
+    state_agent,
+)
 from app.agents.planning_agent import PlanningAgentError
 from app.data.mock_knowledge import Objective, build_default_knowledge
 from app.domain import ClockTime, GameState, Goal, Plan, PlanStep, TimeWindow
@@ -173,7 +181,7 @@ def test_ground_repairs_location_and_window_match():
     """Grounding fixes the ref and title for an alias objective."""
     window = TimeWindow(start=ClockTime(day=1, hour=24), end=ClockTime(day=1, hour=25))
     plan = _plan_step("lettera", "Laundry Pool", window)
-    out = planning_agent._ground_llm_steps(plan, _state().relevant_objectives)
+    out = planning_chain._ground_llm_steps(plan, _state().relevant_objectives)
     assert out.steps[0].objective_ref == "ak_post_letter"
     assert out.steps[0].title == "Post the letter to Kafei in the Laundry Pool"
 
@@ -192,7 +200,7 @@ def test_ground_replaces_id_title_for_known_ref():
             )
         ],
     )
-    out = planning_agent._ground_llm_steps(plan, _state().relevant_objectives)
+    out = planning_chain._ground_llm_steps(plan, _state().relevant_objectives)
     assert out.steps[0].title == "Get Kafei's Mask from Madame Aroma"
 
 
@@ -200,7 +208,7 @@ def test_ground_leaves_unknown_untouched():
     """Grounding leaves unknown objective refs untouched."""
     window = TimeWindow(start=ClockTime(day=2, hour=9), end=ClockTime(day=2, hour=10))
     plan = _plan_step("mystery", "Nowhere", window)
-    out = planning_agent._ground_llm_steps(plan, _state().relevant_objectives)
+    out = planning_chain._ground_llm_steps(plan, _state().relevant_objectives)
     assert out.steps[0].objective_ref == "mystery"
     assert out.steps[0].title == "a step"
 
@@ -234,7 +242,7 @@ def test_dedupe_keeps_first_occurrence_and_remaps_depends_on():
             PlanStep(title="s4 no ref", location="Q", window=w, depends_on=[2]),
         ],
     )
-    out = planning_agent._dedupe_steps(plan)
+    out = planning_chain._dedupe_steps(plan)
     assert [s.objective_ref for s in out.steps] == [
         "ak_get_kafei_mask",
         "ak_get_room_key",
@@ -326,7 +334,7 @@ def test_reconcile_orders_and_completes_chain():
     """Reconciling inserts chain steps the generator skipped, in prerequisite order."""
     window = TimeWindow(start=ClockTime(day=3, hour=28), end=ClockTime(day=3, hour=29))
     plan = Plan(goal="x", steps=[_plan_step("ak_reunite", "Stockpot Inn", window).steps[0]])
-    out = planning_agent._reconcile_plan(plan, _state())
+    out = planning_chain._reconcile_plan(plan, _state())
     refs = [s.objective_ref for s in out.steps]
     assert refs == [
         "ak_get_kafei_mask",
@@ -355,7 +363,7 @@ def test_reconcile_orders_and_completes_chain():
 def test_reconcile_starts_after_the_furthest_owned_reward():
     """Owning a mid-chain reward prunes it and every objective before it."""
     state = _state(inventory=["Letter to Kafei", "Hookshot"], masks=["Garo's Mask"])
-    out = planning_agent._reconcile_plan(Plan(goal="x"), state)
+    out = planning_chain._reconcile_plan(Plan(goal="x"), state)
     assert [s.objective_ref for s in out.steps] == [
         "ak_post_letter",
         "ak_meet_kafei",
@@ -374,7 +382,7 @@ def test_reconcile_skips_traded_away_rewards():
             "relevant_objectives": _relevant("title deed"),
         }
     )
-    out = planning_agent._reconcile_plan(Plan(goal="x"), state)
+    out = planning_chain._reconcile_plan(Plan(goal="x"), state)
     assert [s.objective_ref for s in out.steps] == [
         "dc_mountain_to_bay",
         "dc_ocean_to_rupee",
@@ -389,7 +397,7 @@ def test_reconcile_prunes_each_quest_independently():
             "relevant_objectives": _relevant("title deed") + _relevant("kafei letter"),
         }
     )
-    out = planning_agent._reconcile_plan(Plan(goal="x"), state)
+    out = planning_chain._reconcile_plan(Plan(goal="x"), state)
     refs = [s.objective_ref for s in out.steps]
     assert "ak_get_kafei_mask" not in refs
     assert "dc_get_moon_tear" in refs
@@ -398,7 +406,7 @@ def test_reconcile_prunes_each_quest_independently():
 def test_reconcile_keeps_requirements_the_inventory_does_not_cover():
     """An inconsistent inventory falls back to acquiring the missing mask."""
     state = _state(inventory=["Pendant of Memories"])
-    out = planning_agent._reconcile_plan(Plan(goal="x"), state)
+    out = planning_chain._reconcile_plan(Plan(goal="x"), state)
     refs = [s.objective_ref for s in out.steps]
     assert refs[0] == "ak_get_kafei_mask"
     assert "ak_meet_kafei" not in refs  # its reward is already owned
@@ -460,7 +468,7 @@ def test_clamp_windows_pins_window_inside_objective_slot():
     """A window spanning outside the slot is cut to the intersection."""
     w = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=2, hour=21))
     plan = _plan_step("ak_talk_to_anju", "Stockpot Inn", w)
-    out = planning_agent._clamp_windows(plan, _state().relevant_objectives)
+    out = planning_chain._clamp_windows(plan, _state().relevant_objectives)
     assert out.steps[0].objective_ref == "ak_talk_to_anju"
     assert out.steps[0].window.start == ClockTime(day=1, hour=14, minute=20)
     assert out.steps[0].window.end == ClockTime(day=1, hour=21, minute=5)
@@ -471,7 +479,7 @@ def test_clamp_windows_falls_back_when_window_is_disjoint():
     w = TimeWindow(start=ClockTime(day=1, hour=10), end=ClockTime(day=1, hour=11))
     plan = _plan_step("ak_sakon_hideout", "Sakon's Hideout", w)
     state = _state()
-    out = planning_agent._clamp_windows(plan, state.relevant_objectives)
+    out = planning_chain._clamp_windows(plan, state.relevant_objectives)
     obj = next(o for o in state.relevant_objectives if o.id == "ak_sakon_hideout")
     step_window = out.steps[0].window
     assert step_window.start == obj.window.start
@@ -485,7 +493,7 @@ def test_clamp_windows_leaves_ungrounded_steps_untouched():
     """Steps with an unknown objective ref pass through unchanged."""
     w = TimeWindow(start=ClockTime(day=3, hour=10), end=ClockTime(day=3, hour=11))
     plan = _plan_step("mystery", "Nowhere", w)
-    out = planning_agent._clamp_windows(plan, _state().relevant_objectives)
+    out = planning_chain._clamp_windows(plan, _state().relevant_objectives)
     assert out.steps[0].window == w
 
 
@@ -503,7 +511,7 @@ def test_ground_replaces_invented_location():
             )
         ],
     )
-    out = planning_agent._ground_llm_steps(plan, _state().relevant_objectives)
+    out = planning_chain._ground_llm_steps(plan, _state().relevant_objectives)
     assert out.steps[0].location == "Stockpot Inn"
     assert out.steps[0].requires_items == ["Pendant of Memories"]
 
@@ -511,7 +519,7 @@ def test_ground_replaces_invented_location():
 def test_reconcile_re_slots_every_step_on_replan():
     """On replan, every window is re-slotted into 1h, dependency-ordered."""
     state = _state().model_copy(update={"replan_attempts": 1})
-    out = planning_agent._reconcile_plan(_slot_width_plan(), state)
+    out = planning_chain._reconcile_plan(_slot_width_plan(), state)
     assert [s.objective_ref for s in out.steps] == _ANJU_CHAIN
     assert [s.depends_on for s in out.steps] == [
         [],
@@ -575,7 +583,7 @@ def test_reconcile_keeps_a_window_that_fits_the_chain():
             ).steps[0],
         ],
     )
-    out = planning_agent._reconcile_plan(plan, _state())
+    out = planning_chain._reconcile_plan(plan, _state())
     by_ref = {step.objective_ref: step for step in out.steps}
 
     assert by_ref["ak_post_letter"].window == TimeWindow(
@@ -588,7 +596,7 @@ def test_reconcile_keeps_a_window_that_fits_the_chain():
 
 def test_reconcile_re_slots_a_window_that_would_starve_its_successor():
     """A window ending after the successor's slot opens is re-slotted."""
-    out = planning_agent._reconcile_plan(_slot_width_plan(), _state())
+    out = planning_chain._reconcile_plan(_slot_width_plan(), _state())
 
     assert out.steps[0].window == TimeWindow(
         start=ClockTime(day=1, hour=10), end=ClockTime(day=1, hour=11)
@@ -597,7 +605,7 @@ def test_reconcile_re_slots_a_window_that_would_starve_its_successor():
 
 def test_reconciled_plan_has_no_sequence_conflict():
     """After the rebuild no step starts before a dependency ends."""
-    out = planning_agent._reconcile_plan(_slot_width_plan(), _state())
+    out = planning_chain._reconcile_plan(_slot_width_plan(), _state())
 
     def _at(time: ClockTime) -> tuple[int, int, int]:
         return (time.day, time.hour, time.minute)
@@ -612,7 +620,7 @@ def test_reconciled_plan_has_no_sequence_conflict():
 def test_critic_accepts_a_reconciled_slot_width_plan():
     """The whole-slot plan a weak LLM writes is feasible once rebuilt."""
     state = _state()
-    out = planning_agent._reconcile_plan(_slot_width_plan(), state)
+    out = planning_chain._reconcile_plan(_slot_width_plan(), state)
 
     result = critic_agent.run(state.model_copy(update={"plan": out}))
 
@@ -622,31 +630,31 @@ def test_critic_accepts_a_reconciled_slot_width_plan():
 
 def test_sanitize_window_passes_valid_window_through():
     """A valid raw window is kept as-is, not rescheduled."""
-    w = planning_agent._DraftTimeWindow(
+    w = planning_draft._DraftTimeWindow(
         start=ClockTime(day=3, hour=22), end=ClockTime(day=3, hour=23)
     )
-    out = planning_agent._sanitize_window(w, None)
+    out = planning_draft._sanitize_window(w, None)
     assert out == TimeWindow(start=ClockTime(day=3, hour=22), end=ClockTime(day=3, hour=23))
 
 
 def test_sanitize_window_anchors_degenerate_window_to_slot():
     """A zero-length window at the cycle end is pinned to the objective slot."""
-    w = planning_agent._DraftTimeWindow(
+    w = planning_draft._DraftTimeWindow(
         start=ClockTime(day=3, hour=29, minute=59),
         end=ClockTime(day=3, hour=29, minute=59),
     )
     obj = next(o for q in _KB.quests for o in q.objectives if o.id == "ak_reunite")
-    out = planning_agent._sanitize_window(w, obj)
+    out = planning_draft._sanitize_window(w, obj)
     assert out == obj.window  # [Day 3 04:00 (+1) -> Day 3 05:00 (+1)]
 
 
 def test_sanitize_window_returns_valid_window_when_ungrounded():
     """An ungrounded degenerate window still yields a structurally valid one."""
-    w = planning_agent._DraftTimeWindow(
+    w = planning_draft._DraftTimeWindow(
         start=ClockTime(day=3, hour=29, minute=59),
         end=ClockTime(day=3, hour=29, minute=59),
     )
-    out = planning_agent._sanitize_window(w, None)
+    out = planning_draft._sanitize_window(w, None)
     assert (out.start.day, out.start.hour, out.start.minute) < (
         out.end.day,
         out.end.hour,
@@ -656,30 +664,30 @@ def test_sanitize_window_returns_valid_window_when_ungrounded():
 
 def test_materialize_plan_builds_strict_plan_from_draft():
     """Materializing a draft plan copies fields and repairs degenerate windows."""
-    draft = planning_agent._DraftPlan(
+    draft = planning_draft._DraftPlan(
         goal="g",
         steps=[
-            planning_agent._DraftPlanStep(
+            planning_draft._DraftPlanStep(
                 title="Reunite",
                 objective_ref="ak_reunite",
                 location="Stockpot Inn",
-                window=planning_agent._DraftTimeWindow(
+                window=planning_draft._DraftTimeWindow(
                     start=ClockTime(day=3, hour=29, minute=59),
                     end=ClockTime(day=3, hour=29, minute=59),
                 ),
                 depends_on=[0],
             ),
-            planning_agent._DraftPlanStep(
+            planning_draft._DraftPlanStep(
                 title="Erratic",
                 objective_ref="mystery",
                 location="Nowhere",
-                window=planning_agent._DraftTimeWindow(
+                window=planning_draft._DraftTimeWindow(
                     start=ClockTime(day=1, hour=0), end=ClockTime(day=1, hour=0)
                 ),
             ),
         ],
     )
-    out = planning_agent._materialize_plan(draft, _state())
+    out = planning_draft._materialize_plan(draft, _state())
     assert isinstance(out, Plan)
     obj = next(o for q in _KB.quests for o in q.objectives if o.id == "ak_reunite")
     assert out.steps[0].window == obj.window
@@ -703,7 +711,7 @@ def test_materialize_plan_builds_strict_plan_from_draft():
 def test_window_inside_handles_earliest_at_cycle_end():
     """A dependency ending at the cycle end never yields an invalid window."""
     obj = next(o for q in _KB.quests for o in q.objectives if o.id == "ak_reunite")
-    out = planning_agent._window_inside(obj, ClockTime(day=3, hour=29, minute=59))
+    out = planning_clock._window_inside(obj, ClockTime(day=3, hour=29, minute=59))
     assert (out.start.day, out.start.hour, out.start.minute) < (
         out.end.day,
         out.end.hour,
@@ -756,7 +764,7 @@ def test_planning_agent_repairs_degenerate_cycle_end_window(monkeypatch):
 def test_to_step_carries_requires_masks():
     """_to_step carries an objective's required masks into the step."""
     obj = next(o for q in _KB.quests for o in q.objectives if o.id == "ak_talk_to_anju")
-    step = planning_agent._to_step(
+    step = planning_chain._to_step(
         obj, TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9)), []
     )
     assert step.requires_masks == ["Kafei's Mask"]
