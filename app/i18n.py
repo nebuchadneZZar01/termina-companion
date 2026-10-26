@@ -629,6 +629,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sev_legend_warning": "allowable but flagged",
         "kind_empty": "empty",
         "kind_sequence": "sequence",
+        "kind_overlap": "overlap",
         "kind_time": "time",
         "kind_npc": "npc",
         "kind_item": "item",
@@ -995,6 +996,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sev_legend_warning": "consentito ma segnalato",
         "kind_empty": "vuoto",
         "kind_sequence": "sequenza",
+        "kind_overlap": "sovrapposizione",
         "kind_time": "tempo",
         "kind_npc": "npc",
         "kind_item": "oggetto",
@@ -1262,6 +1264,7 @@ def tr(s: str) -> str:
 _MSGS_IT: dict[str, str] = {
     "Plan has no steps.": "Il piano non ha passi.",
     "Unknown objective reference.": "Riferimento obiettivo sconosciuto.",
+    "Unknown objective reference: ": "Riferimento obiettivo sconosciuto: ",
     " is not where ": " non \u00e8 il luogo in cui ",
     " happens.": " si svolge.",
     " falls outside the objective's slot ": " non rientra nella finestra ",
@@ -1274,6 +1277,9 @@ _MSGS_IT: dict[str, str] = {
     ". Complete these quests first.": ". Completa queste quest prima.",
     "Depends on a step that ends after this one starts.": (
         "Dipende da un passo che termina dopo l'inizio di questo."
+    ),
+    "Overlaps the previous step, which ends at ": (
+        "Si sovrappone al passo precedente, che termina alle "
     ),
     "The LLM proposal omitted expected objectives: ": (
         "La proposta LLM ha omesso obiettivi previsti: "

@@ -1,15 +1,19 @@
 """Critic/Validator Agent: checks whether the plan is feasible.
 
 Runs deterministic feasibility rules against the player's state and the
-knowledge base. This is the important domain logic kept dependency-free so it
-can be unit-tested directly.
+authoritative game knowledge. The Critic never trusts the plan step fields the
+planner produced: requirements, dependencies and temporal ordering are
+recomputed from the knowledge objectives, resolved through the MCP tools. This
+keeps the validator reliable even when the planner's grounding introduced an
+inconsistency.
 """
 
 from __future__ import annotations
 
 import logging
 
-from app.data.mock_knowledge import NPC, Objective, Quest, build_default_knowledge
+from app.agents.critic_knowledge import KnowledgeView
+from app.data.mock_knowledge import NPC, Objective
 from app.domain import (
     ClockTime,
     GameState,
@@ -26,37 +30,27 @@ from app.trace import span as traced_span
 logger = logging.getLogger(__name__)
 
 
-def _build_quest_maps(quests: list[Quest]) -> tuple[dict[str, Quest], dict[str, str]]:
-    quest_by_id = {q.id: q for q in quests}
-    quest_terminal = {q.id: q.objectives[-1].id for q in quests if q.objectives}
-    return quest_by_id, quest_terminal
-
-
-_KB = build_default_knowledge()
-_QUEST_BY_ID, _QUEST_TERMINAL = _build_quest_maps(_KB.quests)
-_OBJ_BY_ID = {obj.id: obj for q in _KB.quests for obj in q.objectives}
-
-
-def _quest_is_satisfied(required_quest_id: str, game_state: GameState, plan: Plan) -> bool:
+def _quest_is_satisfied(
+    required_quest_id: str, game_state: GameState, plan: Plan, view: KnowledgeView
+) -> bool:
     if game_state.quest_progress.get(required_quest_id) == "done":
         return True
-    terminal = _QUEST_TERMINAL.get(required_quest_id)
-    if terminal:
-        for step in plan.steps:
-            if step.objective_ref == terminal:
-                return True
-        # Owning the quest's reward is proof enough that its terminal step
-        # already happened (the planner prunes it as an owned provide).
-        terminal_obj = _OBJ_BY_ID.get(terminal)
-        if terminal_obj is not None and _provides_owned(terminal_obj, game_state):
-            return True
-    return False
+    quest = view.quest(required_quest_id)
+    if quest is None or not quest.objectives:
+        return False
+    terminal = quest.objectives[-1]
+    if any(step.objective_ref == terminal.id for step in plan.steps):
+        return True
+    # Owning the quest's reward is proof enough that its terminal step
+    # already happened (the planner prunes it as an owned provide).
+    return _provides_owned(terminal, game_state)
 
 
 def _quest_prerequisite_closure(
     required_quest_id: str,
     game_state: GameState,
     plan: Plan,
+    view: KnowledgeView,
     visited: set[str] | None = None,
 ) -> list[str]:
     if visited is None:
@@ -65,23 +59,22 @@ def _quest_prerequisite_closure(
         return []
     visited.add(required_quest_id)
 
-    if _quest_is_satisfied(required_quest_id, game_state, plan):
+    if _quest_is_satisfied(required_quest_id, game_state, plan, view):
         return []
 
     missing: list[str] = []
-    q = _QUEST_BY_ID.get(required_quest_id)
-    if not q:
+    quest = view.quest(required_quest_id)
+    if quest is None:
         # still missing, but we don't know its deps
         missing.append(required_quest_id)
     else:
         reqs: set[str] = set()
-        for obj in q.objectives:
-            for r in getattr(obj, "requires_quests", []) or []:
-                reqs.add(r)
+        for obj in quest.objectives:
+            reqs.update(obj.requires_quests)
         for r in sorted(reqs):
-            missing.extend(_quest_prerequisite_closure(r, game_state, plan, visited))
+            missing.extend(_quest_prerequisite_closure(r, game_state, plan, view, visited))
         # add this quest if still missing
-        if not _quest_is_satisfied(required_quest_id, game_state, plan):
+        if not _quest_is_satisfied(required_quest_id, game_state, plan, view):
             missing.append(required_quest_id)
 
     # deduplicate preserving order
@@ -105,14 +98,19 @@ def validate_plan(
 
     Runs deterministic rules per step: empty plan, unknown objective,
     location, time window, NPC availability, missing items and masks (items
-    and masks provided by earlier plan steps are credited), and sequence
-    ordering.
+    and masks provided by earlier plan steps are credited), prerequisite
+    objectives and quests, and sequence ordering. Requirements and dependency
+    timing come from the authoritative Objective, never from the plan step
+    fields; every reference is resolved against the whole knowledge base
+    through the MCP tools. Consecutive steps must not overlap.
 
     args:
         plan (Plan | None): the plan to validate.
         game_state (GameState): the player's inventory, masks and progress.
-        objectives (list[Objective]): knowledge objectives to ground refs.
-        npcs (list[NPC] | None, default None): NPCs to check availability.
+        objectives (list[Objective]): objectives supplied by the caller; they
+            take precedence over the knowledge base (tests inject synthetic
+            ones).
+        npcs (list[NPC] | None, default None): NPC overrides, same precedence.
 
     returns:
         ValidationResult: valid, plus the list of issues found.
@@ -123,18 +121,18 @@ def validate_plan(
             issues=[ValidationIssue(severity="error", kind="empty", message="Plan has no steps.")],
         )
 
+    view = KnowledgeView(objectives, npcs)
     issues: list[ValidationIssue] = []
-    by_id = {o.id: o for o in objectives}
-    npc_by_id = {n.id: n for n in npcs or []}
     for idx, step in enumerate(plan.steps):
-        issues.extend(_check_step(step, idx, plan, game_state, by_id, npc_by_id))
+        issues.extend(_check_step(step, idx, plan, game_state, view))
+    issues.extend(_check_overlaps(plan))
     return ValidationResult(valid=not issues, issues=issues)
 
 
-def _quest_display_name(quest_id: str) -> str:
-    q = _QUEST_BY_ID.get(quest_id)
-    if q:
-        return q.name
+def _quest_display_name(quest_id: str, view: KnowledgeView) -> str:
+    quest = view.quest(quest_id)
+    if quest:
+        return quest.name
     return quest_id
 
 
@@ -143,35 +141,30 @@ def _check_step(
     idx: int,
     plan: Plan,
     game_state: GameState,
-    by_id: dict[str, Objective],
-    npc_by_id: dict[str, NPC],
+    view: KnowledgeView,
 ) -> list[ValidationIssue]:
     """Validate a single plan step against all feasibility rules.
+
+    Every authoritative value is read from the resolved Objective, so a
+    corrupted plan step cannot hide an infeasibility. An unknown reference is
+    an error: nothing about that step can be verified.
 
     args:
         step (PlanStep): the step under check.
         idx (int): the step index in the plan.
         plan (Plan): the whole plan, for sequence/dependency checks.
         game_state (GameState): the player's inventory and masks.
-        by_id (dict[str, Objective]): objective id → objective lookup.
-        npc_by_id (dict[str, NPC]): NPC id → NPC lookup.
+        view (KnowledgeView): authoritative knowledge lookups.
 
     returns:
         list[ValidationIssue]: all issues found for this step.
     """
     issues: list[ValidationIssue] = []
-    objective = by_id.get(step.objective_ref)
+    objective = view.objective(step.objective_ref)
 
     if objective is None:
-        if step.objective_ref:
-            issues.append(
-                ValidationIssue(
-                    severity="warning",
-                    step_idx=idx,
-                    kind="objective",
-                    message="Unknown objective reference.",
-                )
-            )
+        detail = f": {step.objective_ref!r}" if step.objective_ref else ""
+        issues.append(_issue("objective", idx, f"Unknown objective reference{detail}."))
         return issues
 
     if objective.location != step.location:
@@ -191,16 +184,16 @@ def _check_step(
         )
 
     if objective.npc_id:
-        npc = npc_by_id.get(objective.npc_id)
+        npc = view.npc(objective.npc_id)
         if npc and not any(
             _lte(w.start, step.window.start) and _lte(step.window.end, w.end) for w in npc.schedule
         ):
             issues.append(_issue("npc", idx, f"{npc.name} is unavailable during {step.window}."))
 
-    provided_items, provided_masks = _provided_upstream(idx, plan, by_id)
+    provided_items, provided_masks = _provided_upstream(idx, plan, view)
     missing_items = [
         item
-        for item in step.requires_items
+        for item in objective.requires_items
         if item not in game_state.inventory and item not in provided_items
     ]
     if missing_items:
@@ -208,34 +201,34 @@ def _check_step(
 
     missing_masks = [
         mask
-        for mask in step.requires_masks
+        for mask in objective.requires_masks
         if mask not in game_state.masks and mask not in provided_masks
     ]
     if missing_masks:
         issues.append(_issue("mask", idx, f"Missing mask(s): {', '.join(missing_masks)}."))
 
-    missing_prereqs = _missing_prerequisites(idx, objective, plan, game_state, by_id)
+    missing_prereqs = _missing_prerequisites(idx, objective, plan, game_state, view)
     if missing_prereqs:
         issues.append(
             _issue("prerequisite", idx, f"Missing prerequisite(s): {', '.join(missing_prereqs)}.")
         )
 
     # Quest prerequisites
-    quest_reqs = getattr(objective, "requires_quests", []) or []
+    quest_reqs = objective.requires_quests
     for qreq in quest_reqs:
-        missing_chain = _quest_prerequisite_closure(qreq, game_state, plan)
+        missing_chain = _quest_prerequisite_closure(qreq, game_state, plan, view)
         if missing_chain:
             # build message with transitive info
             if len(missing_chain) == 1 and missing_chain[0] == qreq:
                 msg = (
-                    f"Quest prerequisite missing: {_quest_display_name(qreq)}. "
+                    f"Quest prerequisite missing: {_quest_display_name(qreq, view)}. "
                     "Complete this quest first."
                 )
             else:
                 # ancestors first, then the required quest
                 parts = []
                 for mq in missing_chain:
-                    parts.append(_quest_display_name(mq))
+                    parts.append(_quest_display_name(mq, view))
                 msg = (
                     f"Quest prerequisite missing: {', '.join(parts)}. Complete these quests first."
                 )
@@ -245,30 +238,59 @@ def _check_step(
                 )
             )
 
-    for earlier in step.depends_on:
-        if earlier >= idx:
-            continue
-        if _lt(step.window.start, plan.steps[earlier].window.end):
+    for prereq in objective.prerequisites:
+        for earlier in plan.steps[:idx]:
+            if earlier.objective_ref != prereq:
+                continue
+            if _lt(step.window.start, earlier.window.end):
+                issues.append(
+                    _issue("sequence", idx, "Depends on a step that ends after this one starts.")
+                )
+    return issues
+
+
+def _check_overlaps(plan: Plan) -> list[ValidationIssue]:
+    """Flag consecutive plan steps whose windows overlap.
+
+    The dependency check only follows prerequisite edges; unrelated steps can
+    still collide. A plan is one linear schedule, so consecutive steps must not
+    overlap either.
+
+    args:
+        plan (Plan): the plan being validated.
+
+    returns:
+        list[ValidationIssue]: one ``overlap`` error per colliding step.
+    """
+    issues: list[ValidationIssue] = []
+    for idx in range(1, len(plan.steps)):
+        previous = plan.steps[idx - 1]
+        current = plan.steps[idx]
+        if _lt(current.window.start, previous.window.end):
             issues.append(
-                _issue("sequence", idx, "Depends on a step that ends after this one starts.")
+                _issue(
+                    "overlap",
+                    idx,
+                    f"Overlaps the previous step, which ends at {previous.window.end}.",
+                )
             )
     return issues
 
 
-def _provided_upstream(
-    idx: int, plan: Plan, by_id: dict[str, Objective]
-) -> tuple[set[str], set[str]]:
+def _provided_upstream(idx: int, plan: Plan, view: KnowledgeView) -> tuple[set[str], set[str]]:
     """Items and masks that earlier plan steps hand the player.
 
     A step that retrieves an item or a mask (an objective with
     ``provides_items`` / ``provides_masks``) makes that reward available to
     every later step, so a later requirement on it is satisfied even when the
-    player does not yet own it at the start of the plan.
+    player does not yet own it at the start of the plan. The provider's
+    objective is resolved through the knowledge view, never read from the
+    step fields.
 
     args:
         idx (int): the step index whose upstream rewards are collected.
         plan (Plan): the whole plan, for earlier steps.
-        by_id (dict[str, Objective]): objective id to objective lookup.
+        view (KnowledgeView): authoritative objective lookups.
 
     returns:
         tuple[set[str], set[str]]: the provided items and masks, as sets.
@@ -276,7 +298,7 @@ def _provided_upstream(
     items: set[str] = set()
     masks: set[str] = set()
     for prior in plan.steps[:idx]:
-        obj = by_id.get(prior.objective_ref)
+        obj = view.objective(prior.objective_ref)
         if obj is not None:
             items.update(obj.provides_items)
             masks.update(obj.provides_masks)
@@ -288,7 +310,7 @@ def _missing_prerequisites(
     objective: Objective,
     plan: Plan,
     game_state: GameState,
-    by_id: dict[str, Objective],
+    view: KnowledgeView,
 ) -> list[str]:
     """Prerequisites of a step absent from the plan and not already satisfied.
 
@@ -299,11 +321,10 @@ def _missing_prerequisites(
 
     args:
         idx (int): the step's index in the plan.
-        objective (Objective): the step's knowledge objective.
+        objective (Objective): the step's authoritative knowledge objective.
         plan (Plan): the whole plan, for presence checks.
         game_state (GameState): the player's inventory, masks and progress.
-        by_id (dict[str, Objective]): objective id → objective lookup for the
-        retrieved set.
+        view (KnowledgeView): authoritative objective lookups.
 
     returns:
         list[str]: the ids of any unfulfilled prerequisites.
@@ -314,14 +335,9 @@ def _missing_prerequisites(
     for prereq in objective.prerequisites:
         if prereq in present:
             continue
-        if any(
-            quest.id in done and any(o.id == prereq for o in quest.objectives)
-            for quest in _KB.quests
-        ):
+        prereq_obj = view.objective(prereq)
+        if prereq_obj is not None and view.quest_id(prereq) in done:
             continue
-        prereq_obj = by_id.get(prereq) or next(
-            (o for q in _KB.quests for o in q.objectives if o.id == prereq), None
-        )
         if prereq_obj and _provides_owned(prereq_obj, game_state):
             continue
         missing.append(prereq)
@@ -387,10 +403,9 @@ def run(state: PlanningState) -> dict:
         dict: the ``validation`` result, ``critic_engine`` and the appended
         ``attempt_log`` record for this attempt.
     """
-    npcs = _KB.npcs
     plan_input = f"{len(state.plan.steps)} step(s)" if state.plan else "no plan"
     with traced_span("validation", kind="CHAIN", input_value=plan_input) as validation_span:
-        result = validate_plan(state.plan, state.game_state, state.relevant_objectives, npcs)
+        result = validate_plan(state.plan, state.game_state, state.relevant_objectives)
         validation_span.set_attribute("termina.validation.valid", result.valid)
         validation_span.set_attribute("termina.validation.issues", len(result.issues))
         set_output(
