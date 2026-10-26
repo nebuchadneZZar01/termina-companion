@@ -86,8 +86,10 @@ def get_npc_schedule(npc_id: str) -> dict:
         npc_id (str): the NPC's identifier (e.g. "anju").
 
     returns:
-        dict: ``{"id", "name", "location", "schedule"}`` where schedule lists
-        the time windows as readable strings.
+        dict: ``{"id", "name", "location", "schedule", "windows"}`` where
+        schedule lists the time windows as readable strings and windows holds
+        the same slots as structured ``{"start", "end"}`` clocks, so a caller
+        can validate them without parsing display text.
 
     raises:
         ValueError: when the NPC id is missing or unknown.
@@ -101,6 +103,7 @@ def get_npc_schedule(npc_id: str) -> dict:
         "name": npc.name,
         "location": npc.location,
         "schedule": [str(w) for w in npc.schedule],
+        "windows": [w.model_dump(mode="json") for w in npc.schedule],
     }
 
 
@@ -126,6 +129,32 @@ def get_quest_info(quest_id: str) -> dict:
         "name": quest.name,
         "objectives": [o.model_dump(mode="json") for o in quest.objectives],
     }
+
+
+def get_objective(objective_id: str) -> dict:
+    """Return one objective with the quest that owns it.
+
+    args:
+        objective_id (str): the objective's identifier.
+
+    returns:
+        dict: ``{"id", "quest_id", "quest_name", "objective"}`` where
+        objective is its JSON-serialized ``Objective``.
+
+    raises:
+        ValueError: when the objective id is missing or unknown.
+    """
+    objective_id = _require_id(objective_id, "objective_id")
+    for quest in _KB.quests:
+        for obj in quest.objectives:
+            if obj.id == objective_id:
+                return {
+                    "id": obj.id,
+                    "quest_id": quest.id,
+                    "quest_name": quest.name,
+                    "objective": obj.model_dump(mode="json"),
+                }
+    raise ValueError(f"Unknown objective: {objective_id}")
 
 
 def get_event(event_id: str) -> dict:

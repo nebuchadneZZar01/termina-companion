@@ -12,6 +12,7 @@ from app.mcp.tools import (
     get_event,
     get_location,
     get_npc_schedule,
+    get_objective,
     get_quest_info,
     search_quests,
 )
@@ -75,13 +76,16 @@ def test_search_quests_returns_valid_objective_dicts():
 
 
 def test_get_npc_schedule_returns_windows():
-    """get_npc_schedule returns the NPC's schedule as readable strings."""
+    """get_npc_schedule returns readable slots and structured windows."""
     npc = get_npc_schedule("anju")
     assert npc["id"] == "anju"
     assert npc["name"] == "Anju"
     assert "schedule" in npc
     assert len(npc["schedule"]) >= 2
     assert all(isinstance(s, str) for s in npc["schedule"])
+    assert len(npc["windows"]) == len(npc["schedule"])
+    assert set(npc["windows"][0]) == {"start", "end"}
+    assert set(npc["windows"][0]["start"]) == {"day", "hour", "minute"}
 
 
 def test_get_npc_schedule_unknown_raises():
@@ -149,6 +153,33 @@ def test_get_quest_info_returns_objectives():
 def test_get_quest_info_unknown_raises():
     with pytest.raises(ValueError, match="Unknown quest"):
         get_quest_info("no_such_quest")
+
+
+# ---------------------------------------------------------------------------
+# get_objective
+# ---------------------------------------------------------------------------
+
+
+def test_get_objective_returns_objective_and_quest():
+    """get_objective resolves one objective and names the quest owning it."""
+    info = get_objective("ak_reunite")
+    assert info["id"] == "ak_reunite"
+    assert info["quest_id"] == "anju_kafei"
+    assert info["quest_name"] == "Anju and Kafei"
+    assert info["objective"]["id"] == "ak_reunite"
+    assert "window" in info["objective"]
+
+
+def test_get_objective_unknown_raises():
+    with pytest.raises(ValueError, match="Unknown objective"):
+        get_objective("no_such_objective")
+
+
+@pytest.mark.parametrize("bad", ["", "   ", None])
+def test_get_objective_missing_id_raises(bad):
+    """get_objective rejects a missing/blank objective id."""
+    with pytest.raises(ValueError, match="Missing objective_id"):
+        get_objective(bad)
 
 
 # ---------------------------------------------------------------------------
