@@ -242,9 +242,9 @@ def pipeline_span(goal: str = "") -> Iterator[RunTrace]:
         "pipeline.run",
         attributes=_with_run_id(
             {
-                "gen_ai.user.input": _clip(goal),
+                "gen_ai.user.input": clip_payload(goal),
                 SPAN_KIND_ATTR: "CHAIN",
-                INPUT_VALUE_ATTR: _clip(goal),
+                INPUT_VALUE_ATTR: clip_payload(goal),
             }
         ),
     )
@@ -381,7 +381,7 @@ class TraceCallback(BaseCallbackHandler):
         attributes = {
             "gen_ai.request.model": model,
             SPAN_KIND_ATTR: "LLM",
-            INPUT_VALUE_ATTR: _clip(prompt_text),
+            INPUT_VALUE_ATTR: clip_payload(prompt_text),
         }
         # Indexed prompts follow the OpenInference GenAI convention Phoenix
         # reads: without them the whole request renders as one blob, even
@@ -395,9 +395,9 @@ class TraceCallback(BaseCallbackHandler):
             role, content = _role_of(message), _text_of(message)
             span.add_event(
                 f"gen_ai.{role}.message",
-                {"message.content": _clip(content, SPAN_PAYLOAD_LIMIT)},
+                {"message.content": clip_payload(content, SPAN_PAYLOAD_LIMIT)},
             )
-            logger.info("--- %s ---\n%s", role, _clip(content, LLM_LOG_PAYLOAD_LIMIT))
+            logger.info("--- %s ---\n%s", role, clip_payload(content, LLM_LOG_PAYLOAD_LIMIT))
         logger.info(
             "LLM request run_id=%s model=%s messages=%d",
             current_run_id(),
@@ -412,7 +412,7 @@ class TraceCallback(BaseCallbackHandler):
         """Fallback span for non-chat completions."""
         attributes: dict[str, Any] = {
             SPAN_KIND_ATTR: "LLM",
-            INPUT_VALUE_ATTR: _clip("\n".join(prompts)),
+            INPUT_VALUE_ATTR: clip_payload("\n".join(prompts)),
         }
         attributes.update(_prompt_attributes(("user", prompt) for prompt in prompts))
         span = get_tracer().start_span(
@@ -420,7 +420,7 @@ class TraceCallback(BaseCallbackHandler):
             attributes=_with_run_id(attributes),
         )
         for prompt in prompts:
-            span.add_event("gen_ai.user.message", {"message.content": _clip(prompt)})
+            span.add_event("gen_ai.user.message", {"message.content": clip_payload(prompt)})
         self._spans[str(run_id)] = span
 
     def on_llm_end(self, response: Any, *, run_id: str, **kwargs: Any) -> None:
@@ -432,14 +432,14 @@ class TraceCallback(BaseCallbackHandler):
         if span is not None:
             if content:
                 span.add_event(
-                    "gen_ai.choice", {"message.content": _clip(content, SPAN_PAYLOAD_LIMIT)}
+                    "gen_ai.choice", {"message.content": clip_payload(content, SPAN_PAYLOAD_LIMIT)}
                 )
-                span.set_attribute(OUTPUT_VALUE_ATTR, _clip(content, SPAN_PAYLOAD_LIMIT))
+                span.set_attribute(OUTPUT_VALUE_ATTR, clip_payload(content, SPAN_PAYLOAD_LIMIT))
                 # OpenInference GenAI completion: Phoenix renders this as the
                 # assistant message instead of an anonymous output blob.
                 span.set_attribute("gen_ai.completion.0.role", "assistant")
                 span.set_attribute(
-                    "gen_ai.completion.0.content", _clip(content, SPAN_PAYLOAD_LIMIT)
+                    "gen_ai.completion.0.content", clip_payload(content, SPAN_PAYLOAD_LIMIT)
                 )
             input_tokens = usage.get("input_tokens")
             output_tokens = usage.get("output_tokens")
@@ -449,7 +449,7 @@ class TraceCallback(BaseCallbackHandler):
                 span.set_attribute("gen_ai.usage.output_tokens", int(output_tokens))
             span.set_status(Status(StatusCode.OK))
             span.end()
-        logger.info("--- assistant ---\n%s", _clip(content, LLM_LOG_PAYLOAD_LIMIT))
+        logger.info("--- assistant ---\n%s", clip_payload(content, LLM_LOG_PAYLOAD_LIMIT))
         logger.info(
             "LLM response run_id=%s tokens_in=%s tokens_out=%s",
             current_run_id(),
@@ -488,7 +488,7 @@ def _prompt_attributes(messages: Iterable[tuple[str, str]]) -> dict[str, Any]:
     attrs: dict[str, Any] = {}
     for index, (role, text) in enumerate(messages):
         attrs[f"gen_ai.prompt.{index}.role"] = role
-        attrs[f"gen_ai.prompt.{index}.content"] = _clip(text, SPAN_PAYLOAD_LIMIT)
+        attrs[f"gen_ai.prompt.{index}.content"] = clip_payload(text, SPAN_PAYLOAD_LIMIT)
     return attrs
 
 
@@ -530,7 +530,7 @@ def _last_message(response: Any) -> Any:
     return generations[0][0].message
 
 
-def _clip(text: str, limit: int = SPAN_PAYLOAD_LIMIT) -> str:
+def clip_payload(text: str, limit: int = SPAN_PAYLOAD_LIMIT) -> str:
     """Truncate *text* to *limit* chars with an explicit marker."""
     if len(text) <= limit:
         return text
@@ -540,5 +540,5 @@ def _clip(text: str, limit: int = SPAN_PAYLOAD_LIMIT) -> str:
 def _io_value(payload: Any) -> str:
     """Render an input/output payload: strings as-is, anything else as JSON."""
     if isinstance(payload, str):
-        return _clip(payload)
-    return _clip(json.dumps(payload, ensure_ascii=False, default=str, separators=(",", ":")))
+        return clip_payload(payload)
+    return clip_payload(json.dumps(payload, ensure_ascii=False, default=str, separators=(",", ":")))

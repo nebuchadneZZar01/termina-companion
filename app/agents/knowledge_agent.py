@@ -22,7 +22,7 @@ from app.progress import report
 from app.rag.models import RetrievedChunk
 from app.rag.retriever import RetrievalResult, retrieve
 from app.state import PlanningState
-from app.trace import SPAN_PAYLOAD_LIMIT, _clip, set_output
+from app.trace import SPAN_PAYLOAD_LIMIT, clip_payload, set_output
 from app.trace import span as traced_span
 
 logger = logging.getLogger(__name__)
@@ -187,7 +187,10 @@ def _set_retrieval_documents(otel_span: Span, evidence: list[RetrievedChunk]) ->
     for index, item in enumerate(evidence):
         prefix = f"retrieval.documents.{index}.document"
         otel_span.set_attribute(f"{prefix}.id", item.chunk.id)
-        otel_span.set_attribute(f"{prefix}.content", _clip(item.chunk.text, SPAN_PAYLOAD_LIMIT))
+        otel_span.set_attribute(
+            f"{prefix}.content",
+            clip_payload(item.chunk.text, SPAN_PAYLOAD_LIMIT),
+        )
         otel_span.set_attribute(f"{prefix}.score", float(item.score))
         otel_span.set_attribute(
             f"{prefix}.metadata",
