@@ -57,8 +57,8 @@ def run(state: PlanningState) -> dict:
         ``replan_attempts``, ``plan_engine`` (``"llm"``) and ``plan_model``.
 
     raises:
-        PlanningAgentError: if no model is available or the LLM returns no
-            usable plan.
+        PlanningAgentError: if no model is available, the LLM call fails, or
+            neither the LLM nor the deterministic chain yields any step.
     """
     model = get_chat_model(**state.llm_config)
     if model is None:
@@ -90,6 +90,13 @@ def run(state: PlanningState) -> dict:
     result = _dedupe_steps(result)
     result = _clamp_windows(result, state.relevant_objectives)
     result = _reconcile_plan(result, state)
+    if not result.steps:
+        logger.error(
+            "Planning Agent: LLM returned an empty plan with no objective chain to rebuild"
+        )
+        raise PlanningAgentError(
+            "LLM returned an empty plan and no objective chain could be rebuilt"
+        )
     _log_plan(result)
     return {
         "plan": result,
@@ -117,8 +124,9 @@ def _llm_run(state: PlanningState, model) -> Plan:
         Plan: the LLM-produced plan.
 
     raises:
-        PlanningAgentError: if invocation fails or the model returns an empty
-            or malformed plan.
+        PlanningAgentError: if invocation fails or the model returns a
+            malformed plan. An empty plan is returned as such; the caller
+            rebuilds the objective chain before deciding it is unusable.
     """
     feedback = ""
     if state.validation and not state.validation.valid:
@@ -152,7 +160,10 @@ def _llm_run(state: PlanningState, model) -> Plan:
         "  - Player preferences and past episodes below bias style only: never "
         "use them to override bracketed windows, locations, items, masks or "
         "prerequisites.\n"
-        "  - title: a short natural-language action phrase, never the id."
+        "  - title: a short natural-language action phrase, never the id.\n"
+        "  - Emit one step for every remaining objective even if required items or "
+        "masks are missing or its window has already passed; the Critic validates "
+        "feasibility."
         f"{feedback}"
     )
     user = HumanMessage(
@@ -180,9 +191,14 @@ def _llm_run(state: PlanningState, model) -> Plan:
         raise PlanningAgentError(f"LLM invocation failed: {exc}{llm_error_hint(exc)}") from exc
 
     elapsed = time.perf_counter() - started
-    if plan is None or not plan.steps:
-        logger.error("Planning Agent: LLM returned an empty plan")
-        raise PlanningAgentError("LLM returned an empty plan")
+    if plan is None:
+        plan = Plan(goal=state.goal.description)
+    if not plan.steps:
+        # Weak models (e.g. the Ollama default) can answer with no steps even
+        # when the objective chain is feasible. Continue with an empty plan:
+        # _reconcile_plan rebuilds the chain deterministically, and run() only
+        # fails when that rebuild also yields nothing.
+        logger.warning("Planning Agent: LLM returned an empty plan; rebuilding from objectives")
     report(
         {
             "node": "plan",
