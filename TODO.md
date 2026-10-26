@@ -6,6 +6,9 @@
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
+**Next up:** Validator & Planner Hardening (temporal reachability, Critic
+independence) and the deterministic baseline, to take before Phase 12.
+
 Status map:
 * Phase 0 — Foundation: complete.
 * Phase 1 — Domain Model: complete.
@@ -353,6 +356,73 @@ recorded `unavailable` and leaked the error text into the planner prompt), and
 sweeps while the Streamlit UI is open needs an isolated store (copy the warm
 `.cache/termina-companion/qdrant` and point `RAG_QDRANT_PATH` at it), because
 the embedded Qdrant client holds an exclusive lock on its path.
+
+# Validator & Planner Hardening
+
+Follow-ups to take before Phase 12. The first two are defects in the planner
+and the Critic, the third is an ablation the evaluation harness already
+supports.
+
+## Temporal reachability
+
+An objective whose window has already closed can still be scheduled: the
+slot falls back to the objective's window start, so at 18:00 a Day 1
+08:00-10:00 objective is planned at 08:00. All evaluation scenarios start in
+the morning of Day 1, so no sweep exposes it; any real player on Day 2 does.
+
+* [ ] Stop scheduling closed windows: `_window_inside` reports "no slot"
+  instead of falling back to the objective window's start.
+* [ ] Cut the unreachable branch of the chain: an expired objective blocks its
+  transitive successors, while objectives of unrelated quests stay plannable.
+* [ ] Add an independent Critic check against `game_state.time` (step starts
+  before now, objective window already closed), naming the objective, the
+  window end and the Song of Time.
+* [ ] Stop re-planning when the only errors are temporal, mirroring the
+  `quest_prerequisite` give-up: a new attempt cannot change the clock.
+* [ ] Add tests: `_window_inside` on a closed window, a Day 2 chain whose Day 1
+  steps are dropped, the Critic issue and the graph give-up.
+* [ ] Update `AGENTS.md` once the behavior lands.
+
+## Critic independence
+
+The Critic currently trusts part of the planner's output, so a grounding
+mistake can hide a real infeasibility.
+
+* [ ] Read item and mask requirements from the `Objective`, not from the plan
+  step fields the grounding produced.
+* [ ] Recompute dependency timing from `objective.prerequisites` and the steps
+  present earlier, instead of trusting `step.depends_on`.
+* [ ] Resolve plan refs against the full knowledge base and treat an unknown
+  ref as an error (today it is a warning that skips every other check).
+* [ ] Add a global overlap check between consecutive steps, not only along
+  `depends_on` edges.
+* [ ] Add tests: corrupted step requirements and dependencies are still
+  rejected, an unknown ref is rejected, overlapping consecutive steps are
+  flagged.
+
+## Out-of-cycle behavior (deferred)
+
+* [ ] Decided: an infeasible plan plus the Song of Time message, not a plan
+  dated in the past.
+* [ ] Open idea: a full plan for the next cycle. It needs item/mask permanence
+  in the knowledge base (the letter, the room key and the pendant are
+  cycle-bound and reset with the Song of Time), a cycle reference on `Plan`
+  anchored at Day 1 06:00, a Critic check against the shifted clock and an
+  evaluation scenario. Not part of the fix above.
+
+## Deterministic baseline ablation
+
+* [ ] Add a planner engine switch (`PLANNER=llm|deterministic`) and a
+  `--planner` flag in the evaluation CLI.
+* [ ] Build the baseline as `_reconcile_plan` over an empty plan, recording
+  `plan_engine="deterministic"` and no `plan_proposal` (the fidelity check
+  skips itself).
+* [ ] Record the planner engine in the sweep metadata so two saved reports stay
+  comparable.
+* [ ] Run an A/B sweep and document the result: pass rate, attempts and what
+  the model adds beyond the deterministic chain. Expect parity or a baseline
+  win on the pass rate, because most evaluator checks encode the deterministic
+  guarantees; the finding is about the model's semantic contribution.
 
 # Phase 12 — Production Readiness
 
