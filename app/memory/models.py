@@ -17,10 +17,6 @@ class PlayerPreferences(BaseModel):
     avoid: list[str] = Field(default_factory=list)
     notes: str = ""
 
-    def is_empty(self) -> bool:
-        """Whether no preference was ever set."""
-        return not (self.playstyle or self.preferred_areas or self.avoid or self.notes)
-
     def summary(self) -> str:
         """One-line human summary for prompts and the State Agent."""
         parts: list[str] = []

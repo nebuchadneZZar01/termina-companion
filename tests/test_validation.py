@@ -99,6 +99,18 @@ def test_italian_critic_message_keeps_backticks_and_window():
     assert "non \u00e8 disponibile durante" in out
 
 
+def test_italian_quest_prerequisite_message_translates_the_tail():
+    """The stale template used to leave the final sentence in English."""
+    from unittest.mock import patch
+
+    with patch("streamlit.session_state") as sess:
+        sess.get.return_value = "it"
+        from app.i18n import tr_msg
+
+        out = tr_msg("Quest prerequisite missing: Anju. Complete this quest first.")
+    assert out == "Prerequisito quest mancante: Anju. Completa questa quest prima."
+
+
 def test_valid_plan_passes():
     """A step inside its objective's window validates."""
     start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
