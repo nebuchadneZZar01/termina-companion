@@ -126,7 +126,6 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
             warning=result.get("retrieval_warning", ""),
             wiki_unreachable=result.get("retrieval_wiki_unreachable", False),
             indexed_sources=result.get("retrieval_indexed_sources", []),
-            ingested_pages=result.get("retrieval_ingested_pages", []),
         )
     with tab_trace:
         st.caption(t("tab_trace_caption"))

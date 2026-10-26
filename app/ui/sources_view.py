@@ -104,12 +104,6 @@ def _render_rag_source(source) -> None:
             st.caption(f"{t('rag_retrieved_at')}: {_fmt_timestamp(source.retrieved_at)}")
 
 
-def _render_rag_ingested_page(title: str) -> None:
-    """Render a title-only fallback for legacy ingestion results."""
-    with st.expander(tr(title)):
-        pass
-
-
 def _render_rag_evidence(
     evidence,
     engine: str = "",
@@ -117,7 +111,6 @@ def _render_rag_evidence(
     warning: str = "",
     wiki_unreachable: bool = False,
     indexed_sources=None,
-    ingested_pages=None,
 ) -> None:
     """Render indexed source pages separately from supplemental evidence.
 
@@ -150,10 +143,6 @@ def _render_rag_evidence(
         st.caption(t("rag_indexed_sources_caption", n=len(sources)))
         for source in sources:
             _render_rag_source(source)
-    elif ingested_pages:
-        st.caption(t("rag_indexed_sources_caption", n=len(ingested_pages)))
-        for title in ingested_pages:
-            _render_rag_ingested_page(str(title))
     else:
         st.caption(t("rag_no_indexed_sources"))
 
