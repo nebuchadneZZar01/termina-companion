@@ -117,6 +117,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   this directly — they go through the MCP tools in `app/mcp/tools.py`.
 * `app/agents/` — one module per agent (state, knowledge,
   planning, critic), each exposing a LangGraph node function `run(state) -> dict`.
+  The Planning Agent's deterministic post-processing lives beside it in
+  `planning_draft.py` (LLM draft schema and strict materialization),
+  `planning_chain.py` (grounding, clamping and prerequisite-chain rebuild) and
+  `planning_clock.py` (shared cycle arithmetic).
   State, Knowledge and Critic run deterministic rule-based logic. The State
   Agent lists completed quests only and never infers an active quest from the
   player's location. The Planning
@@ -252,8 +256,8 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   are not planned; `evaluator.py` is the deterministic
   evaluator with nine checks — plan shape, objective achievement, temporal
   ordering, prerequisites, tool usage, critic, plus the three trajectory checks
-  (agent order, re-plan bound, LLM proposal fidelity) that only fire on a
-  recorded run — reading game knowledge only
+  in `trajectory.py` (agent order, re-plan bound, LLM proposal fidelity) that
+  only fire on a recorded run — reading game knowledge only
   through the MCP tools, never the knowledge base directly, so it measures
   what the Knowledge Agent could have known; `runner.py` runs the scenarios
   against the live pipeline (memory store cleared before each scenario) and is
