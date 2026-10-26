@@ -183,6 +183,9 @@ def test_clock_helpers_keep_after_midnight_on_the_same_game_day(monkeypatch) -> 
     from app.domain import ClockTime, TimeWindow
 
     monkeypatch.setattr(formatting, "tr", lambda value: value)
+    monkeypatch.setattr(
+        formatting, "t", lambda key, **kwargs: f"Day {kwargs['n']}" if key == "day_n" else key
+    )
 
     assert formatting._internal_hour(6) == 6
     assert formatting._internal_hour(23) == 23
@@ -190,17 +193,49 @@ def test_clock_helpers_keep_after_midnight_on_the_same_game_day(monkeypatch) -> 
     assert formatting._internal_hour(5) == 29
 
     night = ClockTime(day=1, hour=26, minute=30)
-    assert formatting._fmt_clock(night) == "`Day 1 - 02:30 (+1)`"
+    assert formatting._html_clock(night) == ('<span class="tc-code">Day 1 \u2013 02:30 (+1)</span>')
 
     same_day = TimeWindow(
         start=ClockTime(day=1, hour=23, minute=30),
         end=ClockTime(day=1, hour=24, minute=30),
     )
     assert formatting._fmt_window(same_day) == "Day 1 - 23:30\u201300:30 (+1)"
-    assert formatting._window_range(same_day) == "`Day 1 - 23:30`\u201300:30 (+1)"
+    assert formatting._window_range(same_day) == (
+        '<span class="tc-code">Day 1 \u2013 23:30\u201300:30 (+1)</span>'
+    )
 
     cross_day = TimeWindow(start=ClockTime(day=1, hour=25), end=ClockTime(day=2, hour=8))
     assert formatting._fmt_window(cross_day) == "Day 1 - 01:00 (+1)\u2013Day 2 - 08:00"
+    assert formatting._window_range(cross_day) == (
+        '<span class="tc-code">Day 1 \u2013 01:00 (+1)</span> \u2192 '
+        '<span class="tc-code">Day 2 \u2013 08:00</span>'
+    )
+
+
+def test_render_sources_shows_npc_and_event_windows_as_html(monkeypatch) -> None:
+    """NPC and event ranges are HTML spans, never Markdown backticks."""
+    from app.data.mock_knowledge import build_default_knowledge
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(sources_view, "st", stub)
+    monkeypatch.setattr(theme, "st", stub)
+    monkeypatch.setattr(sources_view, "t", lambda key, **kwargs: key)
+    monkeypatch.setattr(sources_view, "tr", lambda value: value)
+    monkeypatch.setattr(formatting, "t", lambda key, **kwargs: f"Giorno {kwargs['n']}")
+    kb = build_default_knowledge()
+    objective = next(o for o in kb.all_objectives if o.id == "ak_reunite")
+
+    sources_view._render_sources([objective], kb)
+
+    rendered = "\n".join(value for _kind, value in stub.calls)
+    assert "`" not in rendered
+    assert '<span class="tc-code">' in rendered
+    assert "Giorno 1 \u2013 08:00\u201321:05" in rendered
+    assert "Giorno 1 \u2013 23:30\u201305:00 (+1)" in rendered
+    assert "Giorno 3 \u2013 04:00\u201305:00 (+1)" in rendered
+    assert "Giorno 3 \u2013 04:30\u201305:00 (+1)" in rendered
+    # Two clocks for the objective window, five NPC slots and one event.
+    assert rendered.count('<span class="tc-code">') == 8
 
 
 def test_time_label_distinguishes_day_night_and_after_midnight(monkeypatch) -> None:

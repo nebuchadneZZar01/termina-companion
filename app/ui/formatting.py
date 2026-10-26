@@ -9,7 +9,7 @@ import re
 import streamlit as st
 
 from app.data.mock_knowledge import MASKS
-from app.domain import ClockTime, TimeWindow
+from app.domain import TimeWindow
 from app.domain import internal_hour as _internal_hour
 from app.i18n import DEFAULT_LANG, t, tr
 
@@ -141,23 +141,6 @@ def _section(title: str, caption: str = "") -> None:
     st.subheader(title, anchor=False)
     if caption:
         st.caption(caption)
-
-
-def _fmt_clock(t: ClockTime) -> str:
-    """Format a clock as inline code "Day N - HH:MM (+1)".
-
-    Every instant renders as a code span so times stand out from the
-    surrounding labels, matching models, engines and statuses. The ``(+1)``
-    marks the night after midnight at the end of the same game day.
-
-    args:
-        t (ClockTime): the time to format.
-
-    returns:
-        str: the readable representation.
-    """
-    suffix = " (+1)" if t.next_morning else ""
-    return f"`Day {t.day} - {t.display_hour:02d}:{t.minute:02d}{suffix}`"
 
 
 def _fmt_window(w: TimeWindow) -> str:
@@ -319,16 +302,23 @@ def _fairy_html(day: int, value: datetime.time, text: str | None = None) -> str:
 
 
 def _window_range(w: TimeWindow) -> str:
-    """Format a window's start through end hour as one range string.
+    """Format a window's start through end hour as one HTML range.
+
+    The range uses the same ``tc-code`` span as ``_html_clock`` so it can be
+    dropped into an HTML detail card without Markdown leaking through. A
+    window on one game day collapses to a single span, while a window that
+    crosses into the next day keeps both clocks and joins them with an arrow.
 
     args:
         w (TimeWindow): the window to format.
 
     returns:
-        str: e.g. "Day 1 08:00–09:00".
+        str: the HTML range, e.g. ``Day 1 – 08:00–21:05``.
     """
-    start = tr(_fmt_clock(w.start))
     if w.end.day != w.start.day:
-        return f"{start}\u2013{tr(_fmt_clock(w.end))}"
+        return f"{_html_clock(w.start)} \u2192 {_html_clock(w.end)}"
+    day = html.escape(t("day_n", n=w.start.day))
     suffix = " (+1)" if w.end.next_morning else ""
-    return f"{start}\u2013{w.end.display_hour:02d}:{w.end.minute:02d}{suffix}"
+    start = f"{w.start.display_hour:02d}:{w.start.minute:02d}"
+    end = f"{w.end.display_hour:02d}:{w.end.minute:02d}{suffix}"
+    return f'<span class="tc-code">{day} \u2013 {start}\u2013{end}</span>'

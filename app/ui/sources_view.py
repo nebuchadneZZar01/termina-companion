@@ -47,14 +47,14 @@ def _render_sources(objectives, kb) -> None:
                 slots = " \u00b7 ".join(_window_range(w) for w in npc.schedule)
                 lines.append(
                     f"{html.escape(t('source_npc'))} {html.escape(tr(npc.name))} "
-                    f"\u00b7 {html.escape(t('source_active'))} {html.escape(slots)}"
+                    f"\u00b7 {html.escape(t('source_active'))} {slots}"
                 )
         if obj.event_ref:
             event = kb.event(obj.event_ref)
             if event:
                 lines.append(
                     f"{html.escape(t('source_event'))} {html.escape(tr(event.name))} "
-                    f"\u00b7 {html.escape(_window_range(event.window))}"
+                    f"\u00b7 {_window_range(event.window)}"
                 )
         if obj.requires_items:
             items = _entities_html(obj.requires_items, "item")
