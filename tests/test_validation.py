@@ -13,7 +13,7 @@ from app.domain import (
     ValidationResult,
 )
 from app.graph import run_pipeline
-from app.ui import _markdown_windows
+from app.ui.formatting import _markdown_windows
 
 pytestmark = pytest.mark.usefixtures("fake_planner_model")
 

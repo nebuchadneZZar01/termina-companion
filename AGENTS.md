@@ -310,7 +310,15 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   wrapped to announce its start on the custom progress stream, open one
   `node.*` trace span and record its outcome (duration, status, detail) for
   the run audit; a failing node is also added to the run's error list.
-* `app/ui.py` — Streamlit frontend logic (`render()`); requires a configured
+* `app/ui/` — Streamlit frontend package. `page.py` exposes `render()`, the
+  only public entry point (`from app.ui import render`). `theme.py` holds the
+  CSS, `formatting.py` the shared formatters/entity spans/fairy primitives,
+  `sidebar.py` the state editor and configuration cards, `play.py` the Play
+  tab, `registry.py` the live/finished agent registry, `plan_view.py` the
+  plan timeline and its details, `trace_view.py` the audit/state/memory
+  sections, `issues.py` the validation tables and chips, `tasks.py` the
+  background planning/evaluation workers plus the cached graph, and
+  `evaluation_view.py` the Evaluation tab. The frontend requires a configured
   LLM provider, with local providers supported for offline runs. The page uses
   the Majora's Mask theme injected by `_inject_styles()` (Cinzel/Inter, dark
   navy surfaces, gold/teal/red accents in `.streamlit/config.toml` and the

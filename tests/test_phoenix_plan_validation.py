@@ -229,7 +229,7 @@ def test_ui_worker_publishes_the_critic_verdict(monkeypatch):
     import queue
     import threading
 
-    from app import ui as ui_module
+    from app.ui import tasks as ui_module
 
     captured: list[PlanningState] = []
 
@@ -272,7 +272,7 @@ def test_ui_worker_survives_a_broken_publisher(monkeypatch):
     import queue
     import threading
 
-    from app import ui as ui_module
+    from app.ui import tasks as ui_module
 
     def _boom(state, **kwargs):
         raise RuntimeError("phoenix exploded")
