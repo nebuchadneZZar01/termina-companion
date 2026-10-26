@@ -6,8 +6,8 @@
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
-**Next up:** Validator & Planner Hardening (temporal reachability, Critic
-independence) and the deterministic baseline, to take before Phase 12.
+**Next up:** Validator & Planner Hardening (temporal reachability) and the
+deterministic baseline, to take before Phase 12.
 
 Status map:
 * Phase 0 — Foundation: complete.
@@ -25,9 +25,9 @@ Status map:
   external API keys).
 * Phase 6 — MCP: complete (MCP tools replace KB.retrieve(); the Knowledge
   Agent calls them in-process; the MCPServer exposes the same tools for
-  external MCP clients; 6 tools: search_quests, get_npc_schedule,
-  get_quest_info, get_event, get_location, check_prerequisites; in-process
-  Client integration test passes).
+  external MCP clients; 7 tools: search_quests, get_npc_schedule,
+  get_quest_info, get_objective, get_event, get_location,
+  check_prerequisites; in-process Client integration test passes).
 * Phase 7 — RAG: complete (adaptive Zelda Wiki cache-aside retrieval,
   persistent embedded Qdrant, FastEmbed multilingual vectors, revision-aware
   provenance, offline warm-cache behavior and Knowledge Agent integration
@@ -385,18 +385,19 @@ the morning of Day 1, so no sweep exposes it; any real player on Day 2 does.
 
 ## Critic independence
 
-The Critic currently trusts part of the planner's output, so a grounding
-mistake can hide a real infeasibility.
+The Critic never trusts the planner's output: a grounding mistake cannot hide
+a real infeasibility.
 
-* [ ] Read item and mask requirements from the `Objective`, not from the plan
+* [x] Read item and mask requirements from the `Objective`, not from the plan
   step fields the grounding produced.
-* [ ] Recompute dependency timing from `objective.prerequisites` and the steps
+* [x] Recompute dependency timing from `objective.prerequisites` and the steps
   present earlier, instead of trusting `step.depends_on`.
-* [ ] Resolve plan refs against the full knowledge base and treat an unknown
-  ref as an error (today it is a warning that skips every other check).
-* [ ] Add a global overlap check between consecutive steps, not only along
-  `depends_on` edges.
-* [ ] Add tests: corrupted step requirements and dependencies are still
+* [x] Resolve plan refs against the full knowledge base and treat an unknown
+  ref as an error (the Critic reaches it through the `get_objective` MCP tool
+  and its memoized `critic_knowledge.py` view).
+* [x] Add a global overlap check between consecutive steps, not only along
+  `depends_on` edges (new `overlap` issue kind).
+* [x] Add tests: corrupted step requirements and dependencies are still
   rejected, an unknown ref is rejected, overlapping consecutive steps are
   flagged.
 
@@ -437,6 +438,9 @@ mistake can hide a real infeasibility.
 * [ ] Add architecture diagram
 * [ ] Stabilize demo mode
 * [ ] Review dependencies
+* [ ] Route the State Agent and the planner's `planning_chain.py` through the
+  `app/mcp/tools.py` seam instead of importing `build_default_knowledge()`
+  directly.
 * [x] Update `AGENTS.md`
 * [ ] Final project cleanup
 
