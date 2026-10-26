@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from app.evaluation.comparison import compare_reports, select_baseline
 from app.evaluation.models import EvaluationIssue, EvaluationReport, ScenarioResult
 from app.evaluation.storage import get_history_dir, load_history
@@ -219,13 +217,7 @@ def test_select_baseline_returns_none_without_a_usable_sweep():
     assert select_baseline(current, [empty]) is None
 
 
-@pytest.fixture
-def _report_dir(tmp_path, monkeypatch):
-    """Point the report directory inside pytest's tmp_path."""
-    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
-
-
-def test_load_history_skips_corrupt_files_and_returns_newest_first(_report_dir):
+def test_load_history_skips_corrupt_files_and_returns_newest_first(store_dir):
     """One broken artifact must not take the whole comparison down."""
     history = get_history_dir()
     old = _report(_result("anju-kafei", True), created_at="2026-10-20T09:00:00+00:00")
@@ -242,6 +234,6 @@ def test_load_history_skips_corrupt_files_and_returns_newest_first(_report_dir):
     ]
 
 
-def test_load_history_returns_empty_list_without_a_store(_report_dir):
+def test_load_history_returns_empty_list_without_a_store(store_dir):
     """No history directory yet means no baseline, not an error."""
     assert load_history() == []

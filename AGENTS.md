@@ -117,6 +117,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   this directly — they go through the MCP tools in `app/mcp/tools.py`.
 * `app/agents/` — one module per agent (state, knowledge,
   planning, critic), each exposing a LangGraph node function `run(state) -> dict`.
+  The Planning Agent's deterministic post-processing lives beside it in
+  `planning_draft.py` (LLM draft schema and strict materialization),
+  `planning_chain.py` (grounding, clamping and prerequisite-chain rebuild) and
+  `planning_clock.py` (shared cycle arithmetic).
   State, Knowledge and Critic run deterministic rule-based logic. The State
   Agent lists completed quests only and never infers an active quest from the
   player's location. The Planning
@@ -252,8 +256,8 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   are not planned; `evaluator.py` is the deterministic
   evaluator with nine checks — plan shape, objective achievement, temporal
   ordering, prerequisites, tool usage, critic, plus the three trajectory checks
-  (agent order, re-plan bound, LLM proposal fidelity) that only fire on a
-  recorded run — reading game knowledge only
+  in `trajectory.py` (agent order, re-plan bound, LLM proposal fidelity) that
+  only fire on a recorded run — reading game knowledge only
   through the MCP tools, never the knowledge base directly, so it measures
   what the Knowledge Agent could have known; `runner.py` runs the scenarios
   against the live pipeline (memory store cleared before each scenario) and is
@@ -310,7 +314,16 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   wrapped to announce its start on the custom progress stream, open one
   `node.*` trace span and record its outcome (duration, status, detail) for
   the run audit; a failing node is also added to the run's error list.
-* `app/ui.py` — Streamlit frontend logic (`render()`); requires a configured
+* `app/ui/` — Streamlit frontend package. `page.py` exposes `render()`, the
+  only public entry point (`from app.ui import render`). `theme.py` holds the
+  CSS, `formatting.py` the shared formatters/entity spans/fairy primitives,
+  `sidebar.py` the state editor and configuration cards, `play.py` the Play
+  tab, `registry.py` the live/finished agent registry, `progress.py` the live
+  progress title and registry loop, `plan_view.py` the plan timeline and its
+  details, `sources_view.py` the game and wiki source panels, `trace_view.py`
+  the audit/state/memory sections, `issues.py` the validation tables and chips,
+  `tasks.py` the background planning/evaluation workers plus the cached graph,
+  and `evaluation_view.py` the Evaluation tab. The frontend requires a configured
   LLM provider, with local providers supported for offline runs. The page uses
   the Majora's Mask theme injected by `_inject_styles()` (Cinzel/Inter, dark
   navy surfaces, gold/teal/red accents in `.streamlit/config.toml` and the

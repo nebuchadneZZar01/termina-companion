@@ -85,7 +85,7 @@ def demo() -> None:
         print(f"RAG warning: {result.retrieval_warning}")
     for evidence in result.retrieved_evidence:
         metadata = evidence.chunk.metadata
-        source = metadata.source_url or metadata.canonical_url or "Zelda Wiki"
+        source = metadata.display_url
         print(f"  - {metadata.title} [{evidence.chunk.id}] score={evidence.score:.3f}")
         print(f"    {source}")
         if metadata.source_revision_id:

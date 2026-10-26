@@ -70,6 +70,14 @@ class _TestPlannerModel:
 
 
 @pytest.fixture
+def store_dir(tmp_path, monkeypatch):
+    """Point the save and evaluation stores inside pytest's tmp_path."""
+    path = tmp_path / "cache" / "qdrant"
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(path))
+    return path
+
+
+@pytest.fixture
 def fake_planner_model(monkeypatch):
     """Inject a deterministic model for graph tests without a network call."""
     monkeypatch.setattr(planning_agent, "get_chat_model", lambda **_kwargs: _TestPlannerModel())

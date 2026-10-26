@@ -37,7 +37,6 @@ from app.rag.retriever import (
     RAGSettings,
     build_default_retriever,
     retrieve,
-    safe_retrieve,
 )
 from app.rag.store import InMemoryVectorStore, QdrantVectorStore, VectorStoreError
 from app.rag.wiki import MediaWikiClient, WikiError, WikiPageReference
@@ -74,5 +73,4 @@ __all__ = [
     "evaluate_retrieval",
     "get_embedding_provider",
     "retrieve",
-    "safe_retrieve",
 ]

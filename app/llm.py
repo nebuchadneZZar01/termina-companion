@@ -8,11 +8,11 @@ required by the Planning Agent; invalid or incomplete configuration raises
 from __future__ import annotations
 
 import logging
+import warnings
 from urllib.parse import urlsplit
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
 from app.settings import get_settings
@@ -168,9 +168,21 @@ def get_chat_model(
     if provider == "google":
         if api_key is None:
             raise LLMConfigurationError("Provider 'google' requires LLM_API_KEY")
-        return ChatGoogleGenerativeAI(
-            model=model or _GOOGLE_DEFAULT_MODEL,
-            api_key=api_key,
-            max_output_tokens=MAX_OUTPUT_TOKENS,
-        )
+        # google-genai still imports typing._UnionGenericAlias, which Python
+        # 3.14 deprecates. Keep the warning out of normal runs and load the
+        # provider only when it is actually selected.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="'_UnionGenericAlias' is deprecated.*",
+                category=DeprecationWarning,
+                module=r"google\.genai\.types",
+            )
+            from langchain_google_genai import ChatGoogleGenerativeAI
+
+            return ChatGoogleGenerativeAI(
+                model=model or _GOOGLE_DEFAULT_MODEL,
+                api_key=api_key,
+                max_output_tokens=MAX_OUTPUT_TOKENS,
+            )
     raise LLMConfigurationError(f"Unknown LLM_PROVIDER {provider!r}")

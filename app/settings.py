@@ -92,19 +92,17 @@ class Settings(BaseSettings):
     phoenix_base_url: str | None = None
     rag: RAGSettings = Field(default_factory=RAGSettings)
 
-    @field_validator("llm_provider", "llm_model", "llm_base_url", mode="before")
-    @classmethod
-    def _optional_text(cls, value: object) -> object:
-        """Treat a blank environment value as unset."""
-        if not isinstance(value, str):
-            return value
-        return value.strip() or None
-
     @field_validator(
-        "llm_api_key", "otel_exporter_otlp_endpoint", "phoenix_base_url", mode="before"
+        "llm_provider",
+        "llm_model",
+        "llm_base_url",
+        "llm_api_key",
+        "otel_exporter_otlp_endpoint",
+        "phoenix_base_url",
+        mode="before",
     )
     @classmethod
-    def _optional_stripped(cls, value: object) -> object:
+    def _optional_text(cls, value: object) -> object:
         """Strip optional values and drop the blank ones (incl. the secret)."""
         if not isinstance(value, str):
             return value

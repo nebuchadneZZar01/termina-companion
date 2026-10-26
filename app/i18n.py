@@ -14,15 +14,6 @@ _CODE_SPAN_RE = re.compile(r"(`[^`]+`)")
 
 _DISPLAY_IT: dict[str, str] = {
     # objective titles (longest first helps readability, tr() sorts at load)
-    "Talk to the Bombers' leader in North Clock Town": (
-        "Parla con il leader dei Bombers a Nord Clock Town"
-    ),
-    "Locate the hidden hideout behind the clock tower": (
-        "Trova il nascondiglio nascosto dietro la torre dell'orologio"
-    ),
-    "Earn the Bomber's Notebook from the Bombers' leader": (
-        "Guadagna il Taccuino del Bomber dal leader dei Bombers"
-    ),
     "Get Kafei's Mask from Madame Aroma": ("Ottieni la Maschera di Kafei da Madame Aroma"),
     "Get the Stockpot Inn room key from Anju": (
         "Ottieni la chiave della camera alla Locanda Stockpot da Anju"
@@ -65,15 +56,6 @@ _DISPLAY_IT: dict[str, str] = {
     ),
     "Bring the couple together before the moon falls and receive the Couple's Mask.": (
         "Riunisci la coppia prima che cada la luna e ricevi la Maschera della Coppia."
-    ),
-    "The kid gang is suspicious of strangers.": (
-        "La gang di ragazzini è sospettosa degli estranei."
-    ),
-    "The hideout entrance is marked by a odd drawing.": (
-        "L'ingresso del nascondiglio è segnato da un disegno strano."
-    ),
-    "The leader gives the notebook to a member he trusts.": (
-        "Il leader consegna il taccuino a un membro di cui si fida."
     ),
     # objective titles / descriptions — Bombers' Secret Society
     "Pop the Majora Balloon in North Clock Town and talk to Jim": (
@@ -382,10 +364,8 @@ _DISPLAY_IT: dict[str, str] = {
     ),
     # event names
     "Kafei's letter is delivered": ("La lettera di Kafei viene consegnata"),
-    "Pendant of Memories reaches Anju": ("Il Ciondolo dei Ricordi arriva ad Anju"),
     "Sakon returns to his hideout": ("Sakon torna nel suo nascondiglio"),
     "Anju and Kafei reunite": "Anju e Kafei si riuniscono",
-    "Bombers gather at the hideout": ("I Bombers si radunano al nascondiglio"),
     "Romani defends the ranch from aliens": ("Romani difende la fattoria dagli alieni"),
     "Cremia delivers milk to Clock Town": ("Cremia consegna il latte a Clock Town"),
     "Ghost plays the piano in Ikana Castle": ("Il fantasma suona il piano al Castello di Ikana"),
@@ -400,7 +380,6 @@ _DISPLAY_IT: dict[str, str] = {
     "Romani Ranch": "Fattoria Romani",
     "Song of Storms": "Canzone delle Tempeste",
     "Land Title Deed Chain": "Catena delle Carte di Proprietà",
-    "Bombers' Leader": "Leader dei Bombers",
     "Bomber's Notebook": "Taccuino dei Bombers",
     # locations
     "Astral Observatory": "Osservatorio Astrale",
@@ -508,19 +487,15 @@ _DISPLAY_KEYS_IT = sorted(_DISPLAY_IT, key=len, reverse=True)
 _STRINGS: dict[str, dict[str, str]] = {
     "en": {
         "title": "Termina Companion",
-        "subtitle": "Temporal planning guide for Majora's Mask",
         "language": "Language",
         # input panels
         "game_state": "Game State",
-        "game_state_caption": "Where, when and what you own right now.",
         "goal": "Goal",
-        "goal_caption": "What you want to achieve, in one phrase.",
         "day": "Day (1-3)",
         "time": "In-game time",
         "time_day": "Day {day} \u00b7 {time} \u2014 daytime",
         "time_night": "Day {day} \u00b7 {time} \u2014 night",
         "time_after_midnight": "Day {day} \u00b7 {time} \u2014 night after midnight",
-        "time_caption": "Each game day runs from 06:00 to 05:59 the next morning.",
         "location": "Location",
         "masks": "Masks you own",
         "masks_help": "Select the masks you carry. Selected = owned.",
@@ -532,11 +507,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "inventory_add_button": "Add",
         "quest_progress": "Quest Progress",
         "quest_progress_help": ("Select quests already completed \u2014 they\u2019ll be skipped."),
-        "legend": "\u2713 Selected = owned / completed",
-        "goal_placeholder": "What do you want to do?",
         "goal_example": "e.g. Reunite Anju and Kafei before the dawn of the Third Day",
-        "generate_plan": "\u2728 Plan My Quest",
-        "generate_plan_caption": "Builds the plan from your state and goal.",
         "stop_plan": "Stop",
         "stop_plan_help": "Stop after the current agent or LLM call finishes.",
         "empty_plan_title": "No plan yet",
@@ -561,7 +532,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "llm_provider": "Provider",
         "llm_model": "Model",
         "llm_api_key": "API Key",
-        "llm_model_required": "Model is required to plan.",
         "plan_model_caption": "Powered by {model}",
         "planning": "Planning...",
         "planning_error": "Planning failed: {error}",
@@ -602,7 +572,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "prog_store": "Memory stored (valid={valid})",
         "prog_llm": "Calling `{model}` (attempt {attempt})",
         "prog_llm_done": "{steps} step(s) in {seconds}s",
-        "prog_running": "working...",
         # live activity and memory
         "activity": "Activity",
         "memory_episodes": "Past episodes reused",
@@ -631,7 +600,6 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Last completed attempt ({n}/{max}) \u2014 shown despite the planning failure."
         ),
         "agent_state": "State Agent",
-        "agent_memory": "Memory Agent",
         "agent_knowledge": "Knowledge Agent",
         "agent_planning": "Planning Agent",
         "agent_critic": "Critic Agent",
@@ -861,12 +829,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_proposal_fidelity_help": (
             "The final plan is correct: the deterministic rebuild added the missing steps."
         ),
-        # trace sections
-        "trace_understood": "What the system understood",
-        "trace_understood_caption": (
-            "The canonicalized reading of your state \u2014 this is what the planner worked from."
-        ),
-        "trace_validation_caption": ("Issues the critic found when checking feasibility."),
         # run audit
         "audit_header": (
             "Run `{run_id}` \u00b7 {seconds}s \u00b7 {attempts}/{max} attempt(s) \u00b7 {outcome}"
@@ -882,19 +844,15 @@ _STRINGS: dict[str, dict[str, str]] = {
     },
     "it": {
         "title": "Termina Companion",
-        "subtitle": "Guida alla pianificazione temporale per Majora\u2019s Mask",
         "language": "Lingua",
         # input panels
         "game_state": "Stato di Gioco",
-        "game_state_caption": "Dove, quando e cosa possiedi in questo momento.",
         "goal": "Obiettivo",
-        "goal_caption": "Cosa vuoi ottenere, in una frase.",
         "day": "Giorno (1-3)",
         "time": "Ora nel gioco",
         "time_day": "Giorno {day} \u00b7 {time} \u2014 giorno",
         "time_night": "Giorno {day} \u00b7 {time} \u2014 notte",
         "time_after_midnight": "Giorno {day} \u00b7 {time} \u2014 notte (dopo la mezzanotte)",
-        "time_caption": ("Ogni giorno va dalle 06:00 alle 05:59 del mattino successivo."),
         "location": "Posizione",
         "masks": "Maschere in tuo possesso",
         "masks_help": ("Seleziona le maschere che porti. Selezionato = in possesso."),
@@ -909,11 +867,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "quest_progress_help": (
             "Seleziona le missioni gi\u00e0 completate \u2014 verranno saltate."
         ),
-        "legend": "\u2713 Selezionato = in possesso / completata",
-        "goal_placeholder": "Cosa vuoi fare?",
         "goal_example": "Es. Ricongiungi Anju e Kafei prima dell'alba del Terzo Giorno",
-        "generate_plan": "\u2728 Pianifica la mia missione",
-        "generate_plan_caption": "Genera il piano dal tuo stato e obiettivo.",
         "stop_plan": "Stop",
         "stop_plan_help": (
             "Interrompe dopo il completamento dell'agente o della chiamata LLM in corso."
@@ -940,7 +894,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "llm_provider": "Provider",
         "llm_model": "Modello",
         "llm_api_key": "Chiave API",
-        "llm_model_required": "Il modello è obbligatorio per pianificare.",
         "plan_model_caption": "Generato con {model}",
         "planning": "Pianificazione...",
         "planning_error": "Pianificazione fallita: {error}",
@@ -981,7 +934,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "prog_store": "Memoria salvata (valido={valid})",
         "prog_llm": "Chiamo `{model}` (tentativo {attempt})",
         "prog_llm_done": "{steps} passi in {seconds}s",
-        "prog_running": "in corso...",
         # live activity and memory
         "activity": "Attivit\u00e0",
         "memory_episodes": "Episodi passati riusati",
@@ -1010,7 +962,6 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Ultimo tentativo completato ({n}/{max}) \u2014 mostrato nonostante l'errore."
         ),
         "agent_state": "Agente di Stato",
-        "agent_memory": "Agente Memoria",
         "agent_knowledge": "Agente della Conoscenza",
         "agent_planning": "Agente di Pianificazione",
         "agent_critic": "Agente Critico",
@@ -1319,9 +1270,8 @@ _MSGS_IT: dict[str, str] = {
     "Missing mask(s): ": "Maschere mancanti: ",
     "Missing prerequisite(s): ": "Prerequisiti mancanti: ",
     "Quest prerequisite missing: ": "Prerequisito quest mancante: ",
-    " (requires ": " (richiede ",
-    "). Complete this quest first.": "). Completa questa quest prima.",
-    "). Complete these quests first.": "). Completa queste quest prima.",
+    ". Complete this quest first.": ". Completa questa quest prima.",
+    ". Complete these quests first.": ". Completa queste quest prima.",
     "Depends on a step that ends after this one starts.": (
         "Dipende da un passo che termina dopo l'inizio di questo."
     ),

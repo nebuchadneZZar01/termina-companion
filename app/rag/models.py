@@ -29,6 +29,11 @@ class SourceMetadata(BaseModel):
     license_url: str = ""
     categories: list[str] = Field(default_factory=list)
 
+    @property
+    def display_url(self) -> str:
+        """Return the best human-readable URL for this source."""
+        return self.source_url or self.canonical_url or "Zelda Wiki"
+
 
 class IndexedSource(SourceMetadata):
     """Provenance manifest entry for a page successfully added to the index.

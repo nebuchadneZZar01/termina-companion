@@ -16,9 +16,8 @@ from app.evaluation.storage import (
 
 
 @pytest.fixture(autouse=True)
-def _report_dir(tmp_path, monkeypatch):
+def _store(store_dir):
     """Point the report directory inside pytest's tmp_path."""
-    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
 
 
 def _report() -> EvaluationReport:

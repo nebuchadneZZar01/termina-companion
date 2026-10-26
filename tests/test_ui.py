@@ -7,9 +7,22 @@ import threading
 
 import pytest
 
-from app import ui
 from app.rag.models import IndexedSource, SourceMetadata
 from app.settings import RAGSettings, Settings
+from app.ui import (
+    evaluation_view,
+    formatting,
+    issues,
+    page,
+    plan_view,
+    progress,
+    registry,
+    sidebar,
+    sources_view,
+    tasks,
+    theme,
+    trace_view,
+)
 
 
 class _Container:
@@ -95,11 +108,13 @@ def _source() -> IndexedSource:
 
 def test_render_rag_manifest_shows_sources_when_evidence_is_empty(monkeypatch):
     stub = _StreamlitStub()
-    monkeypatch.setattr(ui, "st", stub)
-    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key.format(**kwargs) if kwargs else key)
-    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(sources_view, "st", stub)
+    monkeypatch.setattr(
+        sources_view, "t", lambda key, **kwargs: key.format(**kwargs) if kwargs else key
+    )
+    monkeypatch.setattr(sources_view, "tr", lambda value: value)
 
-    ui._render_rag_evidence(
+    sources_view._render_rag_evidence(
         [],
         engine="qdrant-fastembed",
         status="wiki_miss",
@@ -123,49 +138,49 @@ def test_render_rag_manifest_shows_sources_when_evidence_is_empty(monkeypatch):
 
 def test_fmt_timestamp_humanises_iso_in_both_languages(monkeypatch) -> None:
     stub = _StreamlitStub()
-    monkeypatch.setattr(ui, "st", stub)
+    monkeypatch.setattr(formatting, "st", stub)
 
-    assert ui._fmt_timestamp("2026-10-10T09:49:20.755126+00:00") == "10 Oct 2026, 09:49 UTC"
+    assert formatting._fmt_timestamp("2026-10-10T09:49:20.755126+00:00") == "10 Oct 2026, 09:49 UTC"
     stub.session_state["lang"] = "it"
-    assert ui._fmt_timestamp("2026-02-04T05:01:26Z") == "4 feb 2026, 05:01 UTC"
-    assert ui._fmt_timestamp("not-a-date") == "not-a-date"
-    assert ui._fmt_timestamp(None) == "-"
+    assert formatting._fmt_timestamp("2026-02-04T05:01:26Z") == "4 feb 2026, 05:01 UTC"
+    assert formatting._fmt_timestamp("not-a-date") == "not-a-date"
+    assert formatting._fmt_timestamp(None) == "-"
 
 
 def test_clock_helpers_keep_after_midnight_on_the_same_game_day(monkeypatch) -> None:
     """The UI maps early hours to 24-29 and marks them as after midnight."""
     from app.domain import ClockTime, TimeWindow
 
-    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(formatting, "tr", lambda value: value)
 
-    assert ui._internal_hour(6) == 6
-    assert ui._internal_hour(23) == 23
-    assert ui._internal_hour(0) == 24
-    assert ui._internal_hour(5) == 29
+    assert formatting._internal_hour(6) == 6
+    assert formatting._internal_hour(23) == 23
+    assert formatting._internal_hour(0) == 24
+    assert formatting._internal_hour(5) == 29
 
     night = ClockTime(day=1, hour=26, minute=30)
-    assert ui._fmt_clock(night) == "`Day 1 - 02:30 (+1)`"
+    assert formatting._fmt_clock(night) == "`Day 1 - 02:30 (+1)`"
 
     same_day = TimeWindow(
         start=ClockTime(day=1, hour=23, minute=30),
         end=ClockTime(day=1, hour=24, minute=30),
     )
-    assert ui._fmt_window(same_day) == "Day 1 - 23:30\u201300:30 (+1)"
-    assert ui._window_range(same_day) == "`Day 1 - 23:30`\u201300:30 (+1)"
+    assert formatting._fmt_window(same_day) == "Day 1 - 23:30\u201300:30 (+1)"
+    assert formatting._window_range(same_day) == "`Day 1 - 23:30`\u201300:30 (+1)"
 
     cross_day = TimeWindow(start=ClockTime(day=1, hour=25), end=ClockTime(day=2, hour=8))
-    assert ui._fmt_window(cross_day) == "Day 1 - 01:00 (+1)\u2013Day 2 - 08:00"
+    assert formatting._fmt_window(cross_day) == "Day 1 - 01:00 (+1)\u2013Day 2 - 08:00"
 
 
 def test_time_label_distinguishes_day_night_and_after_midnight(monkeypatch) -> None:
     """The dynamic caption names the selected part of the game day."""
     import datetime
 
-    monkeypatch.setattr(ui, "t", lambda key, **kwargs: f"{key}:{kwargs['time']}")
+    monkeypatch.setattr(formatting, "t", lambda key, **kwargs: f"{key}:{kwargs['time']}")
 
-    assert ui._time_label(1, datetime.time(6, 0)) == "time_day:06:00"
-    assert ui._time_label(1, datetime.time(18, 0)) == "time_night:18:00"
-    assert ui._time_label(1, datetime.time(2, 30)) == "time_after_midnight:02:30"
+    assert formatting._time_label(1, datetime.time(6, 0)) == "time_day:06:00"
+    assert formatting._time_label(1, datetime.time(18, 0)) == "time_night:18:00"
+    assert formatting._time_label(1, datetime.time(2, 30)) == "time_after_midnight:02:30"
 
 
 class _Graph:
@@ -186,10 +201,10 @@ def test_planning_task_drains_stream_updates_and_completes() -> None:
     graph = _Graph([{"state": {"state_summary": "ready"}}])
     events: queue.Queue[object] = queue.Queue()
     stop_event = threading.Event()
-    task = ui._PlanningTask(events=events, stop_event=stop_event)
+    task = tasks._PlanningTask(events=events, stop_event=stop_event)
 
-    ui._run_stream(events, graph, {}, stop_event)
-    ui._drain_planning_task(task)
+    tasks._run_stream(events, graph, {}, stop_event)
+    tasks._drain_planning_task(task)
 
     assert task.status == "done"
     assert task.result["state_summary"] == "ready"
@@ -199,12 +214,12 @@ def test_planning_task_drains_stream_updates_and_completes() -> None:
 
 
 def test_progress_label_rotates_with_the_wall_clock_tick(monkeypatch) -> None:
-    monkeypatch.setattr(ui, "spinner_lines", lambda: ("one", "two", "three"))
+    monkeypatch.setattr(progress, "spinner_lines", lambda: ("one", "two", "three"))
 
-    assert ui._progress_label(0) == "one..."
-    assert ui._progress_label(1) == "two..."
+    assert progress._progress_label(0) == "one..."
+    assert progress._progress_label(1) == "two..."
     # Wraps around the phrase list.
-    assert ui._progress_label(3) == "one..."
+    assert progress._progress_label(3) == "one..."
 
 
 def test_apply_pending_load_sets_widget_keys_before_render(monkeypatch) -> None:
@@ -212,7 +227,7 @@ def test_apply_pending_load_sets_widget_keys_before_render(monkeypatch) -> None:
     from app.save import SaveSnapshot
 
     stub = _StreamlitStub()
-    monkeypatch.setattr(ui, "st", stub)
+    monkeypatch.setattr(sidebar, "st", stub)
     snapshot = SaveSnapshot(
         time=ClockTime(day=2, hour=26, minute=30),
         location="Stock Pot Inn",
@@ -224,7 +239,7 @@ def test_apply_pending_load_sets_widget_keys_before_render(monkeypatch) -> None:
     )
     stub.session_state["_load_pending"] = snapshot
 
-    ui._apply_pending_load()
+    sidebar._apply_pending_load()
 
     assert "_load_pending" not in stub.session_state
     assert stub.session_state["save_day"] == 2
@@ -240,23 +255,23 @@ def test_apply_pending_load_sets_widget_keys_before_render(monkeypatch) -> None:
 
 
 def test_progress_line_formats_lists_and_skips_unknown_phases(monkeypatch) -> None:
-    monkeypatch.setattr(ui, "t", lambda key, **kw: key if not kw else key + repr(kw))
+    monkeypatch.setattr(progress, "t", lambda key, **kw: key if not kw else key + repr(kw))
 
-    line = ui._progress_line(
+    line = progress._progress_line(
         {"node": "knowledge", "phase": "wiki_fetch", "titles": ["A", "B", "C", "D"]}
     )
     assert line.startswith("prog_wiki_fetch")
     assert "'titles': 'A, B, C\u2026'" in line
-    assert ui._progress_line({"node": "knowledge", "phase": "not_a_phase"}) == ""
+    assert progress._progress_line({"node": "knowledge", "phase": "not_a_phase"}) == ""
 
 
 def test_drain_records_agent_starts_and_progress_events() -> None:
-    task = ui._PlanningTask()
+    task = tasks._PlanningTask()
 
-    task.events.put(ui._Progress({"node": "state", "phase": "start"}))
-    task.events.put(ui._Progress({"node": "state", "phase": "objectives", "n": 3}))
+    task.events.put(tasks._Progress({"node": "state", "phase": "start"}))
+    task.events.put(tasks._Progress({"node": "state", "phase": "objectives", "n": 3}))
 
-    assert ui._drain_planning_task(task) is True
+    assert tasks._drain_planning_task(task) is True
     assert task.log == [
         ("start", "state"),
         ("progress", {"node": "state", "phase": "objectives", "n": 3}),
@@ -265,12 +280,12 @@ def test_drain_records_agent_starts_and_progress_events() -> None:
 
 
 def test_drain_records_the_duration_of_a_finished_agent() -> None:
-    task = ui._PlanningTask()
+    task = tasks._PlanningTask()
 
-    task.events.put(ui._Progress({"node": "state", "phase": "start"}))
+    task.events.put(tasks._Progress({"node": "state", "phase": "start"}))
     task.events.put({"state": {"state_summary": "ok"}})
 
-    assert ui._drain_planning_task(task) is True
+    assert tasks._drain_planning_task(task) is True
     assert 1 in task.timings
     assert task.timings[1] >= 0
 
@@ -289,9 +304,9 @@ def test_agent_registry_rebuilds_attempts_and_durations(monkeypatch) -> None:
         params = ",".join(f"{name}={value}" for name, value in kwargs.items())
         return f"{key}:{params}" if params else key
 
-    monkeypatch.setattr(ui, "t", _t)
-    monkeypatch.setattr(ui, "tr", lambda value: value)
-    monkeypatch.setattr(ui, "tr_msg", lambda value: value)
+    monkeypatch.setattr(registry, "t", _t)
+    monkeypatch.setattr(registry, "tr", lambda value: value)
+    monkeypatch.setattr(issues, "tr_msg", lambda value: value)
     state = GameState(
         time=ClockTime(day=1, hour=8),
         location="Clock Town",
@@ -307,7 +322,7 @@ def test_agent_registry_rebuilds_attempts_and_durations(monkeypatch) -> None:
         ),
     )
     plan = Plan(goal="Anju", steps=[step])
-    task = ui._PlanningTask()
+    task = tasks._PlanningTask()
     task.log = [
         ("start", "state"),
         ("update", "state", {"game_state": state, "state_engine": "rule-based"}),
@@ -331,7 +346,7 @@ def test_agent_registry_rebuilds_attempts_and_durations(monkeypatch) -> None:
     task.timings = {1: 1.0, 3: 2.0, 5: 0.5, 7: 1.5, 9: 0.4}
     task.result = {"validation": ValidationResult(valid=True)}
 
-    markup = ui._agent_registry_html(task)
+    markup = registry._agent_registry_html(task)
 
     assert markup.count("<details") == 5
     assert "step_attempt:n=1,max=3" in markup
@@ -346,10 +361,10 @@ def test_planning_task_stop_is_cooperative_and_does_not_start_new_work() -> None
     events: queue.Queue[object] = queue.Queue()
     stop_event = threading.Event()
     stop_event.set()
-    task = ui._PlanningTask(events=events, stop_event=stop_event, status="stopping")
+    task = tasks._PlanningTask(events=events, stop_event=stop_event, status="stopping")
 
-    ui._run_stream(events, graph, {}, stop_event)
-    ui._drain_planning_task(task)
+    tasks._run_stream(events, graph, {}, stop_event)
+    tasks._drain_planning_task(task)
 
     assert task.status == "stopped"
     assert task.result == {}
@@ -360,31 +375,31 @@ def test_planning_task_reports_worker_errors() -> None:
     graph = _Graph([], error=RuntimeError("boom"))
     events: queue.Queue[object] = queue.Queue()
     stop_event = threading.Event()
-    task = ui._PlanningTask(events=events, stop_event=stop_event)
+    task = tasks._PlanningTask(events=events, stop_event=stop_event)
 
-    ui._run_stream(events, graph, {}, stop_event)
-    ui._drain_planning_task(task)
+    tasks._run_stream(events, graph, {}, stop_event)
+    tasks._drain_planning_task(task)
 
     assert task.status == "error"
     assert task.error == "boom"
 
 
 def test_drain_reports_whether_the_task_progressed() -> None:
-    task = ui._PlanningTask()
+    task = tasks._PlanningTask()
 
-    assert ui._drain_planning_task(task, wait=0.01) is False
+    assert tasks._drain_planning_task(task, wait=0.01) is False
 
     task.events.put({"state": {"state_summary": "ready"}})
-    assert ui._drain_planning_task(task, wait=0.01) is True
-    assert ui._drain_planning_task(task, wait=0.01) is False
+    assert tasks._drain_planning_task(task, wait=0.01) is True
+    assert tasks._drain_planning_task(task, wait=0.01) is False
 
 
 def test_drain_keeps_the_message_it_waited_for() -> None:
     """A message fetched by the bounded wait must still reach the task."""
-    task = ui._PlanningTask()
+    task = tasks._PlanningTask()
     task.events.put({"state": {"state_summary": "ready"}})
 
-    assert ui._drain_planning_task(task, wait=1.0) is True
+    assert tasks._drain_planning_task(task, wait=1.0) is True
     assert task.updates == [("state", {"state_summary": "ready"})]
 
 
@@ -392,26 +407,27 @@ def test_planning_live_draws_the_html_registry_with_progress(monkeypatch) -> Non
     """The live loop paints the same registry markup used after the run."""
     stub = _StreamlitStub()
     events: queue.Queue[object] = queue.Queue()
-    task = ui._PlanningTask(events=events, status="running")
-    drain = ui._drain_planning_task
+    task = tasks._PlanningTask(events=events, status="running")
+    drain = tasks._drain_planning_task
     calls = {"n": 0}
 
     def _wait(_task, wait=0.0):
         calls["n"] += 1
         if calls["n"] == 1:
-            events.put(ui._Progress({"node": "state", "phase": "start"}))
-            events.put(ui._Progress({"node": "state", "phase": "objectives", "n": 3}))
+            events.put(tasks._Progress({"node": "state", "phase": "start"}))
+            events.put(tasks._Progress({"node": "state", "phase": "objectives", "n": 3}))
         else:
             events.put({"state": {"state_summary": "ready"}})
             events.put(None)
         return drain(_task, wait=wait)
 
-    monkeypatch.setattr(ui, "st", stub)
-    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
-    monkeypatch.setattr(ui, "_drain_planning_task", _wait)
-    monkeypatch.setattr(ui, "_IDLE_WAIT", 0.001)
+    monkeypatch.setattr(progress, "st", stub)
+    monkeypatch.setattr(progress, "t", lambda key, **kwargs: key)
+    monkeypatch.setattr(registry, "t", lambda key, **kwargs: key)
+    monkeypatch.setattr(progress, "_drain_planning_task", _wait)
+    monkeypatch.setattr(progress, "_IDLE_WAIT", 0.001)
 
-    ui._planning_live(task)
+    progress._planning_live(task)
 
     assert ("start", "state") in task.log
     assert any("tc-live-title" in value for value in stub.live_markdowns)
@@ -424,9 +440,10 @@ def test_planning_live_draws_the_html_registry_with_progress(monkeypatch) -> Non
 
 
 def test_registry_activity_highlights_the_current_event(monkeypatch) -> None:
-    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
+    monkeypatch.setattr(registry, "t", lambda key, **kwargs: key)
+    monkeypatch.setattr(progress, "t", lambda key, **kwargs: key)
 
-    markup = ui._registry_activity_html(
+    markup = registry._registry_activity_html(
         [
             {"node": "knowledge", "phase": "objectives", "n": 2},
             {"node": "plan", "phase": "llm", "model": "gpt"},
@@ -441,16 +458,17 @@ def test_registry_activity_highlights_the_current_event(monkeypatch) -> None:
 
 
 def test_registry_activity_renders_the_model_as_code(monkeypatch) -> None:
+    monkeypatch.setattr(registry, "t", lambda key, **kwargs: key)
     monkeypatch.setattr(
-        ui,
+        progress,
         "t",
         lambda key, **kwargs: (
             "Calling `{model}` (attempt {attempt})" if key == "prog_llm" else key
         ).format(**kwargs),
     )
-    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(registry, "tr", lambda value: value)
 
-    markup = ui._registry_activity_html(
+    markup = registry._registry_activity_html(
         [{"node": "plan", "phase": "llm", "model": "gpt-4o", "attempt": 1}],
         running=False,
     )
@@ -472,9 +490,9 @@ def test_registry_activity_renders_the_model_as_code(monkeypatch) -> None:
 def test_plan_controls_are_disabled_while_a_run_is_active(
     status: str | None, expected: tuple[bool, bool]
 ) -> None:
-    task = ui._PlanningTask(status=status) if status else None
+    task = tasks._PlanningTask(status=status) if status else None
 
-    assert ui._plan_controls_disabled(task) == expected
+    assert tasks._plan_controls_disabled(task) == expected
 
 
 def test_graph_streams_custom_start_and_agent_progress(monkeypatch) -> None:
@@ -523,19 +541,19 @@ def _patch_result_renderers(monkeypatch) -> list:
     def _issue(_scope, issue, fallback="plan"):
         rendered_issues.append(issue)
 
-    monkeypatch.setattr(ui, "_render_issue", _issue)
+    monkeypatch.setattr(issues, "_render_issue", _issue)
+    for name in ("_render_plan", "_render_why"):
+        monkeypatch.setattr(plan_view, name, lambda *args, **kwargs: None)
+    for name in ("_render_sources", "_render_rag_evidence"):
+        monkeypatch.setattr(sources_view, name, lambda *args, **kwargs: None)
     for name in (
-        "_render_plan",
-        "_render_why",
-        "_render_sources",
-        "_render_rag_evidence",
         "_render_run_audit",
         "_render_trace_state",
         "_render_memory",
         "_render_trace_attempts",
         "_render_trace_issues",
     ):
-        monkeypatch.setattr(ui, name, lambda *args, **kwargs: None)
+        monkeypatch.setattr(trace_view, name, lambda *args, **kwargs: None)
     return rendered_issues
 
 
@@ -544,13 +562,15 @@ def test_failed_run_still_renders_the_last_completed_attempt(monkeypatch) -> Non
     from app.domain import ClockTime, GameState, ValidationIssue, ValidationResult
 
     stub = _StreamlitStub()
-    monkeypatch.setattr(ui, "st", stub)
-    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
-    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(plan_view, "st", stub)
+    monkeypatch.setattr(formatting, "st", stub)
+    monkeypatch.setattr(theme, "st", stub)
+    monkeypatch.setattr(plan_view, "t", lambda key, **kwargs: key)
+    monkeypatch.setattr(plan_view, "tr", lambda value: value)
     rendered_issues = _patch_result_renderers(monkeypatch)
 
     issue = ValidationIssue(severity="error", kind="time", message="late")
-    task = ui._PlanningTask(
+    task = tasks._PlanningTask(
         status="error",
         result={
             "validation": ValidationResult(valid=False, issues=[issue]),
@@ -560,7 +580,7 @@ def test_failed_run_still_renders_the_last_completed_attempt(monkeypatch) -> Non
         },
     )
 
-    ui._render_planning_result(task, kb=None)
+    plan_view._render_planning_result(task, kb=None)
 
     rendered = "\n".join(value for _kind, value in stub.calls)
     assert ("subheader", "last_plan_title") in stub.calls
@@ -577,10 +597,13 @@ def test_invalid_plan_marks_the_failing_step_and_missing_items(monkeypatch) -> N
         return f"{key}:{kwargs}" if kwargs else key
 
     stub = _StreamlitStub()
-    monkeypatch.setattr(ui, "st", stub)
-    monkeypatch.setattr(ui, "t", _t)
-    monkeypatch.setattr(ui, "tr", lambda value: value)
-    monkeypatch.setattr(ui, "tr_msg", lambda value: value)
+    monkeypatch.setattr(plan_view, "st", stub)
+    monkeypatch.setattr(formatting, "st", stub)
+    monkeypatch.setattr(theme, "st", stub)
+    monkeypatch.setattr(plan_view, "t", _t)
+    monkeypatch.setattr(plan_view, "tr", lambda value: value)
+    monkeypatch.setattr(issues, "tr_msg", lambda value: value)
+    monkeypatch.setattr(issues, "t", _t)
     steps = [
         PlanStep(
             title=f"Step {index}",
@@ -592,7 +615,7 @@ def test_invalid_plan_marks_the_failing_step_and_missing_items(monkeypatch) -> N
         )
         for index in (0, 1, 2)
     ]
-    issues = [
+    issue_list = [
         ValidationIssue(
             severity="error",
             step_idx=1,
@@ -607,7 +630,7 @@ def test_invalid_plan_marks_the_failing_step_and_missing_items(monkeypatch) -> N
         ),
     ]
 
-    ui._render_plan(Plan(goal="goal", steps=steps), issues=issues, show_numbers=True)
+    plan_view._render_plan(Plan(goal="goal", steps=steps), issues=issue_list, show_numbers=True)
 
     markup = next(value for kind, value in stub.calls if kind == "markdown")
     assert markup.count("tc-step bad") == 1
@@ -621,11 +644,11 @@ def test_critic_tables_and_missing_chips_style_entities(monkeypatch) -> None:
     from app.data.mock_knowledge import build_default_knowledge
     from app.domain import ValidationIssue, ValidationResult
 
-    monkeypatch.setattr(ui, "t", lambda key, **kwargs: f"{key}:{kwargs}" if kwargs else key)
-    monkeypatch.setattr(ui, "tr", lambda value: value)
-    monkeypatch.setattr(ui, "tr_msg", lambda value: value)
+    monkeypatch.setattr(issues, "t", lambda key, **kwargs: f"{key}:{kwargs}" if kwargs else key)
+    monkeypatch.setattr(issues, "tr", lambda value: value)
+    monkeypatch.setattr(issues, "tr_msg", lambda value: value)
 
-    issues = [
+    issue_list = [
         ValidationIssue(
             severity="error", step_idx=0, kind="item", message="Missing item(s): Room Key."
         ),
@@ -636,19 +659,19 @@ def test_critic_tables_and_missing_chips_style_entities(monkeypatch) -> None:
             message="Missing mask(s): Kafei's Mask.",
         ),
     ]
-    entities = ui._entity_index(build_default_knowledge())
+    entities = issues._entity_index(build_default_knowledge())
 
-    table = ui._issues_table_html(issues, entities=entities)
+    table = issues._issues_table_html(issue_list, entities=entities)
     assert 'class="tc-item">Room Key' in table
     assert 'class="tc-mask">Kafei' in table
 
-    body = ui._registry_critic_body(
-        {"validation": ValidationResult(valid=False, issues=issues)}, entities
+    body = registry._registry_critic_body(
+        {"validation": ValidationResult(valid=False, issues=issue_list)}, entities
     )
     assert 'class="tc-item">Room Key' in body
     assert 'class="tc-mask">Kafei' in body
 
-    chips = ui._missing_chips_html(issues, prefix=True)
+    chips = issues._missing_chips_html(issue_list, prefix=True)
     assert 'class="tc-item">Room Key' in chips
     assert 'class="tc-mask">Kafei' in chips
 
@@ -657,9 +680,11 @@ def test_invalid_plan_renders_every_step(monkeypatch) -> None:
     from app.domain import ClockTime, Plan, PlanStep, TimeWindow, ValidationIssue
 
     stub = _StreamlitStub()
-    monkeypatch.setattr(ui, "st", stub)
-    monkeypatch.setattr(ui, "t", lambda key, **kwargs: f"{key}:{kwargs}")
-    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(plan_view, "st", stub)
+    monkeypatch.setattr(formatting, "st", stub)
+    monkeypatch.setattr(theme, "st", stub)
+    monkeypatch.setattr(plan_view, "t", lambda key, **kwargs: f"{key}:{kwargs}")
+    monkeypatch.setattr(plan_view, "tr", lambda value: value)
     steps = [
         PlanStep(
             title=f"Step {index}",
@@ -678,7 +703,7 @@ def test_invalid_plan_renders_every_step(monkeypatch) -> None:
         message="Missing item(s): Rampino.",
     )
 
-    ui._render_last_plan(Plan(goal="goal", steps=steps), [issue])
+    plan_view._render_last_plan(Plan(goal="goal", steps=steps), [issue])
 
     markup = next(
         value for kind, value in stub.calls if kind == "markdown" and "tc-timeline" in value
@@ -694,9 +719,13 @@ def test_plan_details_keep_every_step_field(monkeypatch) -> None:
     from app.domain import ClockTime, Plan, PlanStep, TimeWindow
 
     stub = _StreamlitStub()
-    monkeypatch.setattr(ui, "st", stub)
-    monkeypatch.setattr(ui, "t", lambda key, **kwargs: f"{key}:{kwargs}")
-    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(plan_view, "st", stub)
+    monkeypatch.setattr(formatting, "st", stub)
+    monkeypatch.setattr(theme, "st", stub)
+    monkeypatch.setattr(formatting, "st", stub)
+    monkeypatch.setattr(theme, "st", stub)
+    monkeypatch.setattr(plan_view, "t", lambda key, **kwargs: f"{key}:{kwargs}")
+    monkeypatch.setattr(plan_view, "tr", lambda value: value)
 
     plan = Plan(
         goal="goal",
@@ -716,7 +745,7 @@ def test_plan_details_keep_every_step_field(monkeypatch) -> None:
         ],
     )
 
-    ui._render_why(plan)
+    plan_view._render_why(plan)
 
     markup = next(value for kind, value in stub.calls if kind == "markdown")
     for expected in (
@@ -737,12 +766,14 @@ def test_semantic_entity_styles_are_shared_by_state_knowledge_and_plan(
     from app.domain import ClockTime, GameState, Plan, PlanStep, TimeWindow
 
     stub = _StreamlitStub()
-    monkeypatch.setattr(ui, "st", stub)
-    monkeypatch.setattr(ui, "t", lambda key, **kwargs: f"{key}:{kwargs}")
-    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(formatting, "st", stub)
+    monkeypatch.setattr(theme, "st", stub)
+    monkeypatch.setattr(plan_view, "st", stub)
+    monkeypatch.setattr(formatting, "t", lambda key, **kwargs: f"{key}:{kwargs}")
+    monkeypatch.setattr(formatting, "tr", lambda value: value)
 
     kb = build_default_knowledge()
-    index = ui._entity_index(kb)
+    index = formatting._entity_index(kb)
     kinds = index[1]
     assert kinds["sun's mask"] == "mask"
     assert kinds["room key"] == "item"
@@ -754,13 +785,13 @@ def test_semantic_entity_styles_are_shared_by_state_knowledge_and_plan(
         inventory=["Room Key"],
         masks=["Kafei's Mask"],
     )
-    state_html = ui._state_fields_html(state)
+    state_html = trace_view._state_fields_html(state)
     assert 'class="tc-place">Stockpot Inn' in state_html
     assert 'class="tc-item">Room Key' in state_html
     assert 'class="tc-mask">Kafei' in state_html
 
     objective = next(o for o in kb.all_objectives if "Kafei's Mask" in o.title)
-    knowledge_html = ui._registry_knowledge_body({"relevant_objectives": [objective]}, index)
+    knowledge_html = registry._registry_knowledge_body({"relevant_objectives": [objective]}, index)
     assert 'class="tc-mask">Kafei' in knowledge_html
 
     plan = Plan(
@@ -778,13 +809,13 @@ def test_semantic_entity_styles_are_shared_by_state_knowledge_and_plan(
             )
         ],
     )
-    ui._render_plan(plan, kb=kb)
+    plan_view._render_plan(plan, kb=kb)
     markup = next(value for kind, value in stub.calls if kind == "markdown")
     assert 'class="tc-place">Stockpot Inn' in markup
     assert 'class="tc-item">Room Key' in markup
     assert 'class="tc-mask">Kafei' in markup
 
-    ui._render_why(plan, kb=kb)
+    plan_view._render_why(plan, kb=kb)
     why_markup = next(
         value for kind, value in stub.calls if kind == "markdown" and "tc-detail-card" in value
     )
@@ -796,8 +827,8 @@ def test_fairy_greeting_accepts_a_custom_message() -> None:
     import datetime
 
     when = datetime.time(6, 0)
-    play = ui._fairy_html(1, when)
-    evaluation = ui._fairy_html(1, when, text="Prova generale")
+    play = formatting._fairy_html(1, when)
+    evaluation = formatting._fairy_html(1, when, text="Prova generale")
 
     assert "Prova generale" in evaluation
     assert 'id="taiaw-play"' in play
@@ -807,18 +838,17 @@ def test_fairy_greeting_accepts_a_custom_message() -> None:
 
 
 def test_favicon_asset_is_available() -> None:
-    assert ui._FAVICON_PATH.is_file()
-    markup = ui._FAVICON_PATH.read_text(encoding="utf-8")
+    assert page._FAVICON_PATH.is_file()
+    markup = page._FAVICON_PATH.read_text(encoding="utf-8")
     assert markup.lstrip().startswith("<svg")
     assert 'viewBox="0 0 64 64"' in markup
 
 
 def test_failure_breakdown_handles_empty_and_wrapping_kinds(monkeypatch) -> None:
-    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
-    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(evaluation_view, "t", lambda key, **kwargs: key)
 
-    empty = ui._failure_breakdown_html({})
-    many = ui._failure_breakdown_html({"run_error": 1, "temporal_ordering": 2})
+    empty = evaluation_view._failure_breakdown_html({})
+    many = evaluation_view._failure_breakdown_html({"run_error": 1, "temporal_ordering": 2})
 
     assert "tc-failure-empty" in empty
     assert "<b>1</b> kind_run_error" in many
@@ -827,11 +857,13 @@ def test_failure_breakdown_handles_empty_and_wrapping_kinds(monkeypatch) -> None
 
 def test_failed_run_without_a_completed_attempt_renders_no_plan(monkeypatch) -> None:
     stub = _StreamlitStub()
-    monkeypatch.setattr(ui, "st", stub)
-    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
+    monkeypatch.setattr(plan_view, "st", stub)
+    monkeypatch.setattr(formatting, "st", stub)
+    monkeypatch.setattr(theme, "st", stub)
+    monkeypatch.setattr(plan_view, "t", lambda key, **kwargs: key)
     _patch_result_renderers(monkeypatch)
 
-    ui._render_planning_result(ui._PlanningTask(status="error"), kb=None)
+    plan_view._render_planning_result(tasks._PlanningTask(status="error"), kb=None)
 
     assert stub.calls == []
 
@@ -847,8 +879,15 @@ def test_progress_templates_style_model_query_and_titles(monkeypatch) -> None:
         assert templates["prog_wiki_indexed"].endswith("*{pages}*")
 
 
+def test_language_dictionaries_share_the_same_keys() -> None:
+    """English and Italian must expose exactly the same translation keys."""
+    from app.i18n import _STRINGS
+
+    assert set(_STRINGS["en"]) == set(_STRINGS["it"])
+
+
 def test_plan_controls_require_a_model_before_planning() -> None:
-    assert ui._plan_controls_disabled(None) == (False, True)
+    assert tasks._plan_controls_disabled(None) == (False, True)
 
 
 def test_app_renders_headless_without_error() -> None:
@@ -927,13 +966,13 @@ def test_evaluation_task_drains_results_and_completes() -> None:
     from app.evaluation.models import ScenarioResult
     from app.evaluation.scenarios import SCENARIOS_BY_ID
 
-    task = ui._EvaluationTask(total=1)
+    task = tasks._EvaluationTask(total=1)
     task.events.put(
         (SCENARIOS_BY_ID["anju-kafei"], ScenarioResult(scenario_id="anju-kafei", passed=True))
     )
     task.events.put(None)
 
-    assert ui._drain_evaluation_task(task) is True
+    assert tasks._drain_evaluation_task(task) is True
     assert task.status == "done"
     assert [result.scenario_id for result in task.results] == ["anju-kafei"]
     assert task.current == "anju-kafei"
@@ -941,11 +980,11 @@ def test_evaluation_task_drains_results_and_completes() -> None:
 
 def test_evaluation_task_stop_is_cooperative() -> None:
     """A stop request ends the sweep as stopped, not as done."""
-    task = ui._EvaluationTask(total=2)
+    task = tasks._EvaluationTask(total=2)
     task.stop_event.set()
     task.events.put(None)
 
-    ui._drain_evaluation_task(task)
+    tasks._drain_evaluation_task(task)
 
     assert task.status == "stopped"
     assert task.results == []
@@ -953,11 +992,11 @@ def test_evaluation_task_stop_is_cooperative() -> None:
 
 def test_evaluation_task_reports_worker_errors() -> None:
     """A failing sweep is reported instead of swallowed."""
-    task = ui._EvaluationTask(total=1)
+    task = tasks._EvaluationTask(total=1)
     task.events.put(RuntimeError("boom"))
     task.events.put(None)
 
-    ui._drain_evaluation_task(task)
+    tasks._drain_evaluation_task(task)
 
     assert task.error == "boom"
     assert task.status == "error"
@@ -965,9 +1004,9 @@ def test_evaluation_task_reports_worker_errors() -> None:
 
 def test_sweep_timestamp_is_shown_without_the_iso_noise():
     """A stored sweep time renders as a readable date, not raw ISO."""
-    assert ui._format_timestamp("2026-10-22T15:25:21+00:00") == "22/10/2026 15:25 UTC"
+    assert evaluation_view._format_timestamp("2026-10-22T15:25:21+00:00") == "22/10/2026 15:25 UTC"
     # An unparsable value is shown unchanged instead of disappearing.
-    assert ui._format_timestamp("yesterday") == "yesterday"
+    assert evaluation_view._format_timestamp("yesterday") == "yesterday"
 
 
 def test_evaluation_tab_renders_the_report_of_a_finished_sweep(tmp_path, monkeypatch) -> None:
@@ -987,7 +1026,7 @@ def test_evaluation_tab_renders_the_report_of_a_finished_sweep(tmp_path, monkeyp
     at.run()
     assert not at.exception
 
-    task = ui._EvaluationTask(total=2, status="done")
+    task = tasks._EvaluationTask(total=2, status="done")
     task.results = [
         ScenarioResult(scenario_id="anju-kafei", passed=True, step_count=4, duration_s=12.4),
         ScenarioResult(
@@ -1060,7 +1099,7 @@ def test_evaluation_tab_flags_a_regression_against_the_stored_history(
     at.run()
     assert not at.exception
 
-    task = ui._EvaluationTask(total=2, status="done")
+    task = tasks._EvaluationTask(total=2, status="done")
     task.results = [
         ScenarioResult(scenario_id="anju-kafei", passed=True),
         ScenarioResult(
@@ -1109,7 +1148,7 @@ def test_evaluation_run_error_never_shows_the_success_message(tmp_path, monkeypa
     at.run()
     assert not at.exception
 
-    task = ui._EvaluationTask(total=1, status="done")
+    task = tasks._EvaluationTask(total=1, status="done")
     task.results = [
         ScenarioResult(
             scenario_id="anju-kafei",
@@ -1142,11 +1181,11 @@ def test_evaluation_worker_saves_the_report(tmp_path, monkeypatch) -> None:
         for item in scenarios:
             if on_progress is not None:
                 on_progress(item, ScenarioResult(scenario_id=item.id, passed=True))
-        return ui.EvaluationReport(results=[])
+        return evaluation_view.EvaluationReport(results=[])
 
-    monkeypatch.setattr(ui, "run_scenarios", _fake_run)
-    task = ui._EvaluationTask(total=1)
-    ui._run_evaluation([scenario], rag_on=False, task=task)
+    monkeypatch.setattr(tasks, "run_scenarios", _fake_run)
+    task = tasks._EvaluationTask(total=1)
+    tasks._run_evaluation([scenario], rag_on=False, task=task)
 
     saved = load_report()
     assert saved is not None
@@ -1162,16 +1201,18 @@ def test_evaluation_worker_skips_an_empty_sweep(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
     save_report(
-        ui.EvaluationReport(results=[ScenarioResult(scenario_id="anju-kafei", passed=True)])
+        evaluation_view.EvaluationReport(
+            results=[ScenarioResult(scenario_id="anju-kafei", passed=True)]
+        )
     )
 
     def _failing_run(scenarios, rag_on=True, on_progress=None, should_stop=None):
         """Raise before producing any result, like an unconfigured LLM."""
         raise RuntimeError("LLM not configured")
 
-    monkeypatch.setattr(ui, "run_scenarios", _failing_run)
-    task = ui._EvaluationTask(total=1)
-    ui._run_evaluation([SCENARIOS_BY_ID["anju-kafei"]], rag_on=False, task=task)
+    monkeypatch.setattr(tasks, "run_scenarios", _failing_run)
+    task = tasks._EvaluationTask(total=1)
+    tasks._run_evaluation([SCENARIOS_BY_ID["anju-kafei"]], rag_on=False, task=task)
 
     saved = load_report()
     assert saved is not None
@@ -1189,7 +1230,7 @@ def test_evaluation_tab_loads_the_saved_report(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
     save_report(
-        ui.EvaluationReport(
+        tasks.EvaluationReport(
             results=[
                 ScenarioResult(
                     scenario_id="anju-kafei", passed=True, step_count=4, duration_s=12.4
@@ -1259,7 +1300,7 @@ def test_evaluation_tab_reports_a_missing_saved_report(tmp_path, monkeypatch) ->
 
 def test_configuration_cards_escape_values_and_gate_phoenix(monkeypatch) -> None:
     """The sidebar cards escape settings and only link Phoenix when tracing is on."""
-    monkeypatch.setattr(ui.st, "session_state", {"lang": "en"})
+    monkeypatch.setattr(sidebar.st, "session_state", {"lang": "en"})
     settings = Settings(
         llm_provider="<ollama>",
         llm_model="llama&3",
@@ -1267,7 +1308,7 @@ def test_configuration_cards_escape_values_and_gate_phoenix(monkeypatch) -> None
         otel_exporter_otlp_endpoint="http://localhost:6006",
     )
 
-    markup = ui._configuration_html(settings)
+    markup = sidebar._configuration_html(settings)
 
     assert "&lt;ollama&gt;" in markup
     assert "llama&amp;3" in markup
@@ -1283,7 +1324,7 @@ def test_configuration_cards_escape_values_and_gate_phoenix(monkeypatch) -> None
         otel_exporter_otlp_endpoint=None,
         phoenix_base_url=None,
     )
-    offline_markup = ui._configuration_html(offline)
+    offline_markup = sidebar._configuration_html(offline)
     assert "tc-side-pill-off" in offline_markup
     assert "Open Phoenix" not in offline_markup
     assert ">None<" in offline_markup
@@ -1294,9 +1335,11 @@ def test_plan_timeline_escapes_text_and_marks_the_last_step(monkeypatch) -> None
     from app.domain import ClockTime, Plan, PlanStep, TimeWindow
 
     stub = _StreamlitStub()
-    monkeypatch.setattr(ui, "st", stub)
-    monkeypatch.setattr(ui, "t", lambda key, **kwargs: key)
-    monkeypatch.setattr(ui, "tr", lambda value: value)
+    monkeypatch.setattr(plan_view, "st", stub)
+    monkeypatch.setattr(formatting, "st", stub)
+    monkeypatch.setattr(theme, "st", stub)
+    monkeypatch.setattr(plan_view, "t", lambda key, **kwargs: key)
+    monkeypatch.setattr(plan_view, "tr", lambda value: value)
 
     plan = Plan(
         goal="g",
@@ -1320,7 +1363,7 @@ def test_plan_timeline_escapes_text_and_marks_the_last_step(monkeypatch) -> None
         ],
     )
 
-    ui._render_plan(plan, valid=True)
+    plan_view._render_plan(plan, valid=True)
 
     markup = "\n".join(value for kind, value in stub.calls if kind == "markdown")
     assert "&lt;b&gt;First&lt;/b&gt;" in markup

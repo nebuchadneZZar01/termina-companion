@@ -665,16 +665,6 @@ def rag_enabled() -> bool:
     return get_settings().rag.enabled
 
 
-def safe_retrieve(
-    query: str,
-    top_k: int | None = None,
-    search_terms: list[str] | tuple[str, ...] | None = None,
-    on_progress: Callable[[dict], None] | None = None,
-) -> RetrievalResult:
-    """Backward-compatible alias for :func:`retrieve`."""
-    return retrieve(query, top_k=top_k, search_terms=search_terms, on_progress=on_progress)
-
-
 def _query_terms(query: str) -> list[str]:
     normalized = unicodedata.normalize("NFKD", query.casefold())
     normalized = "".join(char for char in normalized if not unicodedata.combining(char))

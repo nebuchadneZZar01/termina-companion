@@ -13,7 +13,7 @@ from app.domain import (
     ValidationResult,
 )
 from app.graph import run_pipeline
-from app.ui import _markdown_windows
+from app.ui.formatting import _markdown_windows
 
 pytestmark = pytest.mark.usefixtures("fake_planner_model")
 
@@ -97,6 +97,18 @@ def test_italian_critic_message_keeps_backticks_and_window():
     assert "`[Day 3, 04:00 \u2192 Day 3, 12:00]`" in out
     assert "Giorno" not in out
     assert "non \u00e8 disponibile durante" in out
+
+
+def test_italian_quest_prerequisite_message_translates_the_tail():
+    """The stale template used to leave the final sentence in English."""
+    from unittest.mock import patch
+
+    with patch("streamlit.session_state") as sess:
+        sess.get.return_value = "it"
+        from app.i18n import tr_msg
+
+        out = tr_msg("Quest prerequisite missing: Anju. Complete this quest first.")
+    assert out == "Prerequisito quest mancante: Anju. Completa questa quest prima."
 
 
 def test_valid_plan_passes():
