@@ -113,8 +113,11 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   architecture to one quest. The Anju & Kafei vertical slice is the
   game-accurate nine-step main path (Kafei's Mask, Room Key, kitchen
   letter, posting it, Kafei, pendant, Sakon's Hideout, reunion), with
-  optional rewards mentioned only in descriptions. Agents never access
-  this directly — they go through the MCP tools in `app/mcp/tools.py`.
+  optional rewards mentioned only in descriptions. The Knowledge Agent and
+  the Critic read it only through the tool functions in
+  `app/mcp/tools.py`; the State Agent and the planner's `planning_chain.py`
+  still call `build_default_knowledge()` directly for quest names and
+  objective positions (tracked in `TODO.md`).
 * `app/agents/` — one module per agent (state, knowledge,
   planning, critic), each exposing a LangGraph node function `run(state) -> dict`.
   The Planning Agent's deterministic post-processing lives beside it in
@@ -150,6 +153,12 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   already owned through that step's reward. Otherwise the Critic reports a
   `quest_prerequisite` issue naming the missing chain, and the graph stops
   re-planning instead of expanding the prerequisite quests into the plan.
+  The Critic never trusts the plan step fields: it resolves every ref against
+  the whole knowledge base through the MCP tools, reads item and mask
+  requirements from the authoritative `Objective`, recomputes dependency
+  timing from `objective.prerequisites` and the earlier steps, rejects an
+  unknown ref as an error and flags overlapping consecutive steps. Its
+  memoized per-validation knowledge view lives in `critic_knowledge.py`.
   The planner also
   returns its untouched proposal as `plan_proposal` (the input the
   `proposal_fidelity` check compares), and the Critic appends one
@@ -159,11 +168,13 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   evidence. Retrieval runs immediately before planning; RAG failure is logged
   and degrades to structured context, never changing the objective chain.
 * `app/mcp/` — MCP tools and server. `app/mcp/tools.py` holds the pure
-  tool functions (search_quests, get_npc_schedule, get_quest_info, get_event,
-  get_location, check_prerequisites) — the single seam between agents and
-  game data. `app/mcp/server.py` wraps them as a `MCPServer` for external
-  MCP clients. The Knowledge Agent imports tools directly for in-process use;
-  RAG is not exposed as an MCP tool.
+  tool functions (search_quests, get_npc_schedule, get_quest_info,
+  get_objective, get_event, get_location, check_prerequisites) — the
+  game-data seam. `app/mcp/server.py` wraps them as a `MCPServer` for
+  external MCP clients. The Knowledge Agent and the Critic import them
+  directly for in-process use; the State Agent and `planning_chain.py` still
+  read the knowledge base directly (see `TODO.md`). RAG is not exposed as an
+  MCP tool.
 * `app/rag/` — adaptive supplemental RAG package: Pydantic document/chunk/
   evidence/source-manifest contracts, MediaWiki client and HTML cleanup,
   heading-aware chunking, FastEmbed adapter, persistent embedded Qdrant store,

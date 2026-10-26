@@ -15,6 +15,7 @@ from app.mcp.tools import (
     get_event,
     get_location,
     get_npc_schedule,
+    get_objective,
     get_quest_info,
     search_quests,
 )
@@ -23,8 +24,9 @@ mcp = MCPServer(
     "termina-companion",
     instructions=(
         "Game knowledge for Majora's Mask planning. Use search_quests to find "
-        "quests relevant to the player's goal, then get_npc_schedule, get_event "
-        "and get_location for the details the planner needs, and "
+        "quests relevant to the player's goal, get_objective or get_quest_info "
+        "to resolve the authoritative objective fields, get_npc_schedule, "
+        "get_event and get_location for the details the planner needs, and "
         "check_prerequisites to verify an objective is feasible."
     ),
 )
@@ -33,6 +35,7 @@ _TOOLS = (
     search_quests,
     get_npc_schedule,
     get_quest_info,
+    get_objective,
     get_event,
     get_location,
     check_prerequisites,

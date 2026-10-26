@@ -130,34 +130,54 @@ def test_step_outside_objective_window_rejected():
 
 
 def test_missing_item_rejected():
-    """A step requiring an item the player lacks is an item issue."""
+    """A required item missing from the Objective is an item issue."""
     start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
-    step = _step("s1", start, ref="o1")
-    step.requires_items = ["Rare Item"]
-    plan = Plan(goal="x", steps=[step])
-    result = validate_plan(plan, _gs(), [_objective("o1", start)])
+    objective = _objective("o1", start)
+    objective.requires_items = ["Rare Item"]
+    plan = Plan(goal="x", steps=[_step("s1", start, ref="o1")])
+    result = validate_plan(plan, _gs(), [objective])
     assert not result.valid
     assert any(i.kind == "item" and "Rare Item" in i.message for i in result.issues)
 
 
 def test_missing_mask_rejected():
-    """A step requiring a mask the player lacks is a mask issue."""
+    """A required mask missing from the Objective is a mask issue."""
     start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
-    step = _step("s1", start, ref="o1")
-    step.requires_masks = ["Goron Mask"]
-    plan = Plan(goal="x", steps=[step])
-    result = validate_plan(plan, _gs(), [_objective("o1", start)])
+    objective = _objective("o1", start)
+    objective.requires_masks = ["Goron Mask"]
+    plan = Plan(goal="x", steps=[_step("s1", start, ref="o1")])
+    result = validate_plan(plan, _gs(), [objective])
     assert not result.valid
     assert any(i.kind == "mask" and "Goron Mask" in i.message for i in result.issues)
 
 
 def test_mask_available_passes():
-    """A step whose required mask is owned validates."""
+    """A step whose authoritative required mask is owned validates."""
+    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    objective = _objective("o1", start)
+    objective.requires_masks = ["Goron Mask"]
+    plan = Plan(goal="x", steps=[_step("s1", start, ref="o1")])
+    result = validate_plan(plan, _gs(masks=["Goron Mask"]), [objective])
+    assert result.valid
+
+
+def test_step_fields_cannot_hide_an_objective_requirement():
+    """A grounded step that dropped its requirement is still rejected."""
+    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    objective = _objective("o1", start)
+    objective.requires_items = ["Rare Item"]
+    step = _step("s1", start, ref="o1")
+    assert step.requires_items == []
+    result = validate_plan(Plan(goal="x", steps=[step]), _gs(), [objective])
+    assert any(i.kind == "item" and "Rare Item" in i.message for i in result.issues)
+
+
+def test_extra_step_requirement_is_not_checked():
+    """A requirement only present on the step is not a feasibility failure."""
     start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
     step = _step("s1", start, ref="o1")
-    step.requires_masks = ["Goron Mask"]
-    plan = Plan(goal="x", steps=[step])
-    result = validate_plan(plan, _gs(masks=["Goron Mask"]), [_objective("o1", start)])
+    step.requires_masks = ["Invented Mask"]
+    result = validate_plan(Plan(goal="x", steps=[step]), _gs(), [_objective("o1", start)])
     assert result.valid
 
 
@@ -215,16 +235,76 @@ def test_wrong_location_rejected():
 
 
 def test_unsatisfied_dependency_rejected():
-    """A step whose prerequisite overlaps in time is a sequence issue."""
+    """Dependency timing is recomputed from the objective's prerequisites."""
     early = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
     later_window = TimeWindow(
         start=ClockTime(day=1, hour=8, minute=30), end=ClockTime(day=1, hour=9, minute=30)
     )
+    o2 = _objective("o2", later_window)
+    o2.prerequisites = ["o1"]
     late = _step("s2", later_window, ref="o2")
-    late.depends_on = [0]
+    assert late.depends_on == []
     plan = Plan(goal="x", steps=[_step("s1", early, ref="o1"), late])
-    objectives = [_objective("o1", early), _objective("o2", later_window)]
-    assert any(i.kind == "sequence" for i in validate_plan(plan, _gs(), objectives).issues)
+    objectives = [_objective("o1", early), o2]
+    result = validate_plan(plan, _gs(), objectives)
+    assert any(i.kind == "sequence" for i in result.issues)
+
+
+def test_overlapping_consecutive_steps_rejected():
+    """Independent consecutive steps that overlap are flagged globally."""
+    early = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    later_window = TimeWindow(
+        start=ClockTime(day=1, hour=8, minute=30), end=ClockTime(day=1, hour=9, minute=30)
+    )
+    plan = Plan(
+        goal="x",
+        steps=[_step("s1", early, ref="o1"), _step("s2", later_window, ref="o2")],
+    )
+    result = validate_plan(plan, _gs(), [_objective("o1", early), _objective("o2", later_window)])
+    assert not result.valid
+    assert any(i.kind == "overlap" for i in result.issues)
+
+
+def test_sequential_consecutive_steps_pass():
+    """Steps that merely touch at the boundary do not overlap."""
+    early = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    later_window = TimeWindow(start=ClockTime(day=1, hour=9), end=ClockTime(day=1, hour=10))
+    plan = Plan(
+        goal="x",
+        steps=[_step("s1", early, ref="o1"), _step("s2", later_window, ref="o2")],
+    )
+    assert validate_plan(
+        plan, _gs(), [_objective("o1", early), _objective("o2", later_window)]
+    ).valid
+
+
+def test_unknown_objective_ref_rejected():
+    """An unknown reference is an error, never a skipped check."""
+    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    plan = Plan(goal="x", steps=[_step("s1", start, ref="not_a_real_objective")])
+    result = validate_plan(plan, _gs(), [_objective("o1", start)])
+    assert not result.valid
+    assert [i.kind for i in result.issues] == ["objective"]
+    assert "not_a_real_objective" in result.issues[0].message
+
+
+def test_empty_objective_ref_rejected():
+    """A step without a reference cannot be verified and is rejected."""
+    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    plan = Plan(goal="x", steps=[_step("s1", start, ref="")])
+    result = validate_plan(plan, _gs(), [_objective("o1", start)])
+    assert [i.kind for i in result.issues] == ["objective"]
+
+
+def test_ref_outside_relevant_objectives_resolves_against_the_kb():
+    """A ref known to the knowledge base validates even when not retrieved."""
+    from app.data.mock_knowledge import build_default_knowledge
+
+    kb = build_default_knowledge()
+    objective = next(o for q in kb.quests for o in q.objectives if o.id == "ak_get_kafei_mask")
+    step = _step("mask", objective.window, location=objective.location, ref=objective.id)
+    result = validate_plan(Plan(goal="x", steps=[step]), _gs(), [])
+    assert result.valid
 
 
 def test_pipeline_builds_feasible_plan_with_required_gear():
@@ -457,24 +537,28 @@ def test_prerequisite_satisfied_by_done_quest_passes():
 
 def test_required_item_provided_by_earlier_step_passes():
     """A required item is not flagged missing when an earlier step provides it."""
-    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
-    o1 = _objective("o1", start)
+    first = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    second = TimeWindow(start=ClockTime(day=1, hour=9), end=ClockTime(day=1, hour=10))
+    o1 = _objective("o1", first)
     o1.provides_items = ["Secret Letter"]
-    o2 = _objective("o2", start)
-    s1 = _step("s1", start, ref="o1")
-    s2 = _step("s2", start, ref="o2").model_copy(update={"requires_items": ["Secret Letter"]})
+    o2 = _objective("o2", second)
+    o2.requires_items = ["Secret Letter"]
+    s1 = _step("s1", first, ref="o1")
+    s2 = _step("s2", second, ref="o2")
     plan = Plan(goal="x", steps=[s1, s2])
     assert validate_plan(plan, _gs(), [o1, o2]).valid
 
 
 def test_required_item_not_credited_when_provider_is_later():
     """A provider step after the need does not satisfy the requirement."""
-    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
-    o1 = _objective("o1", start)
-    o2 = _objective("o2", start)
+    first = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    second = TimeWindow(start=ClockTime(day=1, hour=9), end=ClockTime(day=1, hour=10))
+    o1 = _objective("o1", first)
+    o1.requires_items = ["Secret Letter"]
+    o2 = _objective("o2", second)
     o2.provides_items = ["Secret Letter"]
-    s1 = _step("s1", start, ref="o1").model_copy(update={"requires_items": ["Secret Letter"]})
-    s2 = _step("s2", start, ref="o2")
+    s1 = _step("s1", first, ref="o1")
+    s2 = _step("s2", second, ref="o2")
     plan = Plan(goal="x", steps=[s1, s2])
     result = validate_plan(plan, _gs(), [o1, o2])
     assert not result.valid
@@ -492,3 +576,89 @@ def test_knowledge_npc_schedules_and_events():
     assert len(kb.locations) >= 6
     ak_deliver = next(o for q in kb.quests for o in q.objectives if o.id == "ak_deliver_pendant")
     assert ak_deliver.npc_id == "anju"
+
+
+def test_objective_tool_failure_is_fail_closed(monkeypatch):
+    """A failing objective lookup rejects the step instead of skipping it."""
+    from app.agents import critic_knowledge
+
+    def _boom(_ref):
+        raise RuntimeError("knowledge backend down")
+
+    monkeypatch.setattr(critic_knowledge, "get_objective", _boom)
+    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    plan = Plan(goal="x", steps=[_step("s1", start, ref="ak_get_kafei_mask")])
+    result = validate_plan(plan, _gs(), [])
+    assert [i.kind for i in result.issues] == ["objective"]
+
+
+def test_npc_tool_failure_does_not_block_the_plan(monkeypatch):
+    """A failing schedule lookup degrades to no NPC check, not to a failure."""
+    from app.agents import critic_knowledge
+
+    def _boom(_npc_id):
+        raise RuntimeError("knowledge backend down")
+
+    monkeypatch.setattr(critic_knowledge, "get_npc_schedule", _boom)
+    start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    objective = _objective("o1", start)
+    objective.npc_id = "anju"
+    result = validate_plan(Plan(goal="x", steps=[_step("s1", start, ref="o1")]), _gs(), [objective])
+    assert result.valid
+
+
+def test_objective_lookups_are_cached_per_validation(monkeypatch):
+    """A ref resolved twice reaches the tool only once."""
+    from app.agents import critic_knowledge
+
+    calls: list[str] = []
+    real = critic_knowledge.get_objective
+
+    def _counting(ref):
+        calls.append(ref)
+        return real(ref)
+
+    monkeypatch.setattr(critic_knowledge, "get_objective", _counting)
+    view = critic_knowledge.KnowledgeView()
+    first = view.objective("ak_reunite")
+    second = view.objective("ak_reunite")
+    assert calls == ["ak_reunite"]
+    assert first is second
+
+
+def test_quest_lookups_are_cached_per_validation(monkeypatch):
+    """A quest resolved twice reaches the tool only once."""
+    from app.agents import critic_knowledge
+
+    calls: list[str] = []
+    real = critic_knowledge.get_quest_info
+
+    def _counting(quest_id):
+        calls.append(quest_id)
+        return real(quest_id)
+
+    monkeypatch.setattr(critic_knowledge, "get_quest_info", _counting)
+    view = critic_knowledge.KnowledgeView()
+    first = view.quest("anju_kafei")
+    second = view.quest("anju_kafei")
+    assert calls == ["anju_kafei"]
+    assert first is second
+
+
+def test_new_critic_messages_translate_to_italian():
+    """The overlap and named-ref messages have Italian templates."""
+    from unittest.mock import patch
+
+    with patch("streamlit.session_state") as sess:
+        sess.get.return_value = "it"
+        from app.i18n import t, tr_msg
+
+        assert (
+            tr_msg("Overlaps the previous step, which ends at Day 1, 09:00.")
+            == "Si sovrappone al passo precedente, che termina alle Day 1, 09:00."
+        )
+        assert (
+            tr_msg("Unknown objective reference: 'not_a_real_objective'.")
+            == "Riferimento obiettivo sconosciuto: 'not_a_real_objective'."
+        )
+        assert t("kind_overlap") == "sovrapposizione"

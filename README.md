@@ -436,19 +436,21 @@ The LangGraph workflow has four nodes, one module per agent under
 post-processed deterministically: references, titles and locations are grounded
 to MCP objectives, duplicate steps are removed, windows are clamped to
 objective slots, and the authoritative prerequisite chain is rebuilt before
-validation.
+validation. The Critic re-reads requirements and dependency timing from those
+objectives through the MCP tools, so a grounding mistake in a step cannot hide
+an infeasibility.
 
 | Agent | Input | Output | Engine |
 |---|---|---|---|
 | **State Agent** | `GameState`, `Goal` | Canonical state and summary | Rule-based state normalization and summary. |
 | **Knowledge Agent** | `GameState`, `Goal` | Objectives, schedules, events, RAG evidence and context | Rule-based MCP plus adaptive RAG; RAG failure degrades to structured context. |
 | **Planning Agent** | State summary and retrieved context | `Plan` | Configured LLM with deterministic grounding and temporal post-processing. |
-| **Critic Agent** | `Plan`, state, objectives and NPC data | `ValidationResult` | Rule-based feasibility checks and bounded re-planning trigger. |
+| **Critic Agent** | `Plan`, state and objectives; knowledge resolved through MCP tools | `ValidationResult` | Rule-based feasibility checks from authoritative objectives (requirements, dependency timing, overlaps) and bounded re-planning trigger. |
 
 | Component | Responsibility |
 |---|---|
 | `app/domain.py` | Pydantic game-state, goal, plan and validation contracts. |
-| `app/data/mock_knowledge.py` | Structured demo data; agents access it through MCP tools only. |
+| `app/data/mock_knowledge.py` | Structured demo data; the Knowledge Agent and the Critic read it through the MCP tools, while the State Agent and the planning chain still read `build_default_knowledge()` (see `TODO.md`). |
 | `app/mcp/` | Pure game-data tools and external MCP server; authoritative knowledge seam. |
 | `app/agents/` | State, Knowledge, Planning and Critic graph nodes. |
 | `app/rag/` | Adaptive wiki client, cleanup/chunking, FastEmbed adapter, Qdrant store and cache-aside retrieval. |

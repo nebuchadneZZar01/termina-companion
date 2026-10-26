@@ -626,6 +626,7 @@ def test_critic_accepts_a_reconciled_slot_width_plan():
 
     kinds = {issue.kind for issue in result["validation"].issues}
     assert "sequence" not in kinds
+    assert "overlap" not in kinds
 
 
 def test_sanitize_window_passes_valid_window_through():
