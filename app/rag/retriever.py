@@ -24,6 +24,7 @@ from app.rag.embeddings import (
 )
 from app.rag.models import Document, IndexedSource, RetrievalResult, RetrievedChunk
 from app.rag.store import QdrantVectorStore, VectorStore, VectorStoreError
+from app.rag.text import clean_wiki_markdown
 from app.rag.wiki import (
     MediaWikiClient,
     WikiError,
@@ -411,7 +412,13 @@ class AdaptiveRetriever:
             top_k=candidates,
             score_threshold=self.settings.similarity_threshold,
         )
-        ranked = [RetrievedChunk(chunk=chunk, score=round(score, 6)) for chunk, score in matches]
+        ranked = [
+            RetrievedChunk(
+                chunk=chunk.model_copy(update={"text": clean_wiki_markdown(chunk.text)}),
+                score=round(score, 6),
+            )
+            for chunk, score in matches
+        ]
         return _select_evidence(
             ranked,
             limit=top_k,

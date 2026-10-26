@@ -157,7 +157,7 @@ def test_fetch_pages_resolves_redirect_and_preserves_revision_license():
                         <div class=\"mw-parser-output\">
                           <style>.noise { color: red; }</style>
                           <h2>Plot</h2>
-                          <p>Kafei and Anju reunite.</p>
+                          <p>Kafei and Anju reunite in the <a href="/wiki/Inn">Stockpot Inn</a>.</p>
                           <div class=\"references\"><sup>1</sup> noise</div>
                           <div class=\"mbox\">This article may be deleted.</div>
                         </div>
@@ -189,7 +189,9 @@ def test_fetch_pages_resolves_redirect_and_preserves_revision_license():
     assert document.metadata.language == "en"
     assert document.metadata.retrieved_at
     assert "## Plot" in document.content
-    assert "Kafei and Anju reunite." in document.content
+    assert "Kafei and Anju reunite in the Stockpot Inn." in document.content
+    assert "](/wiki" not in document.content
+    assert "Stockpot_Inn" not in document.content
     assert "noise" not in document.content
     assert "deleted" not in document.content
 

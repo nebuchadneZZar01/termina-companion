@@ -7,7 +7,7 @@ import threading
 
 import pytest
 
-from app.rag.models import IndexedSource, SourceMetadata
+from app.rag.models import Chunk, IndexedSource, RetrievedChunk, SourceMetadata
 from app.settings import RAGSettings, Settings
 from app.ui import (
     evaluation_view,
@@ -134,6 +134,37 @@ def test_render_rag_manifest_shows_sources_when_evidence_is_empty(monkeypatch):
     assert ("expander", "Anju's Anguish") in stub.calls
     assert "`qdrant-fastembed`" in rendered
     assert "`wiki_miss`" in rendered
+
+
+def test_render_rag_evidence_cleans_legacy_wiki_markdown(monkeypatch):
+    """Evidence built from an old cache shows link labels, not Markdown."""
+    stub = _StreamlitStub()
+    monkeypatch.setattr(sources_view, "st", stub)
+    monkeypatch.setattr(theme, "st", stub)
+    monkeypatch.setattr(
+        sources_view, "t", lambda key, **kwargs: key.format(**kwargs) if kwargs else key
+    )
+    monkeypatch.setattr(sources_view, "tr", lambda value: value)
+    text = (
+        "The Letter can be given to "
+        '[???](/wiki/%3F%3F%3F_(Majora%27s_Mask) "??? (Majora\'s Mask)") '
+        "and rewards the "
+        "[Couple's Mask](/wiki/Couple%27s_Mask \"Couple's Mask\")."
+    )
+    chunk = Chunk(
+        id="wiki:4819::chunk-000",
+        document_id="wiki:4819",
+        title="Anju's Anguish",
+        text=text,
+        metadata=_source(),
+    )
+
+    sources_view._render_rag_evidence([RetrievedChunk(chunk=chunk, score=0.912)])
+
+    rendered = "\n".join(value for _kind, value in stub.calls)
+    assert "](/wiki" not in rendered
+    assert '\\"' not in rendered
+    assert "The Letter can be given to ??? and rewards the Couple&#x27;s Mask." in rendered
 
 
 def test_fmt_timestamp_humanises_iso_in_both_languages(monkeypatch) -> None:

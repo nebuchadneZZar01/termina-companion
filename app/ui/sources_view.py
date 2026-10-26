@@ -7,6 +7,7 @@ import html
 import streamlit as st
 
 from app.i18n import t, tr
+from app.rag.text import clean_wiki_markdown
 from app.ui.formatting import (
     _entities_html,
     _entity_index,
@@ -154,7 +155,7 @@ def _render_rag_evidence(
     for item in evidence:
         metadata = item.chunk.metadata
         source = metadata.display_url
-        excerpt = " ".join(item.chunk.text.split())
+        excerpt = " ".join(clean_wiki_markdown(item.chunk.text).split())
         if len(excerpt) > 600:
             excerpt = excerpt[:597].rstrip() + "..."
         revision = ""
