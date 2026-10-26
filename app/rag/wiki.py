@@ -17,6 +17,7 @@ from markdownify import markdownify
 from pydantic import BaseModel
 
 from app.rag.models import Document, SourceMetadata
+from app.rag.text import clean_wiki_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -684,7 +685,7 @@ def _html_to_markdown(raw_html: str) -> str:
     markdown = markdownify(str(soup), heading_style="ATX", bullets="-")
     lines: list[str] = []
     for line in html_lib.unescape(markdown).splitlines():
-        normalized = re.sub(r"[ \t]+", " ", line).strip()
+        normalized = clean_wiki_markdown(re.sub(r"[ \t]+", " ", line).strip())
         if normalized:
             lines.append(normalized)
         elif lines and lines[-1] != "":

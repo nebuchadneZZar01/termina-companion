@@ -509,6 +509,39 @@ def test_search_store_keeps_evidence_diverse(tmp_path):
     assert len(evidence) == 2
 
 
+def test_search_store_cleans_legacy_wiki_markdown(tmp_path):
+    """Cached chunks indexed before the cleanup still render as plain prose."""
+    store = InMemoryVectorStore()
+    provider = HashEmbeddingProvider()
+    metadata = SourceMetadata(id="wiki:1", title="Anju's Anguish", source_page_id=1)
+    text = (
+        "The Letter can be given to "
+        '[???](/wiki/%3F%3F%3F_(Majora%27s_Mask) "??? (Majora\'s Mask)") '
+        "and rewards the "
+        "[Couple's Mask](/wiki/Couple%27s_Mask \"Couple's Mask\")."
+    )
+    chunks = [_raw_chunk("wiki:1", 0, text)]
+    store.upsert_document(
+        Document(id="wiki:1", title="Anju's Anguish", content="x", metadata=metadata),
+        chunks,
+        provider.embed_documents([text]),
+    )
+    retriever = AdaptiveRetriever(
+        store,
+        FakeWiki([]),
+        provider,
+        _settings(tmp_path, similarity_threshold=-1.0),
+        lock_path=tmp_path / "wiki.lock",
+    )
+
+    evidence = retriever._search_store(provider.embed_query("Couple's Mask"), top_k=1)
+
+    assert evidence[0].chunk.text == (
+        "The Letter can be given to ??? and rewards the Couple's Mask."
+    )
+    assert "](/wiki" not in evidence[0].chunk.text
+
+
 def test_stale_cache_revalidates_and_reindexes_changed_page(tmp_path):
     stale = "2000-01-01T00:00:00+00:00"
     wiki = FakeWiki([_document(revision=10, retrieved_at=stale)])
