@@ -11,7 +11,6 @@ from typing import Protocol
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-from app.rag.embeddings import EmbeddingProvider
 from app.rag.models import Chunk, Document
 
 
@@ -310,25 +309,3 @@ class QdrantVectorStore:
     def close(self) -> None:
         """Close the embedded Qdrant client and release its local files."""
         self._client.close()
-
-
-def build_vector_store(chunks: Sequence[Chunk], provider: EmbeddingProvider) -> InMemoryVectorStore:
-    """Build an in-memory store from pre-chunked content (test compatibility)."""
-    store = InMemoryVectorStore()
-    if not chunks:
-        return store
-    grouped: dict[str, list[Chunk]] = {}
-    for chunk in chunks:
-        grouped.setdefault(chunk.document_id, []).append(chunk)
-    for document_id, document_chunks in grouped.items():
-        document = Document(
-            id=document_id,
-            title=document_chunks[0].title,
-            content="\n\n".join(chunk.text for chunk in document_chunks),
-            metadata=document_chunks[0].metadata,
-        )
-        vectors = provider.embed_documents(
-            [f"{chunk.title}\n{chunk.metadata.area}\n{chunk.text}" for chunk in document_chunks]
-        )
-        store.upsert_document(document, document_chunks, vectors)
-    return store

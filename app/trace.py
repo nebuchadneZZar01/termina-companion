@@ -58,7 +58,6 @@ _run_id: ContextVar[str] = ContextVar("termina_run_id", default="")
 _span_id: ContextVar[str] = ContextVar("termina_span_id", default="")
 _trace_id: ContextVar[str] = ContextVar("termina_trace_id", default="")
 _setup_done = False
-_exporter_active = False
 
 
 @dataclass
@@ -129,7 +128,7 @@ def setup_tracing() -> None:
     returns:
         None: side-effect on the global OpenTelemetry provider only.
     """
-    global _setup_done, _exporter_active
+    global _setup_done
     if _setup_done:
         return
     _setup_done = True
@@ -141,16 +140,10 @@ def setup_tracing() -> None:
         provider.add_span_processor(
             BatchSpanProcessor(OTLPSpanExporter(endpoint=traces_url, timeout=10))
         )
-        _exporter_active = True
         logger.info("Tracing: exporting OTLP spans to %s", traces_url)
     else:
         logger.info("Tracing: no OTEL_EXPORTER_OTLP_ENDPOINT configured — spans are no-op")
     trace.set_tracer_provider(provider)
-
-
-def exporter_active() -> bool:
-    """Whether an OTLP exporter was configured by :func:`setup_tracing`."""
-    return _exporter_active
 
 
 def flush_spans(timeout_millis: int = 5000) -> None:
