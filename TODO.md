@@ -6,8 +6,9 @@
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
-**Next up:** Validator & Planner Hardening (temporal reachability) and the
-deterministic baseline, to take before Phase 12.
+**Next up:** The deterministic baseline ablation, to take before Phase 12.
+The temporal-reachability hardening under Validator & Planner Hardening is
+done.
 
 Status map:
 * Phase 0 — Foundation: complete.
@@ -365,23 +366,34 @@ supports.
 
 ## Temporal reachability
 
-An objective whose window has already closed can still be scheduled: the
-slot falls back to the objective's window start, so at 18:00 a Day 1
-08:00-10:00 objective is planned at 08:00. All evaluation scenarios start in
-the morning of Day 1, so no sweep exposes it; any real player on Day 2 does.
+Implemented. The three days are one finite timeline: a window is a dated
+occurrence inside it, so once it is over everything that needed it is over too,
+and only the Song of Time reopens it. An objective flagged `recurring` is the
+explicit exception: a daily availability that repeats every game day with its
+time of day and never falls into the past.
 
-* [ ] Stop scheduling closed windows: `_window_inside` reports "no slot"
-  instead of falling back to the objective window's start.
-* [ ] Cut the unreachable branch of the chain: an expired objective blocks its
-  transitive successors, while objectives of unrelated quests stay plannable.
-* [ ] Add an independent Critic check against `game_state.time` (step starts
-  before now, objective window already closed), naming the objective, the
-  window end and the Song of Time.
-* [ ] Stop re-planning when the only errors are temporal, mirroring the
-  `quest_prerequisite` give-up: a new attempt cannot change the clock.
-* [ ] Add tests: `_window_inside` on a closed window, a Day 2 chain whose Day 1
-  steps are dropped, the Critic issue and the graph give-up.
-* [ ] Update `AGENTS.md` once the behavior lands.
+* [x] Stop scheduling closed windows: `_window_inside` reports "no slot" instead
+  of falling back to the objective window's start, and `occurrences()` drives
+  both one-off and recurring availability.
+* [x] Cut the unreachable branch of the chain: `app/agents/reachability.py`
+  closes the branch over `prerequisites` and over the `requires_quests` gate,
+  while objectives of unrelated quests stay plannable.
+* [x] Add an independent Critic check against `game_state.time` (step starts
+  before now, objective window already closed), naming the quest, the objective,
+  the window end and the Song of Time; an empty plan is `unreachable`, never a
+  generic `empty`.
+* [x] Stop re-planning when the only errors are temporal, mirroring the
+  `quest_prerequisite` give-up: `_TERMINAL_KINDS` in `app/graph.py`.
+* [x] Add tests: `_window_inside` on a closed window, a Day 2 chain whose Day 1
+  steps are dropped, the Critic issue, the graph give-up, plus the deterministic
+  clock matrix in `tests/test_temporal_matrix.py`.
+* [x] Update `AGENTS.md` and `README.md`.
+* [x] Track progress per objective: `GameState.completed_objectives`, the
+  sidebar "Completed objectives" picker, `app/agents/progress.py` and save v3
+  (version-2 files load unchanged). Progress is never inferred from location.
+* [x] Flag daily availability: `Objective.recurring` with a validator that
+  rejects a recurring objective bound to an event, and a golden test pinning the
+  reviewed set of daily quests.
 
 ## Critic independence
 
@@ -401,15 +413,18 @@ a real infeasibility.
   rejected, an unknown ref is rejected, overlapping consecutive steps are
   flagged.
 
-## Out-of-cycle behavior (deferred)
+## Out-of-cycle behavior
 
-* [ ] Decided: an infeasible plan plus the Song of Time message, not a plan
-  dated in the past.
-* [ ] Open idea: a full plan for the next cycle. It needs item/mask permanence
-  in the knowledge base (the letter, the room key and the pendant are
-  cycle-bound and reset with the Song of Time), a cycle reference on `Plan`
-  anchored at Day 1 06:00, a Critic check against the shifted clock and an
-  evaluation scenario. Not part of the fix above.
+* [x] Decided and implemented: an infeasible plan plus the Song of Time message,
+  not a plan dated in the past.
+* [ ] Plan the next cycle. It needs item/mask permanence in the knowledge base
+  (the letter, the room key and the pendant are cycle-bound and reset with the
+  Song of Time), a cycle reference on `Plan` anchored at Day 1 06:00, a Critic
+  check against the shifted clock and an evaluation scenario.
+* [ ] Add `expected_outcome` to the evaluation scenarios, so a sweep can assert
+  "unreachable at this clock" instead of only checking the plan shape. The
+  deterministic clock matrix in `tests/test_temporal_matrix.py` already covers
+  the case in `pytest`.
 
 ## Deterministic baseline ablation
 

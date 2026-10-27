@@ -107,6 +107,8 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   `00:00-05:59` of the night at the end of the same game day. Input hours
   0-5 are normalized to 24-29, `display_hour`/`next_morning` drive the
   `Day 1, 02:30 (+1)` rendering, and the cycle ends at Day 3 29:59.
+  `GameState.completed_objectives` is the explicit list of objectives the
+  player already did; progress is never inferred from the location.
 * `app/data/mock_knowledge.py` — game data (areas, quests, objectives,
   NPCs, events, windows, mask/item requirements). Data covers several
   major areas but is deliberately NOT lore-complete; do not tie the
@@ -117,21 +119,41 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   the Critic read it only through the tool functions in
   `app/mcp/tools.py`; the State Agent and the planner's `planning_chain.py`
   still call `build_default_knowledge()` directly for quest names and
-  objective positions (tracked in `TODO.md`).
+  objective positions (tracked in `TODO.md`). An objective's window is a
+  dated occurrence in the three-day cycle unless it is marked
+  `recurring=True`: a recurring objective is a daily availability (a place to
+  visit, an NPC to talk to) that repeats every game day at the same time of
+  day and can never fall into the past. The marking criterion is strict — no
+  `event_ref` (a validator rejects the contradiction), no single-hour scene,
+  and no game day named in the title or description — and a golden test pins
+  the reviewed set (Darmani, Goron Lullaby, Mikau, Pamela, Song of Storms, Deku
+  Princess, title deeds); the Anju & Kafei, Bombers and Romani Ranch chains
+  stay one-off.
 * `app/agents/` — one module per agent (state, knowledge,
   planning, critic), each exposing a LangGraph node function `run(state) -> dict`.
   The Planning Agent's deterministic post-processing lives beside it in
   `planning_draft.py` (LLM draft schema and strict materialization),
-  `planning_chain.py` (grounding, clamping and prerequisite-chain rebuild) and
-  `planning_clock.py` (shared cycle arithmetic).
+  `planning_chain.py` (grounding, clamping and prerequisite-chain rebuild),
+  `planning_clock.py` (shared cycle arithmetic, including the `occurrences`
+  of an objective still open at the player's clock) and `progress.py`
+  (`done_objective_ids`, the progress summary and the sidebar's objective
+  labels). `reachability.py` is the pure closure that answers what the clock
+  has already closed: `dead_objectives` maps each stranded objective to the
+  root objective that ended its branch, `dead_quests` reports the gated quests
+  that can no longer be completed, and the quest lookup is injected so the
+  planner reads the knowledge base while the Critic stays behind its
+  MCP-backed view.
   State, Knowledge and Critic run deterministic rule-based logic. The State
   Agent lists completed quests only and never infers an active quest from the
   player's location. The Planning
-  Agent always calls the configured LLM; missing configuration, invocation
-  errors and empty output fail explicitly. LLM output is post-processed
+  Agent always calls the configured LLM unless every retrieved objective is
+  already out of reach; missing configuration, invocation errors and empty
+  output fail explicitly. LLM output is post-processed
   deterministically: refs, titles and locations are grounded to the knowledge
-  objectives and each step's window is clamped inside its objective's slot
-  (see `app/agents/planning_agent.py`). The final plan is then rebuilt against the
+  objectives and each step's window is clamped inside an availability
+  occurrence still open at the player's clock, never before it
+  (see `app/agents/planning_agent.py`); a closed objective has no slot and its
+  step is dropped. The final plan is then rebuilt against the
   authoritative objective chain: `search_quests` retrieves a whole quest when
   any of its objectives matches; objectives up to the furthest reward the
   player already owns (`provides_items`/`provides_masks` on `Objective`) are
@@ -139,26 +161,40 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   and "obtain item" steps beyond it are pruned when their reward is owned.
   When the manually entered inventory contradicts that position (a later
   reward owned but an earlier required mask missing) the planner falls back to
-  pruning only owned-provide steps. Missing chain steps are re-inserted in
+  pruning only owned-provide steps, and the objectives the clock has closed
+  are filtered out of both branches. Missing chain steps are re-inserted in
   prerequisite order and `depends_on` is recomputed; a kept step keeps the
   LLM's window only when it
   fits the chain — after its dependencies, after the previous step, before the
-  successor's slot — and is re-slotted onto a 1h window otherwise, while a
-  re-plan re-slots every window, so the rebuilt plan is always chronological
-  and non-overlapping and the LLM's windows are only advisory. All timing
+  successor's next open occurrence — and is re-slotted onto a 1h window
+  otherwise, while a re-plan re-slots every window, so the rebuilt plan is
+  always chronological, non-overlapping and never in the past, and the LLM's
+  windows are only advisory. The Knowledge Agent ships one rendered context
+  block per objective (`PlanningState.planner_context_blocks`) plus the RAG
+  evidence tail, so the planner leaves the closed objectives out of the prompt
+  by selecting blocks; when nothing is left it makes no LLM call and returns an
+  empty plan with `plan_engine="unreachable"` and no proposal. All timing
   arithmetic uses the 06:00-29:59 game-day cycle, not a midnight rollover.
   Cross-quest prerequisites are gates, not planned steps: an objective's
   `requires_quests` (and its transitive closure) must be marked `done` in
   `quest_progress`, planned as the prerequisite quest's terminal step, or
   already owned through that step's reward. Otherwise the Critic reports a
-  `quest_prerequisite` issue naming the missing chain, and the graph stops
-  re-planning instead of expanding the prerequisite quests into the plan.
+  `quest_prerequisite` issue naming the missing chain; when that quest can no
+  longer be completed it becomes an `unreachable` issue instead. The graph stops
+  re-planning on either kind, since a new plan cannot complete a quest or reopen
+  a window.
   The Critic never trusts the plan step fields: it resolves every ref against
   the whole knowledge base through the MCP tools, reads item and mask
   requirements from the authoritative `Objective`, recomputes dependency
   timing from `objective.prerequisites` and the earlier steps, rejects an
-  unknown ref as an error and flags overlapping consecutive steps. Its
-  memoized per-validation knowledge view lives in `critic_knowledge.py`.
+  unknown ref as an error and flags overlapping consecutive steps. Temporal
+  reachability is checked twice: a step that starts before the player's clock,
+  or whose one-off window has closed, is an `unreachable` error asking for the
+  Song of Time, and one `unreachable` issue per dead chain names the quest, the
+  missed objective, the window end and the Song of Time even when the plan still
+  lists the feasible steps. An empty plan is `empty` only when nothing is out of
+  reach. Its memoized per-validation knowledge view lives in
+  `critic_knowledge.py`.
   The planner also
   returns its untouched proposal as `plan_proposal` (the input the
   `proposal_fidelity` check compares), and the Critic appends one
@@ -240,9 +276,11 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   bounded by `LLM_LOG_PAYLOAD_LIMIT`, so one runaway prompt cannot flood the
   console at either level.
 * `app/save.py` — `SaveSnapshot` plus `save_state`/`load_state`: persists the
-  sidebar form (day/time, location, masks, inventory, quest progress, goal) as
-  JSON in `saves/last_save.json` under the save directory derived from
-  `RAG_QDRANT_PATH`. Version-1 saves are migrated to the game-day clock on
+  sidebar form (day/time, location, masks, inventory, completed objectives,
+  quest progress, goal) as JSON in `saves/last_save.json` under the save
+  directory derived from `RAG_QDRANT_PATH`. The file is at version 3; version-2
+  saves carry no completed objectives and load unchanged. Version-1 saves are
+  migrated to the game-day clock on
   load: an old early-morning hour moves to the previous game day's night
   (`Day 2 02:00` -> `Day 1 26:00`), while an invalid pre-dawn Day 1 time
   clamps to `Day 1 06:00` and carries a `migration_warning`. Corrupt or
@@ -255,7 +293,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   Knowledge Agent records (MCP tools as `"tool"` or `"tool:<arg>"`), plus the
   trajectory the trajectory checks read: `plan_proposal` (the LLM's plan
   before grounding and reconciliation) and `attempt_log` (one `AttemptRecord`
-  per planning attempt, appended by the Critic).
+  per planning attempt, appended by the Critic). `planner_context_blocks` holds
+  the Knowledge Agent's rendered context per objective and
+  `planner_context_suffix` the RAG evidence tail, so the planner can drop the
+  objectives the clock closed without editing text.
 * `app/evaluation/` — plan evaluation. `models.py` holds the
   Pydantic contracts (`PlanScenario`, `EvaluationIssue`, `ScenarioResult`,
   `EvaluationReport`); a crashed run counts as one error and a `run_error`
@@ -316,9 +357,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   (after `critic`, one episode per finished run, planner context only).
 * `app/graph.py` — graph wiring and the bounded re-planning
   loop (max `MAX_PLANNING_ATTEMPTS = 3`) driven by the Critic Agent. The loop
-  gives up immediately when every error issue is a `quest_prerequisite` gate:
-  re-planning cannot satisfy a quest the player has not completed, and the
-  prerequisite quests are never expanded into the plan.
+  gives up immediately when every error issue is terminal (`_TERMINAL_KINDS`):
+  a `quest_prerequisite` gate cannot be satisfied by another plan, the
+  prerequisite quests are never expanded into the plan, and an `unreachable`
+  window cannot be reopened without the Song of Time.
   `run_pipeline` also posts the run's Critic verdict to Phoenix as a
   `plan/validation` span annotation (best-effort, via `app/phoenix.py`).
   Each node is
@@ -340,8 +382,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   navy surfaces, gold/teal/red accents in `.streamlit/config.toml` and the
   `_THEME_CSS` block). The sidebar is the state editor: brand block, language
   picker, the "time left" card with the three-day bar, Day 1-3 and a 24-hour
-  time (minute precision, default 06:00), location, masks, items, quests,
-  Save/Load and the read-only settings from `app/settings.py`.
+  time (minute precision, default 06:00), location, masks, items, completed
+  objectives (stored by id, grouped by quest, never inferred from the
+  location), quests, Save/Load and the read-only settings from
+  `app/settings.py`.
   `00:00-05:59` is mapped to hours 24-29 internally so it stays the night at
   the end of the selected game day. `_render_sidebar_editor()` owns those
   widgets and returns the values the Play tab turns into a `GameState`.
@@ -425,9 +469,11 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   Streamlit app runs on the host; start this with `docker compose up -d` and
   set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006` to export spans. The
   app is fully functional (no-op tracing) when it is not running.
-* `tests/` — domain model, validation, re-planning, RAG corpus/retrieval,
-  tracing and Knowledge Agent integration tests, including hermetic
-  wiki/cache scenarios.
+* `tests/` — domain model, validation, re-planning, temporal reachability,
+  RAG corpus/retrieval, tracing and Knowledge Agent integration tests,
+  including hermetic wiki/cache scenarios. `test_reachability.py` pins the
+  dead-branch closure and `test_temporal_matrix.py` is the deterministic
+  clock matrix (no LLM) over the whole three-day cycle.
 
 ## Tooling
 
