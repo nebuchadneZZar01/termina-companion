@@ -165,6 +165,12 @@ def test_render_rag_evidence_cleans_legacy_wiki_markdown(monkeypatch):
     assert "](/wiki" not in rendered
     assert '\\"' not in rendered
     assert "The Letter can be given to ??? and rewards the Couple&#x27;s Mask." in rendered
+    assert (
+        '<a class="tc-detail-link" '
+        'href="https://zeldawiki.wiki/w/index.php?oldid=1380158" '
+        'target="_blank" rel="noopener noreferrer">'
+        "https://zeldawiki.wiki/w/index.php?oldid=1380158</a>" in rendered
+    )
 
 
 def test_fmt_timestamp_humanises_iso_in_both_languages(monkeypatch) -> None:

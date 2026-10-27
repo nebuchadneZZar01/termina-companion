@@ -793,6 +793,11 @@ h1, h2, h3, h4, h5, h6 {
 .tc-detail-title { font-weight: 600; }
 .tc-detail-line { font-size: 14px; }
 .tc-detail-muted { color: var(--tc-muted); font-size: 13px; }
+.tc-detail-link {
+  color: #6db3ff;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
 .tc-code {
   font-family: ui-monospace, Menlo, monospace;
   font-size: 12px;
