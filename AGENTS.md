@@ -142,7 +142,15 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   root objective that ended its branch, `dead_quests` reports the gated quests
   that can no longer be completed, and the quest lookup is injected so the
   planner reads the knowledge base while the Critic stays behind its
-  MCP-backed view.
+  MCP-backed view. `scheduling.py` is the shared scheduling decision:
+  `select_chain` applies explicit progress, owned rewards and the closed
+  objectives to the retrieved set, and `schedule_chain` places the result
+  greedily from the player's clock (one slot per objective, prerequisites and
+  the previous step first), reporting the objectives the cycle no longer has
+  room for instead of skipping them. The planner takes the chain and the
+  placement from it and keeps only the LLM window hint; the Critic rebuilds the
+  same schedule to report `unreachable` (no room left before the objective's
+  last availability) and `missing_step` (it still fits but the plan omits it).
   State, Knowledge and Critic run deterministic rule-based logic. The State
   Agent lists completed quests only and never infers an active quest from the
   player's location. The Planning
@@ -192,7 +200,11 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   or whose one-off window has closed, is an `unreachable` error asking for the
   Song of Time, and one `unreachable` issue per dead chain names the quest, the
   missed objective, the window end and the Song of Time even when the plan still
-  lists the feasible steps. An empty plan is `empty` only when nothing is out of
+  lists the feasible steps. The chain is checked as a whole too: the Critic
+  rebuilds the schedule from the objectives and the clock and reports every
+  objective that no longer fits as `unreachable`, every one that still fits but
+  has no step as `missing_step`, so a valid plan can never silently lose a
+  required objective. An empty plan is `empty` only when nothing is out of
   reach. Its memoized per-validation knowledge view lives in
   `critic_knowledge.py`.
   The planner also
@@ -472,8 +484,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
 * `tests/` — domain model, validation, re-planning, temporal reachability,
   RAG corpus/retrieval, tracing and Knowledge Agent integration tests,
   including hermetic wiki/cache scenarios. `test_reachability.py` pins the
-  dead-branch closure and `test_temporal_matrix.py` is the deterministic
-  clock matrix (no LLM) over the whole three-day cycle.
+  dead-branch closure, `test_scheduling.py` the shared placement decision and
+  `test_temporal_matrix.py` is the deterministic clock matrix (no LLM) over the
+  whole three-day cycle.
 
 ## Tooling
 

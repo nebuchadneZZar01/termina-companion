@@ -69,11 +69,20 @@ What the pipeline does with that:
 - explicit progress never expires. An objective listed under **Completed
   objectives** (sidebar), a quest marked done, and any objective whose reward the
   player already holds are treated as done and are never reported as unreachable.
-- the verdict is a failure with `unreachable` issues, one per dead chain, naming
-  the quest, the missed objective, the end of its window and the Song of Time.
-  The plan still lists the steps that are feasible, so a partly closed goal shows
-  both what can be done and what has to wait for a new cycle. The graph does not
-  re-plan on these issues: a new attempt cannot change the clock.
+- the budget is checked, not only the dates. Each step needs an hour and the
+  chain is scheduled in order, so a goal can fail simply because what is left of
+  the cycle cannot hold the whole chain: six one-hour objectives in the last two
+  hours of Day 3 no longer fit. Every objective that stops fitting is reported
+  with its own issue, the end of its last availability and the Song of Time.
+- the verdict is a failure with `unreachable` issues, one per dead chain or per
+  objective that no longer fits, naming the quest, the missed objective, the end
+  of its availability and the Song of Time. The plan still lists the steps that
+  are feasible, so a partly closed goal shows both what can be done and what has
+  to wait for a new cycle. The graph does not re-plan on these issues: a new
+  attempt cannot change the clock.
+- a plan can no longer pass while it silently lost a step. The Critic rebuilds
+  the same schedule from the objectives and the clock and compares the plan with
+  it: an objective that still fits but has no step is a `missing_step` error.
 - a gate towards a quest that is merely incomplete is still `quest_prerequisite`
   ("complete this quest first"). It becomes `unreachable` only when that quest can
   no longer be completed either.
@@ -84,9 +93,10 @@ objectives you already did in the sidebar. Saves carry them in version 3; versio
 
 The closure lives in `app/agents/reachability.py` (`dead_objectives`,
 `dead_quests`), the availability arithmetic in `occurrences()` in
-`app/agents/planning_clock.py`, and the behaviour is pinned by
-`tests/test_reachability.py` and the deterministic clock matrix in
-`tests/test_temporal_matrix.py`.
+`app/agents/planning_clock.py`, and the shared scheduling decision in
+`app/agents/scheduling.py` (`select_chain`, `schedule_chain`). The behaviour is
+pinned by `tests/test_reachability.py`, `tests/test_scheduling.py` and the
+deterministic clock matrix in `tests/test_temporal_matrix.py`.
 
 ## Save/Load
 

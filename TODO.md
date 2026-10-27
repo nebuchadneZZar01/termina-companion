@@ -394,6 +394,11 @@ time of day and never falls into the past.
 * [x] Flag daily availability: `Objective.recurring` with a validator that
   rejects a recurring objective bound to an event, and a golden test pinning the
   reviewed set of daily quests.
+* [x] Report a chain that no longer fits, instead of trimming it: the shared
+  `app/agents/scheduling.py` decides what the cycle can hold, the planner takes
+  the placement from it and the Critic reports each objective it had to lose as
+  `unreachable` plus any step the plan lost as `missing_step`. A valid plan can
+  no longer omit a required objective.
 
 ## Critic independence
 
