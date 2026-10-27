@@ -91,7 +91,7 @@ def test_store_run_is_noop_without_plan(store):
 
 
 def test_graph_second_run_sees_first_episode(store, fake_planner_model):
-    gs = GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn")
+    gs = GameState(time=ClockTime(day=1, hour=8), location="Stockpot Inn")
     goal = Goal(description="Reunite Anju and Kafei")
     first = run_pipeline(gs, goal)
     assert first.plan is not None
@@ -113,7 +113,7 @@ def test_planning_prompt_includes_preferences(monkeypatch, store):
 
         def invoke(self, msgs, **_kwargs):
             _CaptureModel._invoked = msgs
-            w = TimeWindow(start=ClockTime(day=2, hour=9), end=ClockTime(day=2, hour=10))
+            w = TimeWindow(start=ClockTime(day=1, hour=9), end=ClockTime(day=1, hour=10))
             return Plan(
                 goal="x",
                 steps=[
@@ -128,7 +128,7 @@ def test_planning_prompt_includes_preferences(monkeypatch, store):
 
     monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: _CaptureModel())
     store.save_preferences(PlayerPreferences(playstyle="completionista"))
-    gs = GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn")
+    gs = GameState(time=ClockTime(day=1, hour=8), location="Stockpot Inn")
     kb = build_default_knowledge()
     objective = next(
         obj for quest in kb.quests for obj in quest.objectives if obj.id == "ak_talk_to_anju"
@@ -136,7 +136,7 @@ def test_planning_prompt_includes_preferences(monkeypatch, store):
     state = PlanningState(
         game_state=gs,
         goal=Goal(description="Reunite Anju and Kafei"),
-        state_summary="Stockpot Inn at Day 2",
+        state_summary="Stockpot Inn at Day 1",
         retrieved_context="- [ak_talk_to_anju] x",
         relevant_objectives=[objective],
         relevant_episodes=[],

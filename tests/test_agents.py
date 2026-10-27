@@ -383,11 +383,11 @@ def _state_at(time: ClockTime, objectives: list[Objective]) -> PlanningState:
 
 def test_reconcile_never_schedules_a_step_before_now():
     """Only objectives still available at the player's clock reach the plan."""
-    state = _state_at(ClockTime(day=2, hour=12), _relevant("kafei letter"))
+    state = _state_at(ClockTime(day=2, hour=12), _relevant("kafei letter") + _relevant("pamela"))
     out = planning_chain._reconcile_plan(Plan(goal="x"), state)
     refs = [s.objective_ref for s in out.steps]
-    assert refs[0] == "ak_meet_kafei"
     assert "ak_get_kafei_mask" not in refs
+    assert "pf_find_pamela" in refs
     now = (2, 12, 0)
     for step in out.steps:
         start = step.window.start
@@ -464,6 +464,76 @@ def test_reconcile_keeps_requirements_the_inventory_does_not_cover():
     refs = [s.objective_ref for s in out.steps]
     assert refs[0] == "ak_get_kafei_mask"
     assert "ak_meet_kafei" not in refs  # its reward is already owned
+
+
+def test_planning_agent_skips_the_llm_when_every_objective_is_closed(monkeypatch):
+    """Nothing reachable means no LLM call and an explicit unreachable engine."""
+    calls: list[dict] = []
+
+    def _model(**kwargs):
+        calls.append(kwargs)
+        raise AssertionError("the LLM must not be called")
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", _model)
+    state = _state_at(ClockTime(day=2, hour=8), _relevant("kafei letter"))
+    result = planning_agent.run(state)
+    assert calls == []
+    assert result["plan"].steps == []
+    assert result["plan_engine"] == "unreachable"
+    assert result["plan_proposal"] is None
+
+
+def test_planning_prompt_leaves_out_the_closed_objectives(monkeypatch):
+    """The LLM sees only the objectives the clock has not closed."""
+    prompts: list[list] = []
+
+    class _Capture:
+        model_name = "capture"
+
+        def with_structured_output(self, _schema):
+            return self
+
+        def invoke(self, messages, **_kwargs):
+            prompts.append(messages)
+            window = TimeWindow(start=ClockTime(day=2, hour=13), end=ClockTime(day=2, hour=14))
+            return Plan(
+                goal="x",
+                steps=[
+                    PlanStep(
+                        title="find pamela",
+                        objective_ref="pf_find_pamela",
+                        location="Music Box House",
+                        window=window,
+                    )
+                ],
+            )
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", lambda **_kwargs: _Capture())
+    objectives = _relevant("kafei letter") + _relevant("pamela")
+    state = _state_at(ClockTime(day=2, hour=8), objectives).model_copy(
+        update={
+            "planner_context_blocks": {
+                obj.id: f"- [{obj.id}] {obj.title} ({obj.location}, {obj.window})"
+                for obj in objectives
+            },
+            "planner_context_suffix": "[RAG evidence: no matching passage.]",
+        }
+    )
+    planning_agent.run(state)
+    human = next(m.content for m in prompts[0] if getattr(m, "type", "") == "human")
+    assert "pf_find_pamela" in human
+    assert "ak_get_kafei_mask" not in human
+    assert "[RAG evidence: no matching passage.]" in human
+
+
+def test_knowledge_agent_exposes_one_context_block_per_objective():
+    """The planner can select live objectives instead of editing rendered text."""
+    state = _state()
+    result = knowledge_agent.run(state)
+    blocks = result["planner_context_blocks"]
+    assert set(blocks) == {obj.id for obj in result["relevant_objectives"]}
+    assert blocks["ak_reunite"].startswith("- [ak_reunite] ")
+    assert result["planner_context_suffix"]
 
 
 def test_planning_agent_llm_plan_is_grounded(monkeypatch):

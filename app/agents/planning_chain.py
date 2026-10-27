@@ -6,7 +6,8 @@ import logging
 
 from app.agents.planning_clock import _max_clock, _window_inside, occurrences
 from app.agents.progress import done_objective_ids
-from app.data.mock_knowledge import Objective, build_default_knowledge
+from app.agents.reachability import dead_objectives
+from app.data.mock_knowledge import Objective, Quest, build_default_knowledge
 from app.domain import ClockTime, Plan, PlanStep, TimeWindow
 from app.domain import clock_key as _clock
 from app.state import PlanningState
@@ -18,6 +19,44 @@ _OBJECTIVE_POSITION = {
 }
 
 logger = logging.getLogger(__name__)
+
+
+def _load_quest(quest_id: str) -> Quest | None:
+    """Resolve a quest from the in-memory knowledge base.
+
+    args:
+        quest_id (str): the quest id to resolve.
+
+    returns:
+        Quest | None: the quest, or None when the knowledge base does not know it.
+    """
+    return next((quest for quest in _KB.quests if quest.id == quest_id), None)
+
+
+def dead_for(state: PlanningState) -> dict[str, str]:
+    """Objectives the clock has already closed, with their root cause.
+
+    The player's progress is read the same way everywhere: explicit completed
+    objectives, quests marked done, and the rewards already held.
+
+    args:
+        state (PlanningState): the workflow state with the game state and the
+            retrieved objectives.
+
+    returns:
+        dict[str, str]: objective id → root objective id, empty when every
+        objective is still reachable.
+    """
+    gs = state.game_state
+    return dead_objectives(
+        state.relevant_objectives,
+        gs.time,
+        owned_items=set(gs.inventory),
+        owned_masks=set(gs.masks),
+        done_quests={qid for qid, status in gs.quest_progress.items() if status == "done"},
+        done_objectives=done_objective_ids(_KB.quests, gs.completed_objectives, gs.quest_progress),
+        load_quest=_load_quest,
+    )
 
 
 def _to_step(obj: Objective, window: TimeWindow, prior: list[PlanStep]) -> PlanStep:
@@ -154,25 +193,29 @@ def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
         state.game_state.quest_progress,
     )
     by_ref = {s.objective_ref: s for s in plan.steps}
+    dead = dead_for(state)
     floor = _owned_chain_floor(state.relevant_objectives, owned_items, owned_masks)
     ordered = _order_by_prerequisites(state.relevant_objectives)
     chain = [
         obj
         for obj in ordered
         if obj.id not in done_ids
+        and obj.id not in dead
         and not _already_done(obj, floor)
         and not _already_owned(obj, owned_items, owned_masks)
     ]
     if not _requirements_covered(chain, owned_items, owned_masks):
         # The inventory contradicts the inferred chain position (e.g. a later
         # reward is owned but an earlier mask is not). Fall back to pruning
-        # only objectives that are explicitly done or whose own reward is
-        # already owned, so the missing requirements can still be acquired by
-        # the plan.
+        # only objectives that are explicitly done, closed by the clock, or
+        # whose own reward is already owned, so the missing requirements can
+        # still be acquired by the plan.
         chain = [
             obj
             for obj in ordered
-            if obj.id not in done_ids and not _already_owned(obj, owned_items, owned_masks)
+            if obj.id not in done_ids
+            and obj.id not in dead
+            and not _already_owned(obj, owned_items, owned_masks)
         ]
     steps: list[PlanStep] = []
     prev_end: ClockTime | None = None

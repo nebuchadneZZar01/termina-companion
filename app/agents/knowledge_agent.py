@@ -96,10 +96,15 @@ def run(state: PlanningState) -> dict:
             "events": len(events),
         }
     )
+    blocks = _format_blocks(objectives, npc_schedules, events)
     structured_context = _format(objectives, npc_schedules, events)
     retrieval = _retrieve_evidence(state, objectives, npc_schedules)
     return {
         "relevant_objectives": objectives,
+        # The per-objective blocks let the planner drop the objectives the
+        # clock has already closed without editing the rendered context.
+        "planner_context_blocks": blocks,
+        "planner_context_suffix": _rag_suffix(retrieval),
         "tool_calls": tool_calls,
         "retrieved_context": _append_rag_context(structured_context, retrieval),
         "retrieved_evidence": retrieval.evidence,
@@ -267,18 +272,31 @@ def _append_unique(target: list[str], values: list[str]) -> None:
 
 def _append_rag_context(structured_context: str, retrieval: RetrievalResult) -> str:
     """Append clearly labelled, bounded wiki evidence to planner context."""
+    return f"{structured_context}\n\n{_rag_suffix(retrieval)}"
+
+
+def _rag_suffix(retrieval: RetrievalResult) -> str:
+    """The supplemental evidence tail appended after the structured context.
+
+    Kept separate from the structured block so the planner can rebuild the
+    objective list from its live blocks and still append the same evidence.
+
+    args:
+        retrieval (RetrievalResult): the adaptive wiki retrieval outcome.
+
+    returns:
+        str: the labelled evidence, or the status note explaining its absence.
+    """
     if not retrieval.evidence:
         if retrieval.status == "disabled":
-            return f"{structured_context}\n\n[RAG disabled: structured data only.]"
+            return "[RAG disabled: structured data only.]"
         if retrieval.wiki_unreachable:
             detail = f": {retrieval.warning}" if retrieval.warning else ""
-            return f"{structured_context}\n\n[RAG: wiki unreachable, structured data only{detail}]"
+            return f"[RAG: wiki unreachable, structured data only{detail}]"
         if retrieval.warning:
-            return f"{structured_context}\n\n[RAG degraded: {retrieval.warning}]"
-        return f"{structured_context}\n\n[RAG evidence: no matching passage.]"
+            return f"[RAG degraded: {retrieval.warning}]"
+        return "[RAG evidence: no matching passage.]"
     lines = [
-        structured_context,
-        "",
         "[Supplemental RAG evidence — narrative context only; its times and "
         "requirements are not planning constraints; MCP data remains authoritative]",
     ]
@@ -315,14 +333,33 @@ def _log_objectives(objectives) -> None:
 
 def _format(objectives, npc_schedules: dict, events: dict) -> str:
     """Format objectives and authoritative MCP context for the planner."""
-    lines: list[str] = []
+    return "\n".join(_format_blocks(objectives, npc_schedules, events).values()) or (
+        "No relevant objectives found."
+    )
+
+
+def _format_blocks(objectives, npc_schedules: dict, events: dict) -> dict[str, str]:
+    """Format one planner context block per objective, keyed by objective id.
+
+    Keeping the blocks separate means the planner can leave out an objective the
+    clock has closed by selecting blocks, instead of editing rendered text.
+
+    args:
+        objectives (list[Objective]): the retrieved objectives.
+        npc_schedules (dict): NPC schedule payloads, by NPC id.
+        events (dict): event payloads, by event id.
+
+    returns:
+        dict[str, str]: objective id → its rendered context block.
+    """
+    blocks: dict[str, str] = {}
     for obj in objectives:
         rq = (
             f" [requires_quests:{','.join(obj.requires_quests)}]"
             if getattr(obj, "requires_quests", None)
             else ""
         )
-        lines.append(f"- [{obj.id}] {obj.title} ({obj.location}, {obj.window}){rq}")
+        lines = [f"- [{obj.id}] {obj.title} ({obj.location}, {obj.window}){rq}"]
         npc = npc_schedules.get(obj.npc_id)
         if npc:
             schedule = ", ".join(npc.get("schedule") or [])
@@ -335,4 +372,5 @@ def _format(objectives, npc_schedules: dict, events: dict) -> str:
             lines.append(f"  - masks needed: {', '.join(obj.requires_masks)}")
         if obj.requires_items:
             lines.append(f"  - items needed: {', '.join(obj.requires_items)}")
-    return "\n".join(lines) or "No relevant objectives found."
+        blocks[obj.id] = "\n".join(lines)
+    return blocks
