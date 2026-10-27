@@ -553,7 +553,8 @@ def test_quest_counts_as_satisfied_when_every_objective_is_declared_done():
 
     kb = build_default_knowledge()
     keeta = next(o for q in kb.quests for o in q.objectives if o.id == "ss_wake_keeta")
-    step = _step("wake", keeta.window, location=keeta.location, ref="ss_wake_keeta")
+    window = TimeWindow(start=ClockTime(day=1, hour=9), end=ClockTime(day=1, hour=10))
+    step = _step("wake", window, location=keeta.location, ref="ss_wake_keeta")
     plan = Plan(goal="x", steps=[step])
     princess = next(q for q in kb.quests if q.id == "deku_princess")
     gs = _gs(completed_objectives=[o.id for o in princess.objectives])
@@ -688,3 +689,177 @@ def test_new_critic_messages_translate_to_italian():
             == "Riferimento obiettivo sconosciuto: 'not_a_real_objective'."
         )
         assert t("kind_overlap") == "sovrapposizione"
+
+
+def _gs_at(time: ClockTime) -> GameState:
+    """Build the default test state at a given clock.
+
+    args:
+        time (ClockTime): the player's clock.
+
+    returns:
+        GameState: a state at ``time``.
+    """
+    return _gs().model_copy(update={"time": time})
+
+
+def _kb_objective(objective_id: str):
+    """Resolve a shipped objective by id."""
+    from app.data.mock_knowledge import build_default_knowledge
+
+    return next(
+        obj
+        for quest in build_default_knowledge().quests
+        for obj in quest.objectives
+        if obj.id == objective_id
+    )
+
+
+def test_step_starting_before_now_is_unreachable():
+    """A step anchored in the past names the clock and the Song of Time."""
+    window = TimeWindow(start=ClockTime(day=1, hour=7), end=ClockTime(day=1, hour=8))
+    objective = _objective(
+        "o1", TimeWindow(start=ClockTime(day=1, hour=6), end=ClockTime(day=1, hour=29))
+    )
+    objective.recurring = True
+    plan = Plan(goal="x", steps=[_step("s1", window, ref="o1")])
+    gs = _gs_at(ClockTime(day=1, hour=9))
+    result = validate_plan(plan, gs, [objective])
+    assert not result.valid
+    assert [issue.kind for issue in result.issues] == ["unreachable"]
+    assert "Step starts at Day 1, 07:00" in result.issues[0].message
+    assert "Song of Time" in result.issues[0].message
+
+
+def test_step_for_a_closed_objective_is_unreachable():
+    """A closed one-off window is reported with its end and the Song of Time."""
+    window = TimeWindow(start=ClockTime(day=1, hour=10), end=ClockTime(day=1, hour=11))
+    objective = _objective("o1", window)
+    plan = Plan(goal="x", steps=[_step("s1", window, ref="o1")])
+    gs = _gs_at(ClockTime(day=2, hour=8))
+    result = validate_plan(plan, gs, [objective])
+    assert [issue.kind for issue in result.issues] == ["unreachable"]
+    assert "its window ended at Day 1, 11:00" in result.issues[0].message
+    assert "Song of Time" in result.issues[0].message
+
+
+def test_empty_plan_with_a_dead_chain_is_unreachable_not_empty():
+    """An empty plan is a temporal verdict when the goal is out of reach."""
+    from app.data.mock_knowledge import Objective, build_default_knowledge
+    from app.mcp.tools import search_quests
+
+    kb = build_default_knowledge()
+    objectives = [
+        Objective.model_validate(item)
+        for group in search_quests("kafei letter")
+        for item in group["objectives"]
+    ]
+    gs = _gs_at(ClockTime(day=2, hour=8))
+    result = validate_plan(Plan(goal="x", steps=[]), gs, objectives, kb.npcs)
+    assert not result.valid
+    assert [issue.kind for issue in result.issues] == ["unreachable"]
+    message = result.issues[0].message
+    assert "Anju and Kafei" in message
+    assert "its window ended at" in message
+    assert "Song of Time" in message
+
+
+def test_one_unreachable_issue_per_dead_chain():
+    """A whole dead chain collapses into one issue naming its root."""
+    from app.data.mock_knowledge import Objective, build_default_knowledge
+    from app.mcp.tools import search_quests
+
+    kb = build_default_knowledge()
+    objectives = [
+        Objective.model_validate(item)
+        for group in search_quests("kafei letter")
+        for item in group["objectives"]
+    ]
+    gs = _gs_at(ClockTime(day=2, hour=8))
+    result = validate_plan(Plan(goal="x", steps=[]), gs, objectives, kb.npcs)
+    assert len(result.issues) == 1
+
+
+def test_dead_gate_reports_unreachable_instead_of_quest_prerequisite():
+    """A quest that can no longer be completed is a temporal failure."""
+    keeta = _kb_objective("mm_heal_mikau")
+    window = TimeWindow(start=ClockTime(day=2, hour=9), end=ClockTime(day=2, hour=10))
+    plan = Plan(goal="x", steps=[_step("heal", window, location=keeta.location, ref=keeta.id)])
+    gs = _gs_at(ClockTime(day=2, hour=8))
+    result = validate_plan(plan, gs, [keeta])
+    kinds = [issue.kind for issue in result.issues]
+    assert kinds == ["unreachable"]
+    assert "Quest prerequisite out of reach: Romani Ranch" in result.issues[0].message
+    assert "Song of Time" in result.issues[0].message
+
+
+def test_live_gate_keeps_the_quest_prerequisite_issue():
+    """A quest that is still completable stays an ordering requirement."""
+    river = _kb_objective("pf_restore_river")
+    window = TimeWindow(start=ClockTime(day=3, hour=13), end=ClockTime(day=3, hour=14))
+    plan = Plan(goal="x", steps=[_step("river", window, location=river.location, ref=river.id)])
+    gs = _gs_at(ClockTime(day=3, hour=12))
+    result = validate_plan(plan, gs, [river])
+    kinds = [issue.kind for issue in result.issues]
+    assert "quest_prerequisite" in kinds
+    assert "unreachable" not in kinds
+
+
+def test_recurring_objective_on_a_later_day_is_not_outside_its_slot():
+    """A daily availability repeats, so a Day 2 step is inside its occurrence."""
+    pamela = _kb_objective("pf_find_pamela")
+    window = TimeWindow(start=ClockTime(day=2, hour=9), end=ClockTime(day=2, hour=10))
+    plan = Plan(goal="x", steps=[_step("find", window, location=pamela.location, ref=pamela.id)])
+    gs = _gs_at(ClockTime(day=2, hour=8))
+    result = validate_plan(plan, gs, [pamela])
+    assert "time" not in [issue.kind for issue in result.issues]
+
+
+def test_unreachable_messages_translate_to_italian():
+    """The new temporal messages keep their entities and translate the rest."""
+    from unittest.mock import patch
+
+    with patch("streamlit.session_state") as sess:
+        sess.get.return_value = "it"
+        from app.i18n import t, tr_msg
+
+        past = tr_msg(
+            "Step starts at Day 1, 07:00, but it is now Day 1, 09:00. "
+            "Use the Song of Time to restart the cycle."
+        )
+        assert past == (
+            "Il passo inizia alle Day 1, 07:00, ma ora sono le Day 1, 09:00. "
+            "Usa la Canzone del Tempo per riavviare il ciclo."
+        )
+        gate = tr_msg(
+            "Quest prerequisite out of reach: Romani Ranch. "
+            "Its window has closed; use the Song of Time to restart the cycle."
+        )
+        assert "Prerequisito quest fuori portata: " in gate
+        assert gate.endswith(
+            ". La sua finestra si \u00e8 chiusa; usa la Canzone del Tempo per riavviare il ciclo."
+        )
+        assert t("kind_unreachable") == "fuori portata"
+
+
+def test_pipeline_reports_the_song_of_time_for_a_closed_chain():
+    """A goal whose whole chain has expired fails with a temporal verdict."""
+    gs = GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn")
+    result = run_pipeline(gs, Goal(description="Reunite Anju and Kafei"))
+    assert result.plan.steps == []
+    assert result.plan_engine == "unreachable"
+    assert result.validation is not None and not result.validation.valid
+    kinds = {issue.kind for issue in result.validation.issues}
+    assert kinds == {"unreachable"}
+    assert "Song of Time" in result.validation.issues[0].message
+
+
+def test_pipeline_keeps_feasible_steps_and_reports_the_dead_chain():
+    """A partly closed goal still shows what can be done, plus what cannot."""
+    gs = GameState(time=ClockTime(day=2, hour=12), location="Woodfall")
+    result = run_pipeline(gs, Goal(description="Reunite Anju and Kafei, free Pamela's father"))
+    assert result.validation is not None and not result.validation.valid
+    kinds = {issue.kind for issue in result.validation.issues}
+    assert "unreachable" in kinds
+    refs = {step.objective_ref for step in result.plan.steps}
+    assert "pf_find_pamela" in refs

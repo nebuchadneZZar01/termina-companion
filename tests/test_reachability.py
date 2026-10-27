@@ -8,7 +8,7 @@ the two escape hatches: explicit progress and recurring availability.
 
 from __future__ import annotations
 
-from app.agents.reachability import dead_objectives
+from app.agents.reachability import dead_objectives, dead_quests
 from app.data.mock_knowledge import Objective, Quest, build_default_knowledge
 from app.domain import ClockTime
 from app.mcp.tools import search_quests
@@ -147,3 +147,38 @@ def test_the_root_cause_is_deterministic():
         load_quest=_load_quest,
     )
     assert forward == backward
+
+
+def _dead_gates(text: str, now: ClockTime, **overrides) -> set[str]:
+    """Run the quest closure over the objectives retrieved for ``text``."""
+    kwargs = {
+        "owned_items": set(),
+        "owned_masks": set(),
+        "done_quests": set(),
+        "done_objectives": set(),
+        "load_quest": _load_quest,
+    }
+    kwargs.update(overrides)
+    return dead_quests(_relevant(text), now, **kwargs)
+
+
+def test_a_gate_with_a_live_objective_is_not_a_dead_quest():
+    """A quest that still has an open window is not dead."""
+    now = ClockTime(day=1, hour=6)
+    assert _dead_gates("mikau memory", now) == set()
+
+
+def test_a_gate_with_every_unsatisfied_objective_dead_is_a_dead_quest():
+    """A quest nobody can complete any more is reported as dead."""
+    assert _dead_gates("mikau memory", ClockTime(day=2, hour=8)) == {"romani_ranch"}
+
+
+def test_a_completed_gate_quest_is_never_dead():
+    """A quest marked done cannot be the reason a plan is infeasible."""
+    now = ClockTime(day=2, hour=8)
+    assert _dead_gates("mikau memory", now, done_quests={"romani_ranch"}) == set()
+
+
+def test_a_recurring_gate_quest_is_never_dead():
+    """Daily availability keeps a gate quest completable all cycle."""
+    assert _dead_gates("pamela", ClockTime(day=3, hour=12)) == set()

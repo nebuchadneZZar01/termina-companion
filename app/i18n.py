@@ -643,6 +643,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_location": "location",
         "kind_prerequisite": "prerequisite",
         "kind_quest_prerequisite": "quest prerequisite",
+        "kind_unreachable": "out of reach",
         "no_issues": "No issues.",
         "validation_details": "Validation details",
         "problems": "Problems",
@@ -1015,6 +1016,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_location": "posizione",
         "kind_prerequisite": "prerequisito",
         "kind_quest_prerequisite": "prerequisito quest",
+        "kind_unreachable": "fuori portata",
         "no_issues": "Nessun problema.",
         "validation_details": "Dettagli validazione",
         "problems": "Problemi",
@@ -1283,6 +1285,19 @@ _MSGS_IT: dict[str, str] = {
     "Missing mask(s): ": "Maschere mancanti: ",
     "Missing prerequisite(s): ": "Prerequisiti mancanti: ",
     "Quest prerequisite missing: ": "Prerequisito quest mancante: ",
+    "Step starts at ": "Il passo inizia alle ",
+    ", but it is now ": ", ma ora sono le ",
+    ": its window ended at ": ": la sua finestra si \u00e8 chiusa alle ",
+    ". Use the Song of Time to restart the cycle.": (
+        ". Usa la Canzone del Tempo per riavviare il ciclo."
+    ),
+    "Quest prerequisite out of reach: ": "Prerequisito quest fuori portata: ",
+    "Its window has closed; use the Song of Time to restart the cycle.": (
+        "La sua finestra si \u00e8 chiusa; usa la Canzone del Tempo per riavviare il ciclo."
+    ),
+    " is out of reach. Use the Song of Time to restart the cycle.": (
+        " \u00e8 fuori portata. Usa la Canzone del Tempo per riavviare il ciclo."
+    ),
     ". Complete this quest first.": ". Completa questa quest prima.",
     ". Complete these quests first.": ". Completa queste quest prima.",
     "Depends on a step that ends after this one starts.": (

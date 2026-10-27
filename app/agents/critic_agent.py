@@ -13,6 +13,8 @@ from __future__ import annotations
 import logging
 
 from app.agents.critic_knowledge import KnowledgeView
+from app.agents.planning_clock import occurrences
+from app.agents.reachability import dead_objectives, dead_quests
 from app.data.mock_knowledge import NPC, Objective
 from app.domain import (
     ClockTime,
@@ -115,6 +117,13 @@ def validate_plan(
     fields; every reference is resolved against the whole knowledge base
     through the MCP tools. Consecutive steps must not overlap.
 
+    A step whose window has closed, or that starts before the player's clock,
+    is an ``unreachable`` error: only the Song of Time reopens it. One
+    ``unreachable`` issue per dead chain names the quest, the objective that was
+    missed and the window end, even when the plan shows the steps that are still
+    feasible. An empty plan is only ``empty`` when nothing is out of reach;
+    otherwise it is reported as the temporal failure it is.
+
     args:
         plan (Plan | None): the plan to validate.
         game_state (GameState): the player's inventory, masks and progress.
@@ -126,19 +135,70 @@ def validate_plan(
     returns:
         ValidationResult: valid, plus the list of issues found.
     """
-    if not plan or not plan.steps:
-        return ValidationResult(
-            valid=False,
-            issues=[ValidationIssue(severity="error", kind="empty", message="Plan has no steps.")],
-        )
-
     view = KnowledgeView(objectives, npcs)
     done_ids = _done_ids(game_state, view)
+    reachability = {
+        "owned_items": set(game_state.inventory),
+        "owned_masks": set(game_state.masks),
+        "done_quests": {
+            quest_id
+            for quest_id, status in (game_state.quest_progress or {}).items()
+            if status == "done"
+        },
+        "done_objectives": done_ids,
+        "load_quest": view.quest,
+    }
+    dead = dead_objectives(objectives, game_state.time, **reachability)
+    dead_gates = dead_quests(objectives, game_state.time, **reachability)
+    roots = sorted(set(dead.values()))
+
+    if not plan or not plan.steps:
+        issues = [_root_issue(root, view) for root in roots]
+        if not issues:
+            issues = [ValidationIssue(severity="error", kind="empty", message="Plan has no steps.")]
+        return ValidationResult(valid=False, issues=issues)
+
     issues: list[ValidationIssue] = []
     for idx, step in enumerate(plan.steps):
-        issues.extend(_check_step(step, idx, plan, game_state, view, done_ids))
+        issues.extend(_check_step(step, idx, plan, game_state, view, done_ids, dead_gates))
     issues.extend(_check_overlaps(plan))
+    # One issue per dead chain, unless a step of that chain already reported it.
+    covered = {dead[step.objective_ref] for step in plan.steps if step.objective_ref in dead}
+    issues.extend(_root_issue(root, view) for root in roots if root not in covered)
     return ValidationResult(valid=not issues, issues=issues)
+
+
+def _root_issue(root: str, view: KnowledgeView) -> ValidationIssue:
+    """One ``unreachable`` issue for the root of a dead chain.
+
+    The message names the quest, the objective the player missed and the end of
+    its window, so the verdict says what to undo with the Song of Time instead
+    of only stating that the plan cannot work.
+
+    args:
+        root (str): the root objective id from the reachability closure.
+        view (KnowledgeView): authoritative objective and quest lookups.
+
+    returns:
+        ValidationIssue: a plan-level error (``step_idx`` None).
+    """
+    objective = view.objective(root)
+    if objective is None:
+        return ValidationIssue(
+            severity="error",
+            kind="unreachable",
+            message=f"{root} is out of reach. Use the Song of Time to restart the cycle.",
+        )
+    quest = view.quest_for_objective(root)
+    label = f"{quest.name}: {objective.title}" if quest else objective.title
+    return ValidationIssue(
+        severity="error",
+        kind="unreachable",
+        message=(
+            f"{label}: its window ended at {objective.window.end}. "
+            "Use the Song of Time to restart the cycle."
+        ),
+    )
 
 
 def _done_ids(game_state: GameState, view: KnowledgeView) -> set[str]:
@@ -179,6 +239,7 @@ def _check_step(
     game_state: GameState,
     view: KnowledgeView,
     done_ids: set[str] | None = None,
+    dead_gates: set[str] | None = None,
 ) -> list[ValidationIssue]:
     """Validate a single plan step against all feasibility rules.
 
@@ -192,6 +253,8 @@ def _check_step(
         plan (Plan): the whole plan, for sequence/dependency checks.
         game_state (GameState): the player's inventory and masks.
         view (KnowledgeView): authoritative knowledge lookups.
+        done_ids (set[str] | None): completed objectives, quests expanded.
+        dead_gates (set[str] | None): quests that can no longer be completed.
 
     returns:
         list[ValidationIssue]: all issues found for this step.
@@ -209,8 +272,32 @@ def _check_step(
             _issue("location", idx, f"{step.location!r} is not where {step.objective_ref} happens.")
         )
 
-    if not objective.window.contains(step.window.start) or not _lte(
-        step.window.end, objective.window.end
+    now = game_state.time
+    open_windows = occurrences(objective, now)
+    if not open_windows:
+        # The objective happens once per cycle and its window is gone: nothing
+        # else about the step matters, only the cycle restart does.
+        return [
+            _issue(
+                "unreachable",
+                idx,
+                f"{objective.title}: its window ended at {objective.window.end}. "
+                "Use the Song of Time to restart the cycle.",
+            )
+        ]
+    if _lt(step.window.start, now):
+        issues.append(
+            _issue(
+                "unreachable",
+                idx,
+                f"Step starts at {step.window.start}, but it is now {now}. "
+                "Use the Song of Time to restart the cycle.",
+            )
+        )
+
+    if not any(
+        _lte(window.start, step.window.start) and _lte(step.window.end, window.end)
+        for window in open_windows
     ):
         issues.append(
             _issue(
@@ -252,8 +339,22 @@ def _check_step(
 
     # Quest prerequisites
     quest_reqs = objective.requires_quests
+    unreachable_quests = dead_gates or set()
     for qreq in quest_reqs:
-        missing_chain = _quest_prerequisite_closure(qreq, game_state, plan, view)
+        if qreq in unreachable_quests:
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    step_idx=idx,
+                    kind="unreachable",
+                    message=(
+                        f"Quest prerequisite out of reach: {_quest_display_name(qreq, view)}. "
+                        "Its window has closed; use the Song of Time to restart the cycle."
+                    ),
+                )
+            )
+            continue
+        missing_chain = _quest_prerequisite_closure(qreq, game_state, plan, view, done_ids=done_ids)
         if missing_chain:
             # build message with transitive info
             if len(missing_chain) == 1 and missing_chain[0] == qreq:

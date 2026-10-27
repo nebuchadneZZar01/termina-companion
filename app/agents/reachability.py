@@ -71,7 +71,95 @@ def dead_objectives(
         branch. Several objectives of the same branch share one root, so callers
         can report one issue per dead chain.
     """
+    dead, _quests = _closure(
+        objectives,
+        now,
+        owned_items=owned_items,
+        owned_masks=owned_masks,
+        done_quests=done_quests,
+        done_objectives=done_objectives,
+        load_quest=load_quest,
+    )
     candidates = {obj.id for obj in objectives}
+    return {obj_id: root for obj_id, root in dead.items() if obj_id in candidates}
+
+
+def dead_quests(
+    objectives: list[Objective],
+    now: ClockTime,
+    *,
+    owned_items: set[str],
+    owned_masks: set[str],
+    done_quests: set[str],
+    done_objectives: set[str],
+    load_quest: Callable[[str], Quest | None],
+) -> set[str]:
+    """Quests reached through a gate that can no longer be completed.
+
+    A quest is dead when it was not completed and every objective of it that is
+    still unsatisfied is dead. A quest with nothing left to do, or with one
+    objective still reachable, is not dead: a gate towards it is a matter of
+    doing it first, not of restarting the cycle.
+
+    args:
+        objectives (list[Objective]): the objectives under consideration.
+        now (ClockTime): the player's current time.
+        owned_items (set[str]): the player's items.
+        owned_masks (set[str]): the player's masks.
+        done_quests (set[str]): quest ids marked completed.
+        done_objectives (set[str]): objective ids already completed, with done
+            quests expanded.
+        load_quest (Callable[[str], Quest | None]): resolves a gated quest.
+
+    returns:
+        set[str]: ids of the gated quests that can no longer be completed.
+    """
+    dead, quests = _closure(
+        objectives,
+        now,
+        owned_items=owned_items,
+        owned_masks=owned_masks,
+        done_quests=done_quests,
+        done_objectives=done_objectives,
+        load_quest=load_quest,
+    )
+
+    def satisfied(obj: Objective) -> bool:
+        return _is_satisfied(obj, done_objectives, owned_items, owned_masks)
+
+    return {
+        quest_id
+        for quest_id, quest in quests.items()
+        if _quest_is_dead(quest_id, quest, dead, satisfied, done_quests)
+    }
+
+
+def _closure(
+    objectives: list[Objective],
+    now: ClockTime,
+    *,
+    owned_items: set[str],
+    owned_masks: set[str],
+    done_quests: set[str],
+    done_objectives: set[str],
+    load_quest: Callable[[str], Quest | None],
+) -> tuple[dict[str, str], dict[str, Quest]]:
+    """Run the dead-branch closure over every evaluated objective.
+
+    args:
+        objectives (list[Objective]): the objectives under consideration.
+        now (ClockTime): the player's current time.
+        owned_items (set[str]): the player's items.
+        owned_masks (set[str]): the player's masks.
+        done_quests (set[str]): quest ids marked completed.
+        done_objectives (set[str]): objective ids already completed.
+        load_quest (Callable[[str], Quest | None]): resolves a gated quest.
+
+    returns:
+        tuple[dict[str, str], dict[str, Quest]]: every dead objective mapped to
+        its root, including the loaded gate quests' objectives, and the loaded
+        gate quests by id.
+    """
     by_id: dict[str, Objective] = {obj.id: obj for obj in objectives}
     quests = _gated_quests(objectives, by_id, done_quests, load_quest)
     dead: dict[str, str] = {}
@@ -87,15 +175,6 @@ def dead_objectives(
         """The earliest-expiring root, with the objective id as tie-break."""
         return min(roots, key=lambda ref: (_clock(by_id[ref].window.end), ref))
 
-    def quest_dead(quest_id: str) -> bool:
-        if quest_id in done_quests:
-            return False
-        quest = quests.get(quest_id)
-        if quest is None:
-            return False
-        unsatisfied = [obj for obj in quest.objectives if not satisfied(obj)]
-        return bool(unsatisfied) and all(obj.id in dead for obj in unsatisfied)
-
     def root_cause(obj_id: str, obj: Objective) -> str | None:
         """The root that closed this objective, or None while it is reachable.
 
@@ -110,7 +189,7 @@ def dead_objectives(
         gate_roots = [
             dead[gated.id]
             for quest_id in obj.requires_quests
-            if quest_dead(quest_id)
+            if _quest_is_dead(quest_id, quests.get(quest_id), dead, satisfied, done_quests)
             for gated in quests[quest_id].objectives
             if gated.id in dead
         ]
@@ -144,7 +223,33 @@ def dead_objectives(
         if dead:
             root = root_of(list(dead.values()))
             dead = {obj_id: root for obj_id in dead}
-    return {obj_id: root for obj_id, root in dead.items() if obj_id in candidates}
+    return dead, quests
+
+
+def _quest_is_dead(
+    quest_id: str,
+    quest: Quest | None,
+    dead: dict[str, str],
+    satisfied: Callable[[Objective], bool],
+    done_quests: set[str],
+) -> bool:
+    """Whether a gated quest can no longer be completed.
+
+    args:
+        quest_id (str): the quest id being tested.
+        quest (Quest | None): the loaded quest, None when it is unknown.
+        dead (dict[str, str]): the dead objectives found so far.
+        satisfied (Callable[[Objective], bool]): whether an objective is done.
+        done_quests (set[str]): quest ids marked completed.
+
+    returns:
+        bool: True when the quest still has something to do and every
+        unsatisfied objective of it is dead. Unknown quests are never dead.
+    """
+    if quest_id in done_quests or quest is None:
+        return False
+    unsatisfied = [obj for obj in quest.objectives if not satisfied(obj)]
+    return bool(unsatisfied) and all(obj.id in dead for obj in unsatisfied)
 
 
 def _gated_quests(
