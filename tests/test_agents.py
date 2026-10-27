@@ -305,11 +305,23 @@ class _EmptyModel:
         return Plan(goal="x", steps=[])
 
 
-def test_planning_agent_rejects_empty_llm_plan(monkeypatch):
-    """An empty LLM response is an explicit planning failure."""
+def test_planning_agent_rebuilds_chain_from_empty_llm_plan(monkeypatch):
+    """An empty LLM response still yields the deterministic objective chain."""
     monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: _EmptyModel())
+    result = planning_agent.run(_state())
+    assert [s.objective_ref for s in result["plan"].steps] == _ANJU_CHAIN
+    assert result["plan_proposal"].steps == []
+
+
+def test_planning_agent_rejects_empty_plan_when_chain_is_done(monkeypatch):
+    """Empty LLM output is a failure when no objective remains to rebuild."""
+    monkeypatch.setattr(planning_agent, "get_chat_model", lambda **kw: _EmptyModel())
+    state = _state(
+        inventory=["Room Key", "Letter to Kafei", "Pendant of Memories", "Sun's Mask"],
+        masks=["Kafei's Mask", "Garo's Mask", "Couple's Mask"],
+    )
     with pytest.raises(PlanningAgentError, match="empty plan"):
-        planning_agent.run(_state())
+        planning_agent.run(state)
 
 
 def test_planning_agent_skips_owned_provide_step(monkeypatch):

@@ -127,8 +127,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   State, Knowledge and Critic run deterministic rule-based logic. The State
   Agent lists completed quests only and never infers an active quest from the
   player's location. The Planning
-  Agent always calls the configured LLM; missing configuration, invocation
-  errors and empty output fail explicitly. LLM output is post-processed
+  Agent always calls the configured LLM; missing configuration and invocation
+  errors fail explicitly, while an empty LLM plan is still rebuilt against the
+  objective chain and only fails when that rebuild yields no step. LLM output
+  is post-processed
   deterministically: refs, titles and locations are grounded to the knowledge
   objectives and each step's window is clamped inside its objective's slot
   (see `app/agents/planning_agent.py`). The final plan is then rebuilt against the
