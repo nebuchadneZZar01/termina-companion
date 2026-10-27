@@ -7,6 +7,7 @@ import logging
 from app.agents.planning_clock import _max_clock, _window_inside, occurrences
 from app.agents.progress import done_objective_ids
 from app.agents.reachability import dead_objectives
+from app.agents.scheduling import schedule_chain, select_chain
 from app.data.mock_knowledge import Objective, Quest, build_default_knowledge
 from app.domain import ClockTime, Plan, PlanStep, TimeWindow
 from app.domain import clock_key as _clock
@@ -194,46 +195,36 @@ def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
     )
     by_ref = {s.objective_ref: s for s in plan.steps}
     dead = dead_for(state)
-    floor = _owned_chain_floor(state.relevant_objectives, owned_items, owned_masks)
-    ordered = _order_by_prerequisites(state.relevant_objectives)
-    chain = [
-        obj
-        for obj in ordered
-        if obj.id not in done_ids
-        and obj.id not in dead
-        and not _already_done(obj, floor)
-        and not _already_owned(obj, owned_items, owned_masks)
-    ]
-    if not _requirements_covered(chain, owned_items, owned_masks):
-        # The inventory contradicts the inferred chain position (e.g. a later
-        # reward is owned but an earlier mask is not). Fall back to pruning
-        # only objectives that are explicitly done, closed by the clock, or
-        # whose own reward is already owned, so the missing requirements can
-        # still be acquired by the plan.
-        chain = [
-            obj
-            for obj in ordered
-            if obj.id not in done_ids
-            and obj.id not in dead
-            and not _already_owned(obj, owned_items, owned_masks)
-        ]
+    now = state.game_state.time
+    chain = select_chain(
+        state.relevant_objectives,
+        owned_items=owned_items,
+        owned_masks=owned_masks,
+        done_ids=done_ids,
+        dead=dead,
+        positions=_OBJECTIVE_POSITION,
+    )
+    # The scheduler decides what fits; the LLM only suggests when. A dropped
+    # objective has no slot left before the cycle ends, so no window of its own.
+    slots = {p.objective.id: p.window for p in schedule_chain(chain, now).placed}
     steps: list[PlanStep] = []
     prev_end: ClockTime | None = None
-    now = state.game_state.time
     for idx, obj in enumerate(chain):
+        slot = slots.get(obj.id)
+        if slot is None:
+            logger.warning("Planning Agent: %s does not fit before the cycle ends", obj.id)
+            continue
         dependencies = _depends_on_indices(obj, steps)
         earliest = _max_clock(
             now,
             *(steps[d].window.end for d in dependencies),
         )
         existing = by_ref.get(obj.id)
-        floor = _max_clock(earliest, prev_end or now)
+        window = slot
         if existing is not None:
             existing.depends_on = dependencies
-            window = (
-                _window_inside(obj, floor, now)
-                if state.replan_attempts > 0
-                else _fit_window(
+            if state.replan_attempts <= 0:
+                fitted = _fit_window(
                     existing.window,
                     obj,
                     chain,
@@ -242,17 +233,10 @@ def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
                     prev_end,
                     now,
                 )
-            )
-            if window is None:
-                logger.warning("Planning Agent: %s is no longer available at %s", obj.id, now)
-                continue
+                window = slot if fitted is None else fitted
             existing.window = window
             steps.append(existing)
             prev_end = window.end
-            continue
-        window = _window_inside(obj, floor, now)
-        if window is None:
-            logger.warning("Planning Agent: %s is no longer available at %s", obj.id, now)
             continue
         steps.append(_to_step(obj, window, steps))
         prev_end = window.end
@@ -326,102 +310,6 @@ def _successor_cap(
         if open_windows
     ]
     return min(caps, key=_clock) if caps else None
-
-
-def _requirements_covered(
-    chain: list[Objective], owned_items: set[str], owned_masks: set[str]
-) -> bool:
-    """Whether every step's requirements are owned or provided earlier in the chain.
-
-    args:
-        chain (list[Objective]): the candidate chain, in plan order.
-        owned_items (set[str]): the player's items.
-        owned_masks (set[str]): the player's masks.
-
-    returns:
-        bool: True when no step needs an item or mask the plan cannot supply.
-    """
-    available_items = set(owned_items)
-    available_masks = set(owned_masks)
-    for obj in chain:
-        if not set(obj.requires_items) <= available_items:
-            return False
-        if not set(obj.requires_masks) <= available_masks:
-            return False
-        available_items.update(obj.provides_items)
-        available_masks.update(obj.provides_masks)
-    return True
-
-
-def _owned_chain_floor(
-    objectives: list[Objective], owned_items: set[str], owned_masks: set[str]
-) -> dict[str, int]:
-    """The furthest objective position per quest whose reward the player owns.
-
-    A linear quest chain hands out its rewards in order, so owning the reward
-    of objective N means every objective up to N is done — even the ones that
-    provide nothing and the ones whose reward was traded away afterwards.
-
-    args:
-        objectives (list[Objective]): objectives to inspect.
-        owned_items (set[str]): the player's items.
-        owned_masks (set[str]): the player's masks.
-
-    returns:
-        dict[str, int]: quest id → highest done objective index, absent when
-        the player owns no reward from that quest.
-    """
-    floor: dict[str, int] = {}
-    for obj in objectives:
-        position = _OBJECTIVE_POSITION.get(obj.id)
-        if position is None or not _already_owned(obj, owned_items, owned_masks):
-            continue
-        quest_id, idx = position
-        floor[quest_id] = max(floor.get(quest_id, -1), idx)
-    return floor
-
-
-def _already_done(obj: Objective, floor: dict[str, int]) -> bool:
-    """Whether the objective sits at or before its quest's owned-reward floor.
-
-    args:
-        obj (Objective): the objective to test.
-        floor (dict[str, int]): quest id → furthest done objective index.
-
-    returns:
-        bool: True when the objective is already done, False when it is not or
-        its quest is unknown.
-    """
-    position = _OBJECTIVE_POSITION.get(obj.id)
-    if position is None:
-        return False
-    quest_id, idx = position
-    return idx <= floor.get(quest_id, -1)
-
-
-def _already_owned(obj: Objective, owned_items: set[str], owned_masks: set[str]) -> bool:
-    """Whether the player already holds everything the objective provides.
-
-    An objective that only exists to hand over items/masks (e.g. retrieving
-    Kafei's letter) is redundant once the player owns them, so it can be
-    pruned from the plan without breaking the chain.
-
-    args:
-        obj (Objective): the objective to test.
-        owned_items (set[str]): the player's items.
-        owned_masks (set[str]): the player's masks.
-
-    returns:
-        bool: True when the objective provides nothing but already-owned
-        items/masks.
-    """
-    provides_items = set(obj.provides_items)
-    provides_masks = set(obj.provides_masks)
-    return (
-        (provides_items or provides_masks)
-        and provides_items <= owned_items
-        and provides_masks <= owned_masks
-    )  # noqa: E501
 
 
 # ponytail: output guardrail on temporal feasibility. Shrinks LLM windows
@@ -540,32 +428,3 @@ def _match_objective(step: PlanStep, objectives: list[Objective]) -> Objective |
         o for o, score in scored if score == max((s for _, s in scored), default=0) and score > 0
     ]
     return best[0] if len(best) == 1 else None
-
-
-def _order_by_prerequisites(objectives: list[Objective]) -> list[Objective]:
-    """Topologically order objectives so prerequisites come first.
-
-    Objectives whose prerequisites are outside the given set are treated as
-    unconstrained. Degenerate cycles fall back to the remaining order.
-
-    args:
-        objectives (list[Objective]): the objectives to order.
-
-    returns:
-        list[Objective]: the same objectives, prerequisites first.
-    """
-    known = {o.id for o in objectives}
-    placed: list[Objective] = []
-    remaining = list(objectives)
-    while remaining:
-        progress = False
-        for obj in list(remaining):
-            prereqs = [p for p in obj.prerequisites if p in known]
-            if all(p in {o.id for o in placed} for p in prereqs):
-                placed.append(obj)
-                remaining.remove(obj)
-                progress = True
-        if not progress:
-            placed.extend(remaining)
-            break
-    return placed
