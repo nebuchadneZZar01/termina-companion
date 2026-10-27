@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from app.agents.planning_clock import _max_clock, _window_inside
+from app.agents.planning_clock import _max_clock, _window_inside, occurrences
 from app.agents.progress import done_objective_ids
 from app.data.mock_knowledge import Objective, build_default_knowledge
 from app.domain import ClockTime, Plan, PlanStep, TimeWindow
@@ -176,32 +176,41 @@ def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
         ]
     steps: list[PlanStep] = []
     prev_end: ClockTime | None = None
+    now = state.game_state.time
     for idx, obj in enumerate(chain):
         dependencies = _depends_on_indices(obj, steps)
         earliest = _max_clock(
-            state.game_state.time,
+            now,
             *(steps[d].window.end for d in dependencies),
         )
         existing = by_ref.get(obj.id)
-        floor = _max_clock(earliest, prev_end or state.game_state.time)
+        floor = _max_clock(earliest, prev_end or now)
         if existing is not None:
             existing.depends_on = dependencies
-            if state.replan_attempts > 0:
-                existing.window = _window_inside(obj, floor)
-            else:
-                existing.window = _fit_window(
+            window = (
+                _window_inside(obj, floor, now)
+                if state.replan_attempts > 0
+                else _fit_window(
                     existing.window,
                     obj,
                     chain,
                     idx,
                     earliest,
                     prev_end,
-                    state.game_state.time,
+                    now,
                 )
+            )
+            if window is None:
+                logger.warning("Planning Agent: %s is no longer available at %s", obj.id, now)
+                continue
+            existing.window = window
             steps.append(existing)
-            prev_end = existing.window.end
+            prev_end = window.end
             continue
-        window = _window_inside(obj, floor)
+        window = _window_inside(obj, floor, now)
+        if window is None:
+            logger.warning("Planning Agent: %s is no longer available at %s", obj.id, now)
+            continue
         steps.append(_to_step(obj, window, steps))
         prev_end = window.end
     plan.steps = steps
@@ -216,7 +225,7 @@ def _fit_window(
     earliest: ClockTime,
     prev_end: ClockTime | None,
     now: ClockTime,
-) -> TimeWindow:
+) -> TimeWindow | None:
     """Keep the LLM's window when it fits the chain, else re-slot it.
 
     A window fits when it starts no earlier than the dependencies and the
@@ -233,7 +242,8 @@ def _fit_window(
         now (ClockTime): the player's current time.
 
     returns:
-        TimeWindow: the window to use for this step.
+        TimeWindow | None: the window to use for this step, or None when the
+        objective has no availability left after ``now``.
     """
     floor = earliest
     if prev_end is not None:
@@ -244,7 +254,7 @@ def _fit_window(
         fits = fits and _clock(desired.end) <= _clock(cap)
     if fits:
         return desired
-    return _window_inside(obj, floor)
+    return _window_inside(obj, floor, now)
 
 
 def _successor_cap(
@@ -263,12 +273,14 @@ def _successor_cap(
 
     returns:
         ClockTime | None: the latest allowed end, None when the objective has
-        no successor in the chain.
+        no successor in the chain or no successor is still available.
     """
     caps = [
-        _max_clock(later.window.start, now)
+        open_windows[0].start
         for later in chain[idx + 1 :]
         if obj.id in later.prerequisites
+        for open_windows in [occurrences(later, now)]
+        if open_windows
     ]
     return min(caps, key=_clock) if caps else None
 
@@ -370,19 +382,22 @@ def _already_owned(obj: Objective, owned_items: set[str], owned_masks: set[str])
 
 
 # ponytail: output guardrail on temporal feasibility. Shrinks LLM windows
-# into the objective's slot; assumes objective.window is the authoritative
-# temporal constraint (true in the vertical slice). Ceiling: also intersect
-# with per-NPC schedules; upgrade when NPC availability differs from the
-# objective windows.
-def _clamp_windows(plan: Plan, objectives: list[Objective]) -> Plan:
-    """Pin each step's window inside its objective's window, deterministically.
+# into an availability occurrence of the objective; treats objective.window as
+# the authoritative temporal constraint (true in the vertical slice). Ceiling:
+# also intersect with per-NPC schedules; upgrade when NPC availability differs
+# from the objective windows.
+def _clamp_windows(plan: Plan, objectives: list[Objective], now: ClockTime) -> Plan:
+    """Pin each step inside an availability occurrence, dropping closed steps.
 
     The LLM frequently emits windows that overflow or miss the slot in which
-    the objective can happen (e.g. Day 1 for a Day 2 objective). This cuts
-    each ``step.window`` to the intersection with its objective's window, so
-    trivial time/NPC issues never burn one of the bounded re-plan attempts.
-    When the LLM window is fully outside the slot, fall back to a ``_SLOT``
-    -hour slot at the objective's window start (``_window_inside``).
+    the objective can happen (e.g. Day 1 for a Day 3 objective), or windows in
+    the past. This cuts each ``step.window`` to the intersection with the
+    objective's next open occurrence, never before ``now``, so trivial
+    time/NPC issues never burn one of the bounded re-plan attempts, and no step
+    is ever scheduled at an hour that has already gone by.
+
+    A step whose objective has no availability left is removed instead of
+    being clamped: there is no future hour in which it can happen.
 
     Deliberately out of scope: ordering, ``depends_on``, items and masks — the
     Critic Agent stays authoritative for the plan's semantics. This only
@@ -391,22 +406,62 @@ def _clamp_windows(plan: Plan, objectives: list[Objective]) -> Plan:
     args:
         plan (Plan): the grounded, deduped LLM plan.
         objectives (list[Objective]): knowledge objectives to clamp against.
+        now (ClockTime): the player's current time; nothing is scheduled before.
 
     returns:
-        Plan: the same plan, each grounded step's window inside its slot.
+        Plan: the same plan without its closed steps, each remaining step's
+        window inside an occurrence still open at ``now``.
     """
     by_id = {o.id: o for o in objectives}
-    for step in plan.steps:
+    kept: list[PlanStep] = []
+    old_to_new: dict[int, int] = {}
+    for idx, step in enumerate(plan.steps):
         obj = by_id.get(step.objective_ref)
-        if obj is None:
-            continue
-        start = _max_clock(step.window.start, obj.window.start)
-        end = min(step.window.end, obj.window.end, key=_clock)
-        if _clock(start) >= _clock(end):
-            step.window = _window_inside(obj, obj.window.start)
-        else:
-            step.window = TimeWindow(start=start, end=end)
+        if obj is not None:
+            window = _clamp_to_occurrence(step.window, obj, now)
+            if window is None:
+                logger.warning(
+                    "Planning Agent: dropping step %s: no availability left after %s",
+                    obj.id,
+                    now,
+                )
+                continue
+            step.window = window
+        old_to_new[idx] = len(kept)
+        kept.append(step)
+    for new_idx, step in enumerate(kept):
+        step.depends_on = [
+            old_to_new[d] for d in step.depends_on if d in old_to_new and old_to_new[d] < new_idx
+        ]
+    plan.steps = kept
     return plan
+
+
+def _clamp_to_occurrence(desired: TimeWindow, obj: Objective, now: ClockTime) -> TimeWindow | None:
+    """Cut a desired window into the objective's next open occurrence.
+
+    A window that misses every open occurrence (e.g. the LLM kept Day 1 for a
+    daily availability while the player is on Day 2) is re-slotted onto the next
+    available hour, so the plan stays feasible without another LLM call.
+
+    args:
+        desired (TimeWindow): the LLM's window for the step.
+        obj (Objective): the objective the step is grounded to.
+        now (ClockTime): the player's current time; nothing is scheduled before.
+
+    returns:
+        TimeWindow | None: the clamped window, or None when the objective has
+        no availability left after ``now``.
+    """
+    open_windows = occurrences(obj, now)
+    for occurrence in open_windows:
+        start = _max_clock(desired.start, occurrence.start, now)
+        end = min(desired.end, occurrence.end, key=_clock)
+        if _clock(start) < _clock(end):
+            return TimeWindow(start=start, end=end)
+    if open_windows:
+        return _window_inside(obj, now, now)
+    return None
 
 
 def _match_objective(step: PlanStep, objectives: list[Objective]) -> Objective | None:

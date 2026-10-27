@@ -88,7 +88,7 @@ def run(state: PlanningState) -> dict:
     proposal = result.model_copy(deep=True)
     result = _ground_llm_steps(result, state.relevant_objectives)
     result = _dedupe_steps(result)
-    result = _clamp_windows(result, state.relevant_objectives)
+    result = _clamp_windows(result, state.relevant_objectives, state.game_state.time)
     result = _reconcile_plan(result, state)
     _log_plan(result)
     return {
