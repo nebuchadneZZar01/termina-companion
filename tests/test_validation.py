@@ -852,6 +852,8 @@ def test_pipeline_reports_the_song_of_time_for_a_closed_chain():
     kinds = {issue.kind for issue in result.validation.issues}
     assert kinds == {"unreachable"}
     assert "Song of Time" in result.validation.issues[0].message
+    # Re-planning cannot reopen a window: the run stops at the first verdict.
+    assert result.replan_attempts == 1
 
 
 def test_pipeline_keeps_feasible_steps_and_reports_the_dead_chain():
@@ -863,3 +865,69 @@ def test_pipeline_keeps_feasible_steps_and_reports_the_dead_chain():
     assert "unreachable" in kinds
     refs = {step.objective_ref for step in result.plan.steps}
     assert "pf_find_pamela" in refs
+
+
+def _routing_state(*issues: ValidationIssue, attempts: int = 1):
+    """Build a state carrying a failed validation for the router."""
+    from app.state import PlanningState
+
+    return PlanningState(
+        game_state=_gs(),
+        goal=Goal(description="x"),
+        validation=ValidationResult(valid=False, issues=list(issues)),
+        replan_attempts=attempts,
+    )
+
+
+def _issue_of(kind: str, severity: str = "error") -> ValidationIssue:
+    """Build a validation issue of a given kind."""
+    return ValidationIssue(severity=severity, kind=kind, message="x")
+
+
+def test_router_gives_up_when_every_error_is_temporal():
+    """A closed window cannot be fixed by planning again."""
+    from app.graph import _route
+
+    assert _route(_routing_state(_issue_of("unreachable"))) == "give_up"
+
+
+def test_router_gives_up_on_a_quest_gate_too():
+    """A gate towards an incomplete quest is just as terminal."""
+    from app.graph import _route
+
+    assert _route(_routing_state(_issue_of("quest_prerequisite"))) == "give_up"
+
+
+def test_router_still_replans_when_a_temporal_error_is_fixable():
+    """A missing item alongside a closed window still deserves one more plan."""
+    from app.graph import _route
+
+    mixed = _routing_state(_issue_of("unreachable"), _issue_of("item"))
+    assert _route(mixed) == "replan"
+
+
+def test_router_replans_on_a_plain_timing_error():
+    """A window outside its slot is a planner mistake, not a dead cycle."""
+    from app.graph import _route
+
+    assert _route(_routing_state(_issue_of("time"))) == "replan"
+
+
+def test_router_ignores_warnings_when_deciding():
+    """A warning never blocks a re-plan on its own."""
+    from app.graph import _route
+
+    assert _route(_routing_state(_issue_of("unreachable", "warning"))) == "replan"
+
+
+def test_router_accepts_a_valid_plan():
+    """A valid verdict ends the run."""
+    from app.graph import _route
+    from app.state import PlanningState
+
+    state = PlanningState(
+        game_state=_gs(),
+        goal=Goal(description="x"),
+        validation=ValidationResult(valid=True, issues=[]),
+    )
+    assert _route(state) == "valid"

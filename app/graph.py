@@ -33,6 +33,10 @@ from app.trace import (
 
 MAX_PLANNING_ATTEMPTS = 3
 
+# Errors a new plan cannot fix: the quest must be completed first, or the cycle
+# must be restarted. Re-planning would burn the attempts and return the same plan.
+_TERMINAL_KINDS = {"quest_prerequisite", "unreachable"}
+
 logger = logging.getLogger(__name__)
 
 
@@ -177,10 +181,11 @@ def _route(state: PlanningState) -> str:
         logger.info("Graph: valid plan — done")
         return "valid"
     if state.validation and state.validation.issues:
-        # If all errors are quest prerequisites, re-planning cannot help
+        # A gate or a closed window cannot be fixed by planning again: the quest
+        # must be completed first, or the cycle restarted with the Song of Time.
         error_issues = [i for i in state.validation.issues if i.severity == "error"]
-        if error_issues and all(i.kind == "quest_prerequisite" for i in error_issues):
-            logger.info("Graph: quest prerequisite gate(s) only — giving up (no re-plan)")
+        if error_issues and all(i.kind in _TERMINAL_KINDS for i in error_issues):
+            logger.info("Graph: only terminal issues — giving up (no re-plan)")
             return "give_up"
     if state.replan_attempts >= MAX_PLANNING_ATTEMPTS:
         logger.warning("Graph: replan limit reached (%d) — giving up", MAX_PLANNING_ATTEMPTS)
