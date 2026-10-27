@@ -535,6 +535,32 @@ def test_prerequisite_satisfied_by_done_quest_passes():
     assert validate_plan(plan, gs, [deliver], kb.npcs).valid
 
 
+def test_prerequisite_satisfied_by_a_declared_completed_objective():
+    """A prerequisite the player declared done counts as satisfied."""
+    first = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
+    second = TimeWindow(start=ClockTime(day=1, hour=9), end=ClockTime(day=1, hour=10))
+    o1 = _objective("o1", first)
+    o2 = _objective("o2", second)
+    o2.prerequisites = ["o1"]
+    plan = Plan(goal="x", steps=[_step("s2", second, ref="o2")])
+    gs = _gs(completed_objectives=["o1"])
+    assert validate_plan(plan, gs, [o1, o2]).valid
+
+
+def test_quest_counts_as_satisfied_when_every_objective_is_declared_done():
+    """Declaring all the objectives of a gated quest satisfies its gate."""
+    from app.data.mock_knowledge import build_default_knowledge
+
+    kb = build_default_knowledge()
+    keeta = next(o for q in kb.quests for o in q.objectives if o.id == "ss_wake_keeta")
+    step = _step("wake", keeta.window, location=keeta.location, ref="ss_wake_keeta")
+    plan = Plan(goal="x", steps=[step])
+    princess = next(q for q in kb.quests if q.id == "deku_princess")
+    gs = _gs(completed_objectives=[o.id for o in princess.objectives])
+    result = validate_plan(plan, gs, [keeta], kb.npcs)
+    assert result.valid
+
+
 def test_required_item_provided_by_earlier_step_passes():
     """A required item is not flagged missing when an earlier step provides it."""
     first = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))

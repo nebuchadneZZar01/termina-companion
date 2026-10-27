@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import logging
 
-from app.data.mock_knowledge import KnowledgeBase, build_default_knowledge
+from app.agents.progress import progress_summary
+from app.data.mock_knowledge import build_default_knowledge
 from app.state import PlanningState
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ def run(state: PlanningState) -> dict:
         f"Items: {', '.join(gs.inventory) or 'none'}. "
         f"Masks: {', '.join(gs.masks) or 'none'}."
     )
-    progress = _progress_summary(gs.quest_progress, _KB)
+    progress = progress_summary(_KB.quests, gs.completed_objectives, gs.quest_progress)
     if progress:
         summary += f"\n{progress}"
     prefs = state.preferences.summary() if hasattr(state, "preferences") else "none"
@@ -60,28 +61,6 @@ def run(state: PlanningState) -> dict:
         summary,
     )
     return {"game_state": gs, "state_summary": summary, "state_engine": "rule-based"}
-
-
-def _progress_summary(quest_progress: dict[str, str], kb: KnowledgeBase) -> str:
-    """Describe the quests the player has completed.
-
-    Only whole-quest completion is known, so the summary never guesses an
-    "active" quest from the player's location: a position only says where the
-    player is, not what they are doing.
-
-    args:
-        quest_progress (dict[str, str]): quest id to status map; "done" marks
-        a whole quest completed.
-        kb (KnowledgeBase): the game knowledge, for quest names.
-
-    returns:
-        str: the completed-quest line, or "" when nothing is completed.
-    """
-    done = {qid for qid, status in quest_progress.items() if status == "done"}
-    completed = [q.name for q in kb.quests if q.id in done]
-    if not completed:
-        return ""
-    return f"Completed quests: {', '.join(completed)}."
 
 
 def _canonical_location(location: str) -> str:

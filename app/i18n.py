@@ -507,6 +507,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "inventory_add_button": "Add",
         "quest_progress": "Quest Progress",
         "quest_progress_help": ("Select quests already completed \u2014 they\u2019ll be skipped."),
+        "completed_objectives": "Completed objectives",
+        "completed_objectives_help": (
+            "Select the single objectives you already completed. "
+            "Partial progress is never inferred from the location."
+        ),
         "goal_example": "e.g. Reunite Anju and Kafei before the dawn of the Third Day",
         "stop_plan": "Stop",
         "stop_plan_help": "Stop after the current agent or LLM call finishes.",
@@ -867,6 +872,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "quest_progress": "Missioni completate",
         "quest_progress_help": (
             "Seleziona le missioni gi\u00e0 completate \u2014 verranno saltate."
+        ),
+        "completed_objectives": "Obiettivi completati",
+        "completed_objectives_help": (
+            "Seleziona i singoli obiettivi che hai gi\u00e0 completato. "
+            "Il progresso parziale non viene mai dedotto dalla posizione."
         ),
         "goal_example": "Es. Ricongiungi Anju e Kafei prima dell'alba del Terzo Giorno",
         "stop_plan": "Stop",

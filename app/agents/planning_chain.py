@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from app.agents.planning_clock import _max_clock, _window_inside
+from app.agents.progress import done_objective_ids
 from app.data.mock_knowledge import Objective, build_default_knowledge
 from app.domain import ClockTime, Plan, PlanStep, TimeWindow
 from app.domain import clock_key as _clock
@@ -125,14 +126,15 @@ def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
     """Rebuild the plan around the authoritative objective chain.
 
     Every chain objective becomes a step, in prerequisite order. The chain
-    starts after the furthest objective whose reward the player already owns,
-    so a trade chain never asks for items that were already traded away. On the
-    first attempt the LLM's window is kept when it fits the chain — it starts
-    after the dependencies and after the previous step, and ends before the
-    successor's slot opens — and is re-slotted onto a one-hour slot otherwise.
-    On a re-plan every window is re-slotted deterministically. The rebuilt
-    plan therefore never overlaps itself and never starts a step before its
-    prerequisites are done.
+    starts after the furthest objective whose reward the player already owns and
+    never contains an objective the player declared completed, so a trade chain
+    never asks for items that were already traded away. On the first attempt the
+    LLM's window is kept when it fits the chain — it starts after the
+    dependencies and after the previous step, and ends before the successor's
+    slot opens — and is re-slotted onto a one-hour slot otherwise. On a re-plan
+    every window is re-slotted deterministically. The rebuilt plan therefore
+    never overlaps itself and never starts a step before its prerequisites are
+    done.
 
     args:
         plan (Plan): the grounded LLM plan.
@@ -140,26 +142,38 @@ def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
         retrieved objectives.
 
     returns:
-        Plan: the same plan, pruned of done and owned-provide steps and with
-        every remaining chain objective present, ordered by prerequisites and
-        timed after its dependencies.
+        Plan: the same plan, pruned of explicit done, reward-floor done and
+        owned-provide steps and with every remaining chain objective present,
+        ordered by prerequisites and timed after its dependencies.
     """
     owned_items = set(state.game_state.inventory)
     owned_masks = set(state.game_state.masks)
+    done_ids = done_objective_ids(
+        _KB.quests,
+        state.game_state.completed_objectives,
+        state.game_state.quest_progress,
+    )
     by_ref = {s.objective_ref: s for s in plan.steps}
     floor = _owned_chain_floor(state.relevant_objectives, owned_items, owned_masks)
     ordered = _order_by_prerequisites(state.relevant_objectives)
     chain = [
         obj
         for obj in ordered
-        if not _already_done(obj, floor) and not _already_owned(obj, owned_items, owned_masks)
+        if obj.id not in done_ids
+        and not _already_done(obj, floor)
+        and not _already_owned(obj, owned_items, owned_masks)
     ]
     if not _requirements_covered(chain, owned_items, owned_masks):
         # The inventory contradicts the inferred chain position (e.g. a later
         # reward is owned but an earlier mask is not). Fall back to pruning
-        # only objectives whose own reward is already owned, so the missing
-        # requirements can still be acquired by the plan.
-        chain = [obj for obj in ordered if not _already_owned(obj, owned_items, owned_masks)]
+        # only objectives that are explicitly done or whose own reward is
+        # already owned, so the missing requirements can still be acquired by
+        # the plan.
+        chain = [
+            obj
+            for obj in ordered
+            if obj.id not in done_ids and not _already_owned(obj, owned_items, owned_masks)
+        ]
     steps: list[PlanStep] = []
     prev_end: ClockTime | None = None
     for idx, obj in enumerate(chain):

@@ -31,13 +31,21 @@ logger = logging.getLogger(__name__)
 
 
 def _quest_is_satisfied(
-    required_quest_id: str, game_state: GameState, plan: Plan, view: KnowledgeView
+    required_quest_id: str,
+    game_state: GameState,
+    plan: Plan,
+    view: KnowledgeView,
+    done_ids: set[str] | None = None,
 ) -> bool:
     if game_state.quest_progress.get(required_quest_id) == "done":
         return True
     quest = view.quest(required_quest_id)
     if quest is None or not quest.objectives:
         return False
+    every = done_ids or set(game_state.completed_objectives)
+    if all(obj.id in every for obj in quest.objectives):
+        # The player declared every objective of the quest as completed.
+        return True
     terminal = quest.objectives[-1]
     if any(step.objective_ref == terminal.id for step in plan.steps):
         return True
@@ -52,6 +60,7 @@ def _quest_prerequisite_closure(
     plan: Plan,
     view: KnowledgeView,
     visited: set[str] | None = None,
+    done_ids: set[str] | None = None,
 ) -> list[str]:
     if visited is None:
         visited = set()
@@ -59,7 +68,7 @@ def _quest_prerequisite_closure(
         return []
     visited.add(required_quest_id)
 
-    if _quest_is_satisfied(required_quest_id, game_state, plan, view):
+    if _quest_is_satisfied(required_quest_id, game_state, plan, view, done_ids):
         return []
 
     missing: list[str] = []
@@ -72,9 +81,11 @@ def _quest_prerequisite_closure(
         for obj in quest.objectives:
             reqs.update(obj.requires_quests)
         for r in sorted(reqs):
-            missing.extend(_quest_prerequisite_closure(r, game_state, plan, view, visited))
+            missing.extend(
+                _quest_prerequisite_closure(r, game_state, plan, view, visited, done_ids)
+            )
         # add this quest if still missing
-        if not _quest_is_satisfied(required_quest_id, game_state, plan, view):
+        if not _quest_is_satisfied(required_quest_id, game_state, plan, view, done_ids):
             missing.append(required_quest_id)
 
     # deduplicate preserving order
@@ -122,11 +133,36 @@ def validate_plan(
         )
 
     view = KnowledgeView(objectives, npcs)
+    done_ids = _done_ids(game_state, view)
     issues: list[ValidationIssue] = []
     for idx, step in enumerate(plan.steps):
-        issues.extend(_check_step(step, idx, plan, game_state, view))
+        issues.extend(_check_step(step, idx, plan, game_state, view, done_ids))
     issues.extend(_check_overlaps(plan))
     return ValidationResult(valid=not issues, issues=issues)
+
+
+def _done_ids(game_state: GameState, view: KnowledgeView) -> set[str]:
+    """Objective ids already completed, with ``done`` quests expanded.
+
+    The player state is the source of truth. A quest marked ``done`` counts as
+    every one of its objectives being completed; its objectives come from the
+    knowledge view, never from the plan.
+
+    args:
+        game_state (GameState): the player's inventory, masks and progress.
+        view (KnowledgeView): authoritative quest lookups.
+
+    returns:
+        set[str]: every objective id that is already done.
+    """
+    done = set(game_state.completed_objectives)
+    for quest_id, status in (game_state.quest_progress or {}).items():
+        if status != "done":
+            continue
+        quest = view.quest(quest_id)
+        if quest is not None:
+            done.update(obj.id for obj in quest.objectives)
+    return done
 
 
 def _quest_display_name(quest_id: str, view: KnowledgeView) -> str:
@@ -142,6 +178,7 @@ def _check_step(
     plan: Plan,
     game_state: GameState,
     view: KnowledgeView,
+    done_ids: set[str] | None = None,
 ) -> list[ValidationIssue]:
     """Validate a single plan step against all feasibility rules.
 
@@ -207,7 +244,7 @@ def _check_step(
     if missing_masks:
         issues.append(_issue("mask", idx, f"Missing mask(s): {', '.join(missing_masks)}."))
 
-    missing_prereqs = _missing_prerequisites(idx, objective, plan, game_state, view)
+    missing_prereqs = _missing_prerequisites(idx, objective, plan, game_state, view, done_ids)
     if missing_prereqs:
         issues.append(
             _issue("prerequisite", idx, f"Missing prerequisite(s): {', '.join(missing_prereqs)}.")
@@ -311,6 +348,7 @@ def _missing_prerequisites(
     plan: Plan,
     game_state: GameState,
     view: KnowledgeView,
+    done_ids: set[str] | None = None,
 ) -> list[str]:
     """Prerequisites of a step absent from the plan and not already satisfied.
 
@@ -331,9 +369,12 @@ def _missing_prerequisites(
     """
     present = {s.objective_ref for s in plan.steps[:idx]}
     done = {qid for qid, status in (game_state.quest_progress or {}).items() if status == "done"}
+    completed = done_ids or set(game_state.completed_objectives)
     missing = []
     for prereq in objective.prerequisites:
         if prereq in present:
+            continue
+        if prereq in completed:
             continue
         prereq_obj = view.objective(prereq)
         if prereq_obj is not None and view.quest_id(prereq) in done:

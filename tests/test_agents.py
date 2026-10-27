@@ -67,21 +67,18 @@ def test_state_agent_summary_does_not_infer_a_quest_from_location():
     assert "Anju and Kafei" not in summary
 
 
-def test_progress_summary_lists_completed_quest():
+def test_state_agent_reports_completed_quests():
     """A quest marked done in quest_progress is reported as completed."""
-    from app.agents.state_agent import _progress_summary
-
-    kb = build_default_knowledge()
-    out = _progress_summary({"anju_kafei": "done"}, kb)
-    assert "Completed quests: Anju and Kafei" in out
+    state = _state(quest_progress={"anju_kafei": "done"})
+    assert "Completed quests: Anju and Kafei" in state_agent.run(state)["state_summary"]
 
 
-def test_progress_summary_empty_without_completed_quests():
-    """No progress is reported when no quest is completed."""
-    from app.agents.state_agent import _progress_summary
-
-    kb = build_default_knowledge()
-    assert _progress_summary({}, kb) == ""
+def test_state_agent_reports_partial_objective_progress():
+    """A declared completed objective shows up as partial quest progress."""
+    state = _state(completed_objectives=["ak_get_kafei_mask"])
+    summary = state_agent.run(state)["state_summary"]
+    assert "Anju and Kafei in progress" in summary
+    assert "Get Kafei's Mask from Madame Aroma" in summary
 
 
 def test_knowledge_agent_is_rule_based():
@@ -372,6 +369,25 @@ def test_reconcile_starts_after_the_furthest_owned_reward():
         "ak_reunite",
     ]
     assert out.steps[0].depends_on == []
+
+
+def test_reconcile_prunes_declared_completed_objectives():
+    """An objective the player declared done is never planned again."""
+    state = _state(completed_objectives=["ak_get_kafei_mask"])
+    out = planning_chain._reconcile_plan(Plan(goal="x"), state)
+    refs = [s.objective_ref for s in out.steps]
+    assert "ak_get_kafei_mask" not in refs
+    assert refs[0] == "ak_get_room_key"
+
+
+def test_reconcile_keeps_the_chain_when_only_a_later_objective_is_done():
+    """The explicit set is per objective: earlier steps stay plannable."""
+    state = _state(completed_objectives=["ak_talk_to_anju"])
+    out = planning_chain._reconcile_plan(Plan(goal="x"), state)
+    refs = [s.objective_ref for s in out.steps]
+    assert refs[:2] == ["ak_get_kafei_mask", "ak_get_room_key"]
+    assert "ak_talk_to_anju" not in refs
+    assert "ak_meet_in_kitchen" in refs
 
 
 def test_reconcile_skips_traded_away_rewards():
