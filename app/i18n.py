@@ -644,6 +644,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_prerequisite": "prerequisite",
         "kind_quest_prerequisite": "quest prerequisite",
         "kind_unreachable": "out of reach",
+        "kind_missing_step": "missing step",
         "no_issues": "No issues.",
         "validation_details": "Validation details",
         "problems": "Problems",
@@ -1017,6 +1018,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_prerequisite": "prerequisito",
         "kind_quest_prerequisite": "prerequisito quest",
         "kind_unreachable": "fuori portata",
+        "kind_missing_step": "passo mancante",
         "no_issues": "Nessun problema.",
         "validation_details": "Dettagli validazione",
         "problems": "Problemi",
@@ -1298,6 +1300,9 @@ _MSGS_IT: dict[str, str] = {
     " is out of reach. Use the Song of Time to restart the cycle.": (
         " \u00e8 fuori portata. Usa la Canzone del Tempo per riavviare il ciclo."
     ),
+    "it no longer fits before ": "non entra pi\u00f9 prima di ",
+    " fits at ": " sta in ",
+    " but the plan does not schedule it.": " ma il piano non lo pianifica.",
     ". Complete this quest first.": ". Completa questa quest prima.",
     ". Complete these quests first.": ". Completa queste quest prima.",
     "Depends on a step that ends after this one starts.": (

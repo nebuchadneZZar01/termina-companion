@@ -15,6 +15,7 @@ import logging
 from app.agents.critic_knowledge import KnowledgeView
 from app.agents.planning_clock import occurrences
 from app.agents.reachability import dead_objectives, dead_quests
+from app.agents.scheduling import Placement, schedule_chain, select_chain
 from app.data.mock_knowledge import NPC, Objective
 from app.domain import (
     ClockTime,
@@ -124,6 +125,12 @@ def validate_plan(
     feasible. An empty plan is only ``empty`` when nothing is out of reach;
     otherwise it is reported as the temporal failure it is.
 
+    The chain itself is checked too: the Critic rebuilds the schedule from the
+    objectives and the clock, so an objective the cycle can no longer hold is
+    ``unreachable`` and one that still fits but has no step is a ``missing_step``
+    error. A plan can therefore never look complete while required objectives are
+    missing.
+
     args:
         plan (Plan | None): the plan to validate.
         game_state (GameState): the player's inventory, masks and progress.
@@ -154,6 +161,7 @@ def validate_plan(
 
     if not plan or not plan.steps:
         issues = [_root_issue(root, view) for root in roots]
+        issues.extend(_schedule_issues(plan, game_state, objectives, dead, view, done_ids))
         if not issues:
             issues = [ValidationIssue(severity="error", kind="empty", message="Plan has no steps.")]
         return ValidationResult(valid=False, issues=issues)
@@ -165,7 +173,108 @@ def validate_plan(
     # One issue per dead chain, unless a step of that chain already reported it.
     covered = {dead[step.objective_ref] for step in plan.steps if step.objective_ref in dead}
     issues.extend(_root_issue(root, view) for root in roots if root not in covered)
+    issues.extend(_schedule_issues(plan, game_state, objectives, dead, view, done_ids))
     return ValidationResult(valid=not issues, issues=issues)
+
+
+def _schedule_issues(
+    plan: Plan | None,
+    game_state: GameState,
+    objectives: list[Objective],
+    dead: dict[str, str],
+    view: KnowledgeView,
+    done_ids: set[str],
+) -> list[ValidationIssue]:
+    """Objectives the chain had to lose, and the ones the plan lost by mistake.
+
+    The Critic rebuilds the schedule itself from the objectives, the player's
+    state and the clock, so the verdict never depends on what the plan claims.
+    An objective the cycle can no longer hold has no slot to give and is
+    ``unreachable``; one that still fits but has no step is a planning error
+    (``missing_step``) and is worth another attempt.
+
+    args:
+        plan (Plan | None): the plan under validation.
+        game_state (GameState): the player's inventory, masks and clock.
+        objectives (list[Objective]): the objectives the plan was built from.
+        dead (dict[str, str]): objective id → root, from the reachability closure.
+        view (KnowledgeView): authoritative objective and quest lookups.
+        done_ids (set[str]): completed objectives, quests expanded.
+
+    returns:
+        list[ValidationIssue]: one issue per affected objective, chain order.
+    """
+    if not objectives:
+        return []
+    chain = select_chain(
+        objectives,
+        owned_items=set(game_state.inventory),
+        owned_masks=set(game_state.masks),
+        done_ids=done_ids,
+        dead=dead,
+        positions=view.objective_positions(objectives),
+    )
+    schedule = schedule_chain(chain, game_state.time)
+    planned = {step.objective_ref for step in plan.steps} if plan else set()
+    issues = [
+        _dropped_issue(objective, view, game_state.time)
+        for objective in schedule.dropped
+        if objective.id not in planned
+    ]
+    issues.extend(
+        _missing_step_issue(placement, view)
+        for placement in schedule.placed
+        if placement.objective.id not in planned
+    )
+    return issues
+
+
+def _dropped_issue(objective: Objective, view: KnowledgeView, now: ClockTime) -> ValidationIssue:
+    """One ``unreachable`` issue for an objective the cycle can no longer hold.
+
+    args:
+        objective (Objective): the objective that no longer fits.
+        view (KnowledgeView): authoritative quest lookups.
+        now (ClockTime): the player's clock.
+
+    returns:
+        ValidationIssue: a plan-level error naming the objective, the end of its
+        last availability and the Song of Time.
+    """
+    # The cause is always the same: no room left before the last hour in which
+    # the objective can happen, whether its own window is one-off or the cycle
+    # is simply running out.
+    quest = view.quest_for_objective(objective.id)
+    label = f"{quest.name}: {objective.title}" if quest else objective.title
+    open_windows = occurrences(objective, now)
+    end = open_windows[-1].end if open_windows else objective.window.end
+    return ValidationIssue(
+        severity="error",
+        kind="unreachable",
+        message=(
+            f"{label}: it no longer fits before {end}. Use the Song of Time to restart the cycle."
+        ),
+    )
+
+
+def _missing_step_issue(placement: Placement, view: KnowledgeView) -> ValidationIssue:
+    """One ``missing_step`` issue for a chain objective that still fits.
+
+    args:
+        placement (Placement): the scheduled objective and its window.
+        view (KnowledgeView): authoritative quest lookups.
+
+    returns:
+        ValidationIssue: a plan-level error naming the objective and the window
+        the plan should have used.
+    """
+    quest = view.quest_for_objective(placement.objective.id)
+    label = f"{quest.name}: {placement.objective.title}" if quest else placement.objective.title
+    return ValidationIssue(
+        severity="error",
+        kind="missing_step",
+        message=f"{label} fits at {placement.window} but the plan does not schedule it.",
+    )
 
 
 def _root_issue(root: str, view: KnowledgeView) -> ValidationIssue:

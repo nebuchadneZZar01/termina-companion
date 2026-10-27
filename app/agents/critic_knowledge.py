@@ -156,6 +156,31 @@ class KnowledgeView:
         self._quests[quest_id] = quest
         return quest
 
+    def objective_positions(self, objectives: list[Objective]) -> dict[str, tuple[str, int]]:
+        """Where each objective sits in its quest's chain, through the tools.
+
+        The scheduler needs the position to apply the owned-reward floor the
+        same way the planner does. The quests are resolved through the MCP view,
+        so the Critic keeps reading game knowledge from one place; a quest the
+        tools cannot resolve simply leaves its objectives unpositioned.
+
+        args:
+            objectives (list[Objective]): the objectives to position.
+
+        returns:
+            dict[str, tuple[str, int]]: objective id → (quest id, chain index).
+        """
+        positions: dict[str, tuple[str, int]] = {}
+        quests: dict[str, Quest] = {}
+        for objective in objectives:
+            quest = self.quest_for_objective(objective.id)
+            if quest is not None:
+                quests.setdefault(quest.id, quest)
+        for quest in quests.values():
+            for idx, member in enumerate(quest.objectives):
+                positions.setdefault(member.id, (quest.id, idx))
+        return positions
+
     def npc(self, npc_id: str) -> NPC | None:
         """Resolve an NPC id to its schedule.
 

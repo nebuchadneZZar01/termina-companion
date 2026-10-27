@@ -11,7 +11,9 @@ from __future__ import annotations
 import pytest
 
 from app.agents.critic_agent import validate_plan
-from app.agents.planning_chain import _reconcile_plan, dead_for
+from app.agents.planning_chain import _OBJECTIVE_POSITION, _reconcile_plan, dead_for
+from app.agents.progress import done_objective_ids
+from app.agents.scheduling import schedule_chain, select_chain
 from app.data.mock_knowledge import Objective, build_default_knowledge
 from app.domain import ClockTime, GameState, Goal, Plan
 from app.mcp.tools import search_quests
@@ -45,6 +47,22 @@ def _objectives(text: str) -> list[Objective]:
         for group in search_quests(text)
         for item in group["objectives"]
     ]
+
+
+def _schedule(state: PlanningState, dead: dict[str, str]):
+    """The chain and its placement, computed the way the agents compute it."""
+    game_state = state.game_state
+    chain = select_chain(
+        state.relevant_objectives,
+        owned_items=set(game_state.inventory),
+        owned_masks=set(game_state.masks),
+        done_ids=done_objective_ids(
+            _KB.quests, game_state.completed_objectives, game_state.quest_progress
+        ),
+        dead=dead,
+        positions=_OBJECTIVE_POSITION,
+    )
+    return schedule_chain(chain, game_state.time)
 
 
 def _state(now: ClockTime, goal: str) -> PlanningState:
@@ -116,24 +134,28 @@ def test_planner_and_critic_agree_on_what_is_closed(goal, now):
     """The Critic reports unreachable exactly when the clock closed a chain."""
     state = _state(now, goal)
     dead = dead_for(state)
+    schedule = _schedule(state, dead)
     plan = _reconcile_plan(Plan(goal=state.goal.description), state)
     result = validate_plan(plan, state.game_state, state.relevant_objectives, _KB.npcs)
     unreachable = [issue for issue in result.issues if issue.kind == "unreachable"]
-    assert bool(unreachable) == bool(dead), (dead, result.issues)
+    assert bool(unreachable) == bool(dead or schedule.dropped), (dead, result.issues)
     for issue in unreachable:
         assert "Song of Time" in issue.message
 
 
 @pytest.mark.parametrize(("goal", "now"), CASES, ids=[f"{g}-{n}" for g, n in CASES])
-def test_the_plan_holds_only_reachable_objectives(goal, now):
-    """Nothing closed is scheduled, and a reachable goal is never silently empty."""
+def test_the_plan_holds_exactly_what_fits(goal, now):
+    """The plan is the schedule: nothing reachable dropped, nothing closed added."""
     state = _state(now, goal)
     dead = dead_for(state)
+    schedule = _schedule(state, dead)
     plan = _reconcile_plan(Plan(goal=state.goal.description), state)
     planned = {step.objective_ref for step in plan.steps}
-    assert planned <= {obj.id for obj in state.relevant_objectives}
+    assert planned == schedule.placed_ids, (planned, schedule.placed_ids, schedule.dropped_ids)
     assert not planned & set(dead)
-    assert planned or dead
+    result = validate_plan(plan, state.game_state, state.relevant_objectives, _KB.npcs)
+    missing = [issue for issue in result.issues if issue.kind == "missing_step"]
+    assert missing == []
 
 
 @pytest.mark.parametrize(("goal", "now"), CASES, ids=[f"{g}-{n}" for g, n in CASES])
@@ -179,6 +201,25 @@ def test_a_recurring_chain_is_still_plannable_on_the_last_day():
     assert {step.window.start.day for step in plan.steps} == {3}
     result = validate_plan(plan, state.game_state, state.relevant_objectives, _KB.npcs)
     assert "unreachable" not in {issue.kind for issue in result.issues}
+
+
+def test_a_chain_that_overruns_the_cycle_is_reported_not_shortened():
+    """Six one-hour steps do not fit in the last two hours of Day 3."""
+    state = _state(ClockTime(day=3, hour=22), "darmani")
+    dead = dead_for(state)
+    schedule = _schedule(state, dead)
+    assert schedule.placed_ids and schedule.dropped_ids
+    plan = _reconcile_plan(Plan(goal=state.goal.description), state)
+    assert {step.objective_ref for step in plan.steps} == schedule.placed_ids
+    result = validate_plan(plan, state.game_state, state.relevant_objectives, _KB.npcs)
+    assert not result.valid
+    unreachable = [issue for issue in result.issues if issue.kind == "unreachable"]
+    assert len(unreachable) == len(schedule.dropped_ids)
+    for issue in unreachable:
+        assert "it no longer fits before" in issue.message
+        assert "Song of Time" in issue.message
+    assert "empty" not in {issue.kind for issue in result.issues}
+    assert "missing_step" not in {issue.kind for issue in result.issues}
 
 
 def test_a_one_off_chain_is_gone_by_the_second_day():

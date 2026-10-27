@@ -282,7 +282,7 @@ def test_unknown_objective_ref_rejected():
     """An unknown reference is an error, never a skipped check."""
     start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
     plan = Plan(goal="x", steps=[_step("s1", start, ref="not_a_real_objective")])
-    result = validate_plan(plan, _gs(), [_objective("o1", start)])
+    result = validate_plan(plan, _gs(), [])
     assert not result.valid
     assert [i.kind for i in result.issues] == ["objective"]
     assert "not_a_real_objective" in result.issues[0].message
@@ -292,7 +292,7 @@ def test_empty_objective_ref_rejected():
     """A step without a reference cannot be verified and is rejected."""
     start = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9))
     plan = Plan(goal="x", steps=[_step("s1", start, ref="")])
-    result = validate_plan(plan, _gs(), [_objective("o1", start)])
+    result = validate_plan(plan, _gs(), [])
     assert [i.kind for i in result.issues] == ["objective"]
 
 
@@ -931,3 +931,81 @@ def test_router_accepts_a_valid_plan():
         validation=ValidationResult(valid=True, issues=[]),
     )
     assert _route(state) == "valid"
+
+
+def test_pipeline_reports_the_objectives_the_cycle_can_no_longer_hold():
+    """Six hourly steps do not fit in the last two hours: failure, not silence."""
+    gs = GameState(time=ClockTime(day=3, hour=22), location="Mountain Village")
+    result = run_pipeline(gs, Goal(description="learn the Goron Lullaby from Darmani"))
+    assert result.plan.steps, "the feasible steps stay in the plan"
+    assert result.validation is not None and not result.validation.valid
+    kinds = {issue.kind for issue in result.validation.issues}
+    assert kinds == {"unreachable"}
+    dropped = [issue for issue in result.validation.issues if issue.kind == "unreachable"]
+    assert len(dropped) >= 2
+    for issue in dropped:
+        assert "it no longer fits before" in issue.message
+        assert "Song of Time" in issue.message
+    # Re-planning cannot create hours: the run stops at the first verdict.
+    assert result.replan_attempts == 1
+
+
+def test_a_plan_that_loses_a_placeable_step_is_rejected():
+    """A chain objective that still fits but has no step is a planning error."""
+    window = TimeWindow(start=ClockTime(day=1, hour=6), end=ClockTime(day=1, hour=23))
+    first = _objective("o1", window)
+    second = _objective("o2", window)
+    plan = Plan(goal="x", steps=[_step("s1", window, ref="o1")])
+    result = validate_plan(plan, _gs_at(ClockTime(day=1, hour=6)), [first, second])
+    assert not result.valid
+    assert [issue.kind for issue in result.issues] == ["missing_step"]
+    assert "o2" in result.issues[0].message
+    assert "does not schedule it" in result.issues[0].message
+
+
+def test_a_complete_plan_has_no_missing_step():
+    """Both steps present: nothing to report about the chain."""
+    window = TimeWindow(start=ClockTime(day=1, hour=6), end=ClockTime(day=1, hour=23))
+    first = _objective("o1", window)
+    second = _objective("o2", window)
+    plan = Plan(
+        goal="x",
+        steps=[
+            _step(
+                "s1",
+                TimeWindow(start=ClockTime(day=1, hour=6), end=ClockTime(day=1, hour=7)),
+                ref="o1",
+            ),
+            _step(
+                "s2",
+                TimeWindow(start=ClockTime(day=1, hour=7), end=ClockTime(day=1, hour=8)),
+                ref="o2",
+            ),
+        ],
+    )
+    assert validate_plan(plan, _gs_at(ClockTime(day=1, hour=6)), [first, second]).valid
+
+
+def test_cycle_tail_and_missing_step_messages_translate_to_italian():
+    """The cycle-tail verdict keeps its entities and translates the rest."""
+    from unittest.mock import patch
+
+    with patch("streamlit.session_state") as sess:
+        sess.get.return_value = "it"
+        from app.i18n import t, tr_msg
+
+        tail = tr_msg(
+            "Darmani: Heal Darmani: it no longer fits before Day 3, 23:59. "
+            "Use the Song of Time to restart the cycle."
+        )
+        assert tail == (
+            "Darmani: Heal Darmani: non entra pi\u00f9 prima di Day 3, 23:59. "
+            "Usa la Canzone del Tempo per riavviare il ciclo."
+        )
+        missing = tr_msg(
+            "Darmani: See Darmani fits at [Day 2, 09:00 \u2192 Day 2, 10:00] "
+            "but the plan does not schedule it."
+        )
+        assert "Darmani: See Darmani sta in" in missing
+        assert missing.endswith("ma il piano non lo pianifica.")
+        assert t("kind_missing_step") == "passo mancante"
