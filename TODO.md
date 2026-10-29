@@ -2,15 +2,15 @@
 
 ## Current Status
 
-**Current phase:** Phase 12 — Production Readiness
+**Current phase:** Phase 13 — Deployment (not started)
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
-**Next up:** Close the MCP knowledge seam: the `list_quests` tool, the cached
-`app/agents/quest_view.py` view and the State Agent / planning-chain refactor.
-The deterministic baseline ablation is measured (12/12 deterministic and 36/36
-LLM, documented in `README.md`), and the temporal-reachability hardening is
-done.
+**Next up:** Phase 12 is complete: the MCP seam is closed, the offline demo is
+tested, the failure matrix and 91% coverage are in place, the README carries the
+architecture and troubleshooting, and the clean-environment run (692 tests plus
+the offline demo) passes. Phase 13 starts with the container build, CI image
+publication and deployment docs.
 
 Status map:
 * Phase 0 — Foundation: complete.
@@ -65,7 +65,9 @@ Status map:
   sweep-to-sweep comparison is implemented in `app/evaluation/comparison.py`;
   the `RAG_SIMILARITY_THRESHOLD` revisit is resolved (0.60
   confirmed by an A/B sweep on 2026-10-21).
-* Phase 12 — Production Readiness: in progress.
+* Phase 12 — Production Readiness: complete (MCP seam, offline demo, failure
+  matrix and 91% coverage, README architecture/troubleshooting, clean-environment
+  verification, dependency review, cleanup).
 * Phase 13 — Deployment: not started yet.
 
 ### Target flow
@@ -474,17 +476,22 @@ a real infeasibility.
 * [x] Improve logging
 * [x] Complete test suite (692 tests, 91% line coverage, failure-path matrix;
   `pytest-cov` in the dev group)
-* [ ] Verify installation from a clean environment
-* [ ] Verify end-to-end execution
+* [x] Verify installation from a clean environment (fresh clone,
+  `uv sync --frozen`, ruff, 692 tests, offline demo)
+* [x] Verify end-to-end execution (offline demo exit 0; LLM smoke on local
+  Ollama, valid 9-step plan; Streamlit health `/_stcore/health`)
 * [x] Document architecture
 * [x] Add architecture diagram (Mermaid in `README.md`)
 * [x] Stabilize demo mode (offline `--deterministic --no-rag` run, tested)
-* [ ] Review dependencies
+* [x] Review dependencies (every direct runtime dependency is imported; direct
+  updates are available but deferred to avoid unrelated upgrades; `uv lock
+  --check` clean, `pytest-cov` dev-only)
 * [x] Route the State Agent and the planner's `planning_chain.py` through the
   `app/mcp/tools.py` seam instead of importing `build_default_knowledge()`
   directly.
 * [x] Update `AGENTS.md`
-* [ ] Final project cleanup
+* [x] Final project cleanup (stale TODO notes closed, local artifacts ignored,
+  final ruff/format/pytest green)
 
 # Phase 13 — Deployment
 

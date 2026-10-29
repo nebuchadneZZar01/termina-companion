@@ -38,6 +38,23 @@ A normal first run downloads the FastEmbed embedding model (a few hundred MB)
 and creates the embedded Qdrant store under `.cache/termina-companion/qdrant`;
 both are reused afterwards. The offline demo skips them.
 
+## Verification
+
+A clean checkout passes the same lint/test gate as CI, plus the offline pipeline:
+
+```sh
+uv sync --frozen
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest                       # 692 tests
+uv run python -m app --deterministic --no-rag
+```
+
+The measured baseline is 91% line coverage, available with
+`uv run pytest --cov=app --cov-report=term-missing`. With a provider
+configured, `uv run python -m app` exercises the LLM path end to end; the
+Streamlit UI is healthy when `curl localhost:8501/_stcore/health` answers `ok`.
+
 ## Run the Streamlit UI
 
 ```sh
