@@ -1,4 +1,4 @@
-# Termina Companion — TODO
+# TaIA — TODO
 
 ## Current Status
 

@@ -1,4 +1,4 @@
-"""Plan evaluation for Termina Companion.
+"""Plan evaluation for TaIA.
 
 The package measures whether a plan produced by the multi-agent pipeline
 actually achieves the player's goal, and whether the run used the knowledge

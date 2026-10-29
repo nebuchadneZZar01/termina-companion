@@ -2,7 +2,7 @@
 
 ## Project
 
-**Termina Companion** is a multi-agent AI companion for *The Legend of Zelda: Majora's Mask*.
+**TaIA** (named after Taya, the Italian name of Link's fairy companion) is a multi-agent AI companion for *The Legend of Zelda: Majora's Mask*.
 
 The goal is to build a **temporal planning system** that helps a player decide what to do based on:
 

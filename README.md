@@ -1,8 +1,11 @@
-# Termina Companion
+# TaIA
 
 Multi-agent temporal planner for *The Legend of Zelda: Majora's Mask*, built with
 LangGraph, Pydantic and Streamlit. It turns player state and a goal into a
 structured, validated plan within the three-day cycle.
+
+TaIA takes its name from **Taya**, the Italian name of Link's fairy companion in
+*Majora's Mask*.
 
 This is a working **end-to-end prototype**. State, Knowledge and Critic agents
 use deterministic logic and structured demo data; the Planning Agent calls a

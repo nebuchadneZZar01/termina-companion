@@ -486,7 +486,7 @@ _DISPLAY_KEYS_IT = sorted(_DISPLAY_IT, key=len, reverse=True)
 
 _STRINGS: dict[str, dict[str, str]] = {
     "en": {
-        "title": "Termina Companion",
+        "title": "TaIA",
         "language": "Language",
         # input panels
         "game_state": "Game State",
@@ -861,7 +861,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "audit_errors": "Errors",
     },
     "it": {
-        "title": "Termina Companion",
+        "title": "TaIA",
         "language": "Lingua",
         # input panels
         "game_state": "Stato di Gioco",

@@ -1,4 +1,4 @@
-"""Core domain models for Termina Companion.
+"""Core domain models for TaIA.
 
 These are the contracts shared by all agents. No game data lives here;
 game knowledge lives in `app.data.mock_knowledge`.
