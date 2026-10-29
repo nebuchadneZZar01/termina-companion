@@ -506,7 +506,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   Payload limits are constants (`LLM_LOG_PAYLOAD_LIMIT`, `SPAN_PAYLOAD_LIMIT`),
   not env vars; the only tracing env var is the endpoint.
 * `app/__main__.py` — headless pipeline demo (`python -m app`); it also prints
-  the run id, node timeline and any errors after the plan.
+  the run id, node timeline and any errors after the plan. `--deterministic`
+  and `--no-rag` run it fully offline (no LLM, no wiki), `--debug` adds the
+  traceback of an unexpected failure.
 * `docker-compose.yml` — local observability stack: the Arize Phoenix
   container (web UI and OTLP/HTTP receiver share `:6006`; Phoenix has no
   `:4318` listener — that port belongs to the generic OTel Collector). The
@@ -539,6 +541,7 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   uv run ruff format .                                # format
   uv run pytest                                       # tests
   uv run python -m app                                # headless pipeline demo
+  uv run python -m app --deterministic --no-rag       # offline demo
   uv run streamlit run main.py                        # Streamlit UI
   ```
 

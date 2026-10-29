@@ -476,7 +476,7 @@ a real infeasibility.
 * [ ] Verify end-to-end execution
 * [ ] Document architecture
 * [ ] Add architecture diagram
-* [ ] Stabilize demo mode
+* [x] Stabilize demo mode (offline `--deterministic --no-rag` run, tested)
 * [ ] Review dependencies
 * [x] Route the State Agent and the planner's `planning_chain.py` through the
   `app/mcp/tools.py` seam instead of importing `build_default_knowledge()`
