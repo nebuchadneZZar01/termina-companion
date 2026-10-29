@@ -513,6 +513,33 @@ was recorded stays compatible). Run the two sweeps back to back with the same
 numbers: a deterministic sweep needs no LLM provider, so it is reproducible
 offline.
 
+**Measured on 2026-10-29** — `llama3.2` on a local Ollama, one sweep per engine,
+`--rag off` (both engines therefore read identical structured context, and no
+wiki leg can degrade):
+
+| Engine | Pass rate | Failing scenario | Total time |
+|---|---|---|---|
+| LLM (`llama3.2`) | 11/12 (0.92) | `romani-ranch` (`critic`) | 1148 s (mean 96 s, max 294 s) |
+| Deterministic | 11/12 (0.92) | `romani-ranch` (`critic`) | under 1 s |
+
+Neither sweep had a `run_error`, and both produced the same step count for
+every scenario (9, 4, 3, 3, 7, 6, 3, 5, 8, 5, 6, 0): the retrieved chain
+decides the step set and the model only influences windows. Parity on the pass
+rate is the expected outcome, because most checks encode deterministic
+guarantees.
+
+The model's own contribution is visible in the proposal-fidelity warnings: in
+6 of the 11 plan scenarios the raw LLM proposal omitted at least one expected
+objective (`anju-kafei`, `darmani-spirit`, `goron-lullaby`, `mikau-eggs`,
+`song-of-storms`, `romani-ranch`), so the deterministic rebuild was
+load-bearing, not cosmetic. Neither engine needed a re-plan.
+
+The one failure is identical on both sides and has nothing to do with the
+engine: `rr_defend_ranch` is a night window (02:30-05:15) whose objective names
+Romani, whose schedule only covers 06:00-18:00, so the Critic rejects the step.
+That is a knowledge-data problem, tracked in `TODO.md`; the ablation's finding
+is the parity, not the number itself.
+
 ## Architecture
 
 ```text

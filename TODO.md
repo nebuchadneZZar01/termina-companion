@@ -6,9 +6,10 @@
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
-**Next up:** The deterministic baseline ablation is implemented and the
-evaluation harness can assert an unreachable outcome; the A/B sweep with the
-numbers is what remains before Phase 12.
+**Next up:** The deterministic baseline ablation is measured (11/12 both
+engines, documented in `README.md`). Before Phase 12: fix the
+engine-independent `romani-ranch` schedule mismatch the sweep surfaced and
+rerun it.
 The temporal-reachability hardening under Validator & Planner Hardening is
 done.
 
@@ -452,13 +453,19 @@ a real infeasibility.
   skips itself).
 * [x] Record the planner engine in the sweep metadata so two saved reports stay
   comparable, and never select a baseline from the other engine.
-* [ ] Run an A/B sweep and document the result: pass rate, attempts and what
-  the model adds beyond the deterministic chain. Expect parity or a baseline
-  win on the pass rate, because most evaluator checks encode the deterministic
-  guarantees; the finding is about the model's semantic contribution. Run both
-  engines with the same `--rag` flag on a warm store, discard a sweep whose
-  `wiki_retrieval` is `degraded`, and keep `run_error` scenarios out of the
-  engine comparison.
+* [x] Run an A/B sweep and document the result: pass rate, attempts and what
+  the model adds beyond the deterministic chain. Run both engines with the same
+  `--rag` flag on a warm store, discard a sweep whose `wiki_retrieval` is
+  `degraded`, and keep `run_error` scenarios out of the engine comparison.
+  Measured 2026-10-29 (`llama3.2` on Ollama, `--rag off`, one sweep each, no
+  `run_error`): 11/12 both engines, identical step counts on every scenario,
+  six proposal-fidelity warnings on the LLM side, no re-plan on either side.
+  Numbers and protocol live in `README.md` under *The deterministic baseline*.
+* [ ] Fix the one engine-independent failure the sweep surfaced and rerun it:
+  `rr_defend_ranch` is a night window (02:30-05:15) that names Romani, whose
+  schedule only covers 06:00-18:00, so the Critic rejects an otherwise correct
+  plan. Decide whether the objective should reference an NPC at all (it is an
+  event) or whether the schedule is incomplete, then re-measure.
 
 # Phase 12 — Production Readiness
 
