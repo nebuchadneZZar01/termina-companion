@@ -349,7 +349,7 @@ def test_knowledge_agent_keeps_mcp_authoritative_and_reports_status(monkeypatch)
 
     result = knowledge_agent.run(_state())
 
-    assert result["knowledge_engine"] == "rule-based"
+    assert result["knowledge_engine"] == "deterministic"
     assert result["retrieval_status"] == "cache_hit"
     assert result["retrieval_wiki_unreachable"] is False
     assert "[ak_talk_to_anju]" in result["retrieved_context"]

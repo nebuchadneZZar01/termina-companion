@@ -645,7 +645,7 @@ def _issue(kind: str, step_idx: int, message: str) -> ValidationIssue:
 
 
 def run(state: PlanningState) -> dict:
-    """LangGraph node: validate the current plan with rule-based checks.
+    """LangGraph node: validate the current plan with deterministic checks.
 
     args:
         state (PlanningState): the workflow state with the produced plan.
@@ -671,7 +671,7 @@ def run(state: PlanningState) -> dict:
     _log_result(result)
     return {
         "validation": result,
-        "critic_engine": "rule-based",
+        "critic_engine": "deterministic",
         "attempt_log": [*state.attempt_log, _attempt_record(state, result)],
     }
 

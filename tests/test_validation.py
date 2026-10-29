@@ -342,7 +342,7 @@ def test_pipeline_replans_after_critic_failure(monkeypatch):
                         )
                     ],
                 ),
-                "critic_engine": "rule-based",
+                "critic_engine": "deterministic",
             }
         return real_critic(state)
 

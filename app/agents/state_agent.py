@@ -1,6 +1,6 @@
 """State Agent: understands the player's current state.
 
-Deterministic (rule-based) brain: canonicalises the player's location through an
+Deterministic brain: canonicalises the player's location through an
 alias table, summarises quest progress from the knowledge base, and produces a
 template summary, so the output is always grounded in the actual state and the
 demo needs no credentials.
@@ -55,12 +55,12 @@ def run(state: PlanningState) -> dict:
     if prefs and prefs != "none":
         summary += f"\nPreferences: {prefs}"
     logger.info(
-        "State Agent [rule-based]: location %r -> %r — summary=%r",
+        "State Agent [deterministic]: location %r -> %r — summary=%r",
         state.game_state.location,
         gs.location,
         summary,
     )
-    return {"game_state": gs, "state_summary": summary, "state_engine": "rule-based"}
+    return {"game_state": gs, "state_summary": summary, "state_engine": "deterministic"}
 
 
 def _canonical_location(location: str) -> str:
