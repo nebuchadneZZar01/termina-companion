@@ -15,6 +15,9 @@ from app.domain import GameState
 
 Severity = Literal["error", "warning"]
 ChangeStatus = Literal["regressed", "improved", "same", "new", "missing"]
+#: What a scenario expects the run to produce: a plan, or the explicit
+#: temporal verdict of a clock that has already closed the whole chain.
+ExpectedOutcome = Literal["plan", "unreachable"]
 
 
 class PlanScenario(BaseModel):
@@ -25,6 +28,9 @@ class PlanScenario(BaseModel):
     description: str = ""
     goal: str
     game_state: GameState
+    # ``"plan"`` expects the objectives below to be planned; ``"unreachable"``
+    # expects no plan at all plus an ``unreachable`` Critic verdict.
+    expected_outcome: ExpectedOutcome = "plan"
     # Objective refs the plan must contain to achieve the goal.
     required_objective_refs: list[str] = Field(default_factory=list)
     # The objective that completes the goal; expected as the final step.
@@ -39,7 +45,13 @@ class PlanScenario(BaseModel):
 
     @model_validator(mode="after")
     def require_expectations(self) -> "PlanScenario":
-        """Reject scenarios that expect nothing.
+        """Reject scenarios that expect nothing, or expect the impossible.
+
+        A ``"plan"`` scenario must name at least one objective to reach. An
+        ``"unreachable"`` scenario is the opposite expectation — no plan at all
+        — so a plan-level expectation there is a contradiction, not a stricter
+        test: it would either never be checked or turn a correct verdict into a
+        failure.
 
         args:
             (none)
@@ -49,6 +61,24 @@ class PlanScenario(BaseModel):
         """
         if not self.goal.strip():
             raise ValueError("evaluation scenario needs a goal")
+        if self.expected_outcome == "unreachable":
+            contradictions = [
+                name
+                for name, expected in (
+                    ("required_objective_refs", bool(self.required_objective_refs)),
+                    ("terminal_objective_ref", bool(self.terminal_objective_ref)),
+                    ("expected_order", bool(self.expected_order)),
+                    ("min_steps", self.min_steps > 0),
+                )
+                if expected
+            ]
+            if contradictions:
+                raise ValueError(
+                    "an unreachable scenario cannot expect a plan: set "
+                    + ", ".join(contradictions)
+                    + " to an empty value"
+                )
+            return self
         if not self.required_objective_refs and not self.terminal_objective_ref:
             raise ValueError("evaluation scenario needs at least one expected objective")
         return self

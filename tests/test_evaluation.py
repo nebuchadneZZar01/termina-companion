@@ -16,6 +16,7 @@ from app.domain import (
     Plan,
     PlanStep,
     TimeWindow,
+    ValidationIssue,
     ValidationResult,
 )
 from app.domain import (
@@ -25,12 +26,16 @@ from app.evaluation.evaluator import evaluate_plan, relevant_objectives
 from app.evaluation.models import EvaluationReport, PlanScenario, ScenarioResult
 from app.evaluation.scenarios import EVALUATION_SCENARIOS, SCENARIOS_BY_ID
 from app.graph import MAX_PLANNING_ATTEMPTS, run_pipeline
-from app.state import AttemptRecord
+from app.state import AttemptRecord, PlanningState
 
 _KB = build_default_knowledge()
 _QUEST_OF_OBJECTIVE = {
     objective.id: quest.id for quest in _KB.quests for objective in quest.objectives
 }
+#: Scenarios that expect a plan; the unreachable ones have their own checks.
+_PLAN_SCENARIOS = [
+    scenario for scenario in EVALUATION_SCENARIOS if scenario.expected_outcome == "plan"
+]
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +145,7 @@ def test_scenario_ids_are_unique():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("scenario", EVALUATION_SCENARIOS, ids=lambda s: s.id)
+@pytest.mark.parametrize("scenario", _PLAN_SCENARIOS, ids=lambda s: s.id)
 def test_reference_plan_passes_every_scenario(scenario: PlanScenario):
     """The chain a correct plan follows passes every check."""
     result = evaluate_plan(_reference_plan(scenario), scenario, tool_calls=_tool_calls(scenario))
@@ -275,6 +280,167 @@ def test_critic_rejection_fails_the_critic_check():
 
     assert not result.passed
     assert "critic" in _kinds(result)
+
+
+# ---------------------------------------------------------------------------
+# Unreachable outcome
+# ---------------------------------------------------------------------------
+
+
+def _unreachable_verdict() -> ValidationResult:
+    """The Critic verdict of a chain the clock has closed."""
+    return ValidationResult(
+        valid=False,
+        issues=[
+            ValidationIssue(
+                severity="error",
+                kind="unreachable",
+                message=(
+                    "Anju and Kafei: Get Kafei's Mask from Madame Aroma: its window "
+                    "ended at Day 1, 20:00. Use the Song of Time to restart the cycle."
+                ),
+            )
+        ],
+    )
+
+
+def _late_scenario() -> PlanScenario:
+    return SCENARIOS_BY_ID["anju-kafei-late"]
+
+
+def test_the_late_scenario_clock_closes_every_objective():
+    """The unreachable scenario is pinned to a clock that closes every window."""
+    from app.agents.planning_chain import dead_for
+
+    scenario = _late_scenario()
+    objectives = relevant_objectives(scenario)
+    state = PlanningState(
+        game_state=scenario.game_state,
+        goal=Goal(description=scenario.goal),
+        relevant_objectives=objectives,
+    )
+
+    dead = dead_for(state)
+
+    assert objectives, "the goal must still retrieve the chain"
+    alive = sorted(objective.id for objective in objectives if objective.id not in dead)
+    assert not alive, f"still reachable at {scenario.game_state.time}: {alive}"
+
+
+def test_unreachable_scenario_passes_with_an_empty_plan_and_its_verdict():
+    """No plan plus the unreachable verdict is exactly the expected outcome."""
+    scenario = _late_scenario()
+
+    result = evaluate_plan(
+        Plan(goal=scenario.goal),
+        scenario,
+        plan_engine="unreachable",
+        validation=_unreachable_verdict(),
+    )
+
+    assert result.passed, [issue.message for issue in result.issues]
+    assert result.step_count == 0
+    assert result.error_count == 0
+
+
+def test_unreachable_scenario_fails_when_a_plan_is_produced():
+    """A plan at a clock that closed the chain is a failure, not a bonus."""
+    scenario = _late_scenario()
+    plan = Plan(
+        goal=scenario.goal,
+        steps=[
+            PlanStep(
+                title="Reunite Anju and Kafei",
+                objective_ref="ak_reunite",
+                location="Stockpot Inn",
+                window=TimeWindow(start=ClockTime(day=3, hour=24), end=ClockTime(day=3, hour=25)),
+            )
+        ],
+    )
+
+    result = evaluate_plan(plan, scenario, plan_engine="llm", validation=_unreachable_verdict())
+
+    assert not result.passed
+    assert "outcome" in _kinds(result)
+    assert result.step_count == 1
+
+
+def test_unreachable_scenario_fails_when_the_planner_called_the_llm():
+    """An empty plan from the LLM engine means the short-circuit did not fire."""
+    result = evaluate_plan(
+        Plan(goal=_late_scenario().goal),
+        _late_scenario(),
+        plan_engine="llm",
+        validation=_unreachable_verdict(),
+    )
+
+    assert not result.passed
+    assert "outcome" in _kinds(result)
+    assert any("plan_engine" in issue.message for issue in result.issues)
+
+
+def test_unreachable_scenario_fails_without_a_critic_verdict():
+    """The verdict is the evidence: without it the outcome is unproven."""
+    result = evaluate_plan(
+        Plan(goal=_late_scenario().goal),
+        _late_scenario(),
+        plan_engine="unreachable",
+        validation=None,
+    )
+
+    assert not result.passed
+    assert "outcome" in _kinds(result)
+
+
+def test_unreachable_scenario_fails_when_the_critic_accepted():
+    """A Critic that accepted the run contradicts the expected outcome."""
+    result = evaluate_plan(
+        Plan(goal=_late_scenario().goal),
+        _late_scenario(),
+        plan_engine="unreachable",
+        validation=ValidationResult(valid=True),
+    )
+
+    assert not result.passed
+    assert "outcome" in _kinds(result)
+
+
+def test_unreachable_scenario_fails_on_a_different_critic_reason():
+    """A generic rejection is not the temporal verdict the scenario expects."""
+    verdict = ValidationResult(
+        valid=False,
+        issues=[ValidationIssue(severity="error", kind="empty", message="No steps.")],
+    )
+
+    result = evaluate_plan(
+        Plan(goal=_late_scenario().goal),
+        _late_scenario(),
+        plan_engine="unreachable",
+        validation=verdict,
+    )
+
+    assert not result.passed
+    assert "outcome" in _kinds(result)
+    assert any("empty" in issue.message for issue in result.issues)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"required_objective_refs": ["ak_reunite"]},
+        {"terminal_objective_ref": "ak_reunite"},
+        {"expected_order": [("ak_get_kafei_mask", "ak_reunite")]},
+        {"min_steps": 1},
+    ],
+    ids=["required", "terminal", "order", "min_steps"],
+)
+def test_an_unreachable_scenario_rejects_plan_expectations(overrides):
+    """Expecting no plan and expecting steps at once is a contradiction."""
+    payload = _late_scenario().model_dump()
+    payload.update(overrides)
+
+    with pytest.raises(ValueError, match="unreachable scenario cannot expect a plan"):
+        PlanScenario.model_validate(payload)
 
 
 # ---------------------------------------------------------------------------

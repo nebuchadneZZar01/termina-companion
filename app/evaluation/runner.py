@@ -67,6 +67,7 @@ def run_scenario(scenario: PlanScenario) -> ScenarioResult:
         validation=state.validation,
         plan_proposal=state.plan_proposal,
         attempt_log=state.attempt_log,
+        plan_engine=state.plan_engine,
     )
     outcome.duration_s = round(time.perf_counter() - started, 1)
     outcome.retrieval_status = state.retrieval_status

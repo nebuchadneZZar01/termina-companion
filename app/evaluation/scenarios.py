@@ -1,7 +1,9 @@
 """Evaluation scenarios for the plan-evaluation harness.
 
 One scenario per quest: a player state, a goal phrased the way a player would
-phrase it, and the objectives the plan is expected to contain.
+phrase it, and the objectives the plan is expected to contain. One extra
+scenario states the opposite expectation — a clock past every window, where
+the correct result is an unreachable verdict rather than a plan.
 """
 
 from __future__ import annotations
@@ -285,6 +287,26 @@ EVALUATION_SCENARIOS: list[PlanScenario] = [
         min_steps=6,
         max_steps=6,
         forbidden_objective_refs=["mm_heal_mikau", "rr_learn_epona", "dp_get_deku_mask"],
+    ),
+    PlanScenario(
+        id="anju-kafei-late",
+        name="Anju and Kafei after the deadline",
+        description=(
+            "Day 3 after midnight: every window of the nine-step chain has closed, "
+            "so the correct result is no plan and an unreachable verdict."
+        ),
+        goal=(
+            "Reunite Anju and Kafei after delivering the Pendant of Memories to Anju "
+            "at Stockpot Inn"
+        ),
+        game_state=GameState(
+            time=ClockTime(day=3, hour=24),
+            location="South Clock Town",
+            inventory=["Hookshot"],
+            masks=["Garo's Mask"],
+        ),
+        expected_outcome="unreachable",
+        min_steps=0,
     ),
 ]
 
