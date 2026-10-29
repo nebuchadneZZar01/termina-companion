@@ -154,8 +154,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   State, Knowledge and Critic run deterministic rule-based logic. The State
   Agent lists completed quests only and never infers an active quest from the
   player's location. The Planning
-  Agent always calls the configured LLM unless every retrieved objective is
-  already out of reach; missing configuration and invocation errors fail
+  Agent calls the configured LLM unless the run uses the deterministic engine
+  (`PLANNER=deterministic` or an explicit per-run override, the evaluation
+  baseline that skips the call) or every retrieved objective is already out of
+  reach; missing configuration and invocation errors fail
   explicitly, while an empty LLM plan is still rebuilt against the objective
   chain and only fails when that rebuild yields no step. LLM output
   is post-processed
@@ -248,9 +250,11 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   with frozen wiki titles; `scripts/calibrate_rag.py` reruns the threshold grid
   (current provisional default `0.60`, calibrated 2026-10-10).
 * `app/settings.py` — the single environment contract. `Settings`
-  (Pydantic settings) declares every `LLM_*`, `LOG_LEVEL`, `OTEL_*` and
-  `PHOENIX_*` variable plus the nested `RAGSettings` (`RAG_` prefix, including
-  `RAG_ENABLED`); blank optional values load as `None`, `LLM_API_KEY` is a
+  (Pydantic settings) declares every `LLM_*`, `LOG_LEVEL`, `PLANNER`, `OTEL_*`
+  and `PHOENIX_*` variable plus the nested `RAGSettings` (`RAG_` prefix,
+  including `RAG_ENABLED`); `PLANNER` is `llm` (product path) or
+  `deterministic` (evaluation baseline, no LLM call), validated as a
+  `Literal`; blank optional values load as `None`, `LLM_API_KEY` is a
   `SecretStr`, and derived properties expose the Phoenix annotation URL and
   the Phoenix UI URL. `get_settings()` builds a fresh instance (not cached, so
   runtime env changes such as the evaluation A/B flag are seen) and is called
@@ -304,7 +308,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   through the graph (Pydantic model, used as the LangGraph state schema),
   including retrieved evidence, indexed-source manifest, retrieval status,
   player preferences, relevant past episodes, the `tool_calls` list the
-  Knowledge Agent records (MCP tools as `"tool"` or `"tool:<arg>"`), plus the
+  Knowledge Agent records (MCP tools as `"tool"` or `"tool:<arg>"`), the
+  per-run `planner` engine override (empty falls back to `PLANNER`; passed
+  instead of mutating the environment, because a UI sweep runs in its own
+  thread), plus the
   trajectory the trajectory checks read: `plan_proposal` (the LLM's plan
   before grounding and reconciliation) and `attempt_log` (one `AttemptRecord`
   per planning attempt, appended by the Critic). `planner_context_blocks` holds
@@ -313,21 +320,30 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   objectives the clock closed without editing text.
 * `app/evaluation/` — plan evaluation. `models.py` holds the
   Pydantic contracts (`PlanScenario`, `EvaluationIssue`, `ScenarioResult`,
-  `EvaluationReport`); a crashed run counts as one error and a `run_error`
+  `EvaluationReport`); a scenario declares its `expected_outcome` — `"plan"`
+  (the default: the listed objectives must be planned) or `"unreachable"`
+  (the clock has closed the chain, so the correct result is no plan plus the
+  temporal verdict), and the validator rejects an unreachable scenario that
+  also expects steps; a crashed run counts as one error and a `run_error`
   failure kind, never as a scenario without issues; `scenarios.py` holds the
-  eleven shipped scenarios (one per quest plus a Zora-Mask-owned Mikau
+  twelve shipped scenarios (one per quest plus a Zora-Mask-owned Mikau
   variant, spanning every game area, including the game-accurate nine-step
-  Anju & Kafei chain). Scenarios that depend on a gate seed the prerequisite
+  Anju & Kafei chain, plus a Day 3 late-clock variant that expects the
+  unreachable outcome and makes no LLM call). Scenarios that depend on a gate
+  seed the prerequisite
   quests as `done` and use `forbidden_objective_refs` to prove those quests
   are not planned; `evaluator.py` is the deterministic
-  evaluator with nine checks — plan shape, objective achievement, temporal
-  ordering, prerequisites, tool usage, critic, plus the three trajectory checks
+  evaluator with ten checks — plan shape, objective achievement, temporal
+  ordering, prerequisites, tool usage, critic, outcome (the unreachable
+  expectation), plus the three trajectory checks
   in `trajectory.py` (agent order, re-plan bound, LLM proposal fidelity) that
   only fire on a recorded run — reading game knowledge only
   through the MCP tools, never the knowledge base directly, so it measures
   what the Knowledge Agent could have known; `runner.py` runs the scenarios
   against the live pipeline (memory store cleared before each scenario) and is
-  shared by the CLI harness and the UI; `phoenix.py` builds each sweep's
+  shared by the CLI harness and the UI; it takes the planner engine as an
+  argument and records it in the report, so a deterministic baseline sweep and
+  an LLM sweep stay comparable; `phoenix.py` builds each sweep's
   score payloads on the shared client (`app/phoenix.py`) and posts them
   to Phoenix as span annotations on the run's own trace — `evaluation/overall`
   (score 1/0 with PASS/FAIL), one annotation per failed check, warnings
@@ -340,8 +356,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   once before any write, so every copy of a sweep agrees), so the checks
   outlive the session:
   the UI worker writes it when a sweep finishes and *Load last report* reads
-  it back. The report also carries sweep metadata (RAG flag, producing model,
-  repeat count, creation timestamp) so two saved sweeps can be compared; its
+  it back. The report also carries sweep metadata (RAG flag, planner engine,
+  producing model, repeat count, creation timestamp) so two saved sweeps can be
+  compared; its
   `wiki_retrieval` computed field reports what the runs actually recorded
   (`off`/`on`/`degraded`/`unknown`) instead of echoing the requested flag, so a
   sweep whose wiki leg died partway is never labelled healthy; `wiki_miss` is
@@ -349,21 +366,26 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   `RAG_ENABLED` (`rag_enabled()` in
   `app/rag/retriever.py`) switches the supplemental wiki retrieval off for
   A/B runs. `comparison.py` compares a sweep with the newest compatible stored
-  one: `select_baseline` skips the report itself and prefers the same wiki
+  one: `select_baseline` skips the report itself, never crosses the planner
+  engine (a deterministic sweep against an LLM sweep measures the engine, not
+  the change; a report written before the engine was recorded stays
+  compatible) and prefers the same wiki
   flag, `compare_reports` classifies every scenario as
   `regressed`/`improved`/`new`/`missing` (a pass→fail is a regression with its
   new failing checks; a scenario present on one side only is a gap, never a
   regression, so a partial sweep cannot look like a quality drop) and carries
-  both sides' pass counts and metadata. `storage.load_history()` reads the
+  both sides' pass counts and metadata, including the two engines.
+  `storage.load_history()` reads the
   timestamped copies newest first and skips corrupt files.
 * `scripts/evaluate_plans.py` — CLI harness for the evaluation sweep:
-  `--scenario`, `--repeat`, `--rag on|off`, `--baseline PATH`, `--json`,
-  `--list`; prints one
+  `--scenario`, `--repeat`, `--rag on|off`, `--planner llm|deterministic`,
+  `--baseline PATH`, `--json`, `--list`; prints one
   PASS/FAIL line per scenario plus the aggregate pass rate, then the comparison
-  against the newest stored sweep (or `--baseline`), and exits 1 when
-  any scenario fails. It always writes the shared last report (same store as
-  the UI) and `--json PATH` writes an extra copy. It needs a configured LLM
-  provider and is not part of pytest.
+  against the newest compatible stored sweep (or `--baseline`), and exits 1
+  when any scenario fails. It always writes the shared last report (same store
+  as the UI) and `--json PATH` writes an extra copy. It needs a configured LLM
+  provider on the LLM engine; `--planner deterministic`, and the late-clock
+  scenario, run without one. It is not part of pytest.
 * `app/memory/` — player memory: Pydantic `PlayerPreferences`/`Episode` models
   plus the `MemoryStore` protocol with the thread-safe `InMemoryMemoryStore`
   (keyword ranking; the protocol is the extension point for future persistence).
@@ -408,8 +430,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   goal input with the Ask TaIA/Stop controls, the empty-plan card, the live or
   finished agent registry, and the timeline plan) and
   *Evaluation* (`_render_evaluation(editor)`, TaIA's greeting and the sweep:
-  scenario picker, RAG toggle, Run/Stop, native metrics, an HTML per-scenario
-  table, the comparison card against the newest stored sweep, and
+  scenario picker, RAG toggle, planner engine picker, Run/Stop, native metrics,
+  an HTML per-scenario table, the comparison card against the newest compatible
+  stored sweep, and
   *Load last report* for the sweep persisted by the worker).
   The plan renders as a vertical HTML timeline (`_render_plan()`; the last step
   and every step with an error are red, while step actions live in the *Why*
@@ -488,7 +511,8 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   including hermetic wiki/cache scenarios. `test_reachability.py` pins the
   dead-branch closure, `test_scheduling.py` the shared placement decision and
   `test_temporal_matrix.py` is the deterministic clock matrix (no LLM) over the
-  whole three-day cycle.
+  whole three-day cycle, and `test_docs.py` keeps the README scenario and check
+  tables in sync with the code instead of trusting them to be retyped.
 
 ## Tooling
 
