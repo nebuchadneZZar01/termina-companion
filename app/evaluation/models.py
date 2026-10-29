@@ -155,6 +155,9 @@ class EvaluationReport(BaseModel):
     # Sweep metadata, so two saved reports can be compared. None/empty means
     # the sweep did not record it (hand-built reports and older reports).
     rag_on: bool | None = None
+    #: Planner engine the sweep used (``"llm"`` or ``"deterministic"``); empty
+    #: on reports written before the ablation existed.
+    planner: str = ""
     repeats: int = 1
     created_at: str = ""
 
@@ -300,11 +303,13 @@ class SweepComparison(BaseModel):
 
     baseline_created_at: str = ""
     baseline_model: str = ""
+    baseline_planner: str = ""
     baseline_rag: str = ""
     baseline_passed: int = 0
     baseline_total: int = 0
     baseline_repeats: int = 1
     current_model: str = ""
+    current_planner: str = ""
     current_rag: str = ""
     current_passed: int = 0
     current_total: int = 0
@@ -401,6 +406,27 @@ class SweepComparison(BaseModel):
             bool: True when the recorded models differ.
         """
         return self.current_model != self.baseline_model
+
+    @computed_field
+    @property
+    def planner_changed(self) -> bool:
+        """Whether the two sweeps were produced by different planner engines.
+
+        Baseline selection never crosses engines, so this only fires when one
+        side is a report written before the engine was recorded: the comparison
+        is still useful, but the reader must know the delta is not like-for-like.
+
+        args:
+            (none)
+
+        returns:
+            bool: True when both engines are recorded and differ.
+        """
+        return bool(
+            self.current_planner
+            and self.baseline_planner
+            and self.current_planner != self.baseline_planner
+        )
 
     @computed_field
     @property

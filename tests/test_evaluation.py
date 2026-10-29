@@ -698,12 +698,12 @@ def test_report_reports_what_the_wiki_retrieval_actually_did():
 
 
 def test_run_scenarios_records_the_sweep_metadata(monkeypatch):
-    """The sweep report carries the RAG flag and the producing model."""
+    """The sweep report carries the RAG flag, the engine and the model."""
     from app.evaluation import runner
 
     scenario = SCENARIOS_BY_ID["anju-kafei"]
 
-    def _fake_run_scenario(item):
+    def _fake_run_scenario(item, planner=""):
         """Stand in for the pipeline run, no LLM involved."""
         return ScenarioResult(scenario_id=item.id, passed=True, model="test-model")
 
@@ -712,8 +712,144 @@ def test_run_scenarios_records_the_sweep_metadata(monkeypatch):
     report = runner.run_scenarios([scenario], rag_on=False)
 
     assert report.rag_on is False
+    assert report.planner == "llm"
     assert report.models == "test-model"
     assert [result.scenario_id for result in report.results] == [scenario.id]
+
+
+def test_run_scenarios_records_the_deterministic_engine(monkeypatch):
+    """The ablation sweep says so, so two reports stay comparable."""
+    from app.evaluation import runner
+
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+    seen: list[str] = []
+
+    def _fake_run_scenario(item, planner=""):
+        """Record the engine the sweep passed down."""
+        seen.append(planner)
+        return ScenarioResult(scenario_id=item.id, passed=True, model="deterministic")
+
+    monkeypatch.setattr(runner, "run_scenario", _fake_run_scenario)
+
+    report = runner.run_scenarios([scenario], rag_on=False, planner="deterministic")
+
+    assert report.planner == "deterministic"
+    assert seen == ["deterministic"]
+
+
+def test_the_deterministic_engine_builds_the_chain_without_an_llm(monkeypatch):
+    """The baseline never asks for a model and records its own engine."""
+    from app.agents import planning_agent
+
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    def _no_model(**_kwargs):
+        raise AssertionError("the deterministic engine must not ask for a model")
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", _no_model)
+    state = PlanningState(
+        game_state=scenario.game_state,
+        goal=Goal(description=scenario.goal),
+        relevant_objectives=relevant_objectives(scenario),
+        planner="deterministic",
+    )
+
+    result = planning_agent.run(state)
+
+    assert result["plan_engine"] == "deterministic"
+    assert result["plan_proposal"] is None
+    assert result["plan_model"] == ""
+    assert [step.objective_ref for step in result["plan"].steps] == (
+        scenario.required_objective_refs
+    )
+
+
+def test_the_default_engine_still_asks_the_llm(monkeypatch):
+    """Without an opt-in the product path is untouched."""
+    from app.agents import planning_agent
+
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+    called: list[str] = []
+
+    def _model(**_kwargs):
+        called.append("asked")
+        raise RuntimeError("model requested")
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", _model)
+    state = PlanningState(
+        game_state=scenario.game_state,
+        goal=Goal(description=scenario.goal),
+        relevant_objectives=relevant_objectives(scenario),
+    )
+
+    with pytest.raises(RuntimeError, match="model requested"):
+        planning_agent.run(state)
+    assert called == ["asked"]
+
+
+def test_an_explicit_engine_beats_the_environment(monkeypatch):
+    """A run override wins over ``PLANNER``, so a sweep cannot leak sideways."""
+    from app.agents import planning_agent
+
+    monkeypatch.setenv("PLANNER", "deterministic")
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    def _model(**_kwargs):
+        raise RuntimeError("model requested")
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", _model)
+    state = PlanningState(
+        game_state=scenario.game_state,
+        goal=Goal(description=scenario.goal),
+        relevant_objectives=relevant_objectives(scenario),
+        planner="llm",
+    )
+
+    with pytest.raises(RuntimeError, match="model requested"):
+        planning_agent.run(state)
+
+
+def test_the_environment_engine_applies_without_an_override(monkeypatch):
+    """``PLANNER=deterministic`` is enough for the headless and CLI paths."""
+    from app.agents import planning_agent
+
+    monkeypatch.setenv("PLANNER", "deterministic")
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    def _no_model(**_kwargs):
+        raise AssertionError("the deterministic engine must not ask for a model")
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", _no_model)
+    state = PlanningState(
+        game_state=scenario.game_state,
+        goal=Goal(description=scenario.goal),
+        relevant_objectives=relevant_objectives(scenario),
+    )
+
+    assert planning_agent.run(state)["plan_engine"] == "deterministic"
+
+
+def test_the_late_scenario_makes_no_llm_call(monkeypatch):
+    """The planner reports the closure itself, before touching a model."""
+    from app.agents import planning_agent
+
+    scenario = _late_scenario()
+
+    def _no_model(**_kwargs):
+        raise AssertionError("a fully closed chain must not reach the LLM")
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", _no_model)
+    state = PlanningState(
+        game_state=scenario.game_state,
+        goal=Goal(description=scenario.goal),
+        relevant_objectives=relevant_objectives(scenario),
+        planner="llm",
+    )
+
+    result = planning_agent.run(state)
+
+    assert result["plan_engine"] == "unreachable"
+    assert result["plan"].steps == []
 
 
 # ---------------------------------------------------------------------------
@@ -767,105 +903,3 @@ def test_pipeline_run_satisfies_the_scenario(monkeypatch):
         validation=result.validation,
     )
     assert outcome.passed, [issue.message for issue in outcome.issues]
-
-
-# ---------------------------------------------------------------------------
-# Planner engines
-# ---------------------------------------------------------------------------
-
-
-def _planner_state(scenario: PlanScenario, planner: str = "") -> PlanningState:
-    """Build the state the Planning Agent would see for one scenario."""
-    return PlanningState(
-        game_state=scenario.game_state,
-        goal=Goal(description=scenario.goal),
-        relevant_objectives=relevant_objectives(scenario),
-        planner=planner,
-    )
-
-
-def test_the_deterministic_engine_builds_the_chain_without_an_llm(monkeypatch):
-    """The baseline never asks for a model and records its own engine."""
-    from app.agents import planning_agent
-
-    scenario = SCENARIOS_BY_ID["anju-kafei"]
-
-    def _no_model(**_kwargs):
-        raise AssertionError("the deterministic engine must not ask for a model")
-
-    monkeypatch.setattr(planning_agent, "get_chat_model", _no_model)
-
-    result = planning_agent.run(_planner_state(scenario, planner="deterministic"))
-
-    assert result["plan_engine"] == "deterministic"
-    assert result["plan_proposal"] is None
-    assert result["plan_model"] == ""
-    assert [step.objective_ref for step in result["plan"].steps] == (
-        scenario.required_objective_refs
-    )
-
-
-def test_the_default_engine_still_asks_the_llm(monkeypatch):
-    """Without an opt-in the product path is untouched."""
-    from app.agents import planning_agent
-
-    scenario = SCENARIOS_BY_ID["anju-kafei"]
-    called: list[str] = []
-
-    def _model(**_kwargs):
-        called.append("asked")
-        raise RuntimeError("model requested")
-
-    monkeypatch.setattr(planning_agent, "get_chat_model", _model)
-
-    with pytest.raises(RuntimeError, match="model requested"):
-        planning_agent.run(_planner_state(scenario))
-    assert called == ["asked"]
-
-
-def test_an_explicit_engine_beats_the_environment(monkeypatch):
-    """A run override wins over ``PLANNER``, so a sweep cannot leak sideways."""
-    from app.agents import planning_agent
-
-    monkeypatch.setenv("PLANNER", "deterministic")
-    scenario = SCENARIOS_BY_ID["anju-kafei"]
-
-    def _model(**_kwargs):
-        raise RuntimeError("model requested")
-
-    monkeypatch.setattr(planning_agent, "get_chat_model", _model)
-
-    with pytest.raises(RuntimeError, match="model requested"):
-        planning_agent.run(_planner_state(scenario, planner="llm"))
-
-
-def test_the_environment_engine_applies_without_an_override(monkeypatch):
-    """``PLANNER=deterministic`` is enough for the headless and CLI paths."""
-    from app.agents import planning_agent
-
-    monkeypatch.setenv("PLANNER", "deterministic")
-    scenario = SCENARIOS_BY_ID["anju-kafei"]
-
-    def _no_model(**_kwargs):
-        raise AssertionError("the deterministic engine must not ask for a model")
-
-    monkeypatch.setattr(planning_agent, "get_chat_model", _no_model)
-
-    assert planning_agent.run(_planner_state(scenario))["plan_engine"] == "deterministic"
-
-
-def test_the_late_scenario_makes_no_llm_call(monkeypatch):
-    """The planner reports the closure itself, before touching a model."""
-    from app.agents import planning_agent
-
-    scenario = _late_scenario()
-
-    def _no_model(**_kwargs):
-        raise AssertionError("a fully closed chain must not reach the LLM")
-
-    monkeypatch.setattr(planning_agent, "get_chat_model", _no_model)
-
-    result = planning_agent.run(_planner_state(scenario, planner="llm"))
-
-    assert result["plan_engine"] == "unreachable"
-    assert result["plan"].steps == []

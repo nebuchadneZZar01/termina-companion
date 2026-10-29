@@ -32,6 +32,7 @@ def _result(
 def _report(
     *results: ScenarioResult,
     rag_on: bool | None = True,
+    planner: str = "",
     repeats: int = 1,
     created_at: str = _BASE_TIME,
 ) -> EvaluationReport:
@@ -39,6 +40,7 @@ def _report(
     return EvaluationReport(
         results=list(results),
         rag_on=rag_on,
+        planner=planner,
         repeats=repeats,
         created_at=created_at,
     )
@@ -215,6 +217,60 @@ def test_select_baseline_returns_none_without_a_usable_sweep():
     assert select_baseline(current, []) is None
     assert select_baseline(current, [current]) is None
     assert select_baseline(current, [empty]) is None
+
+
+def test_select_baseline_never_crosses_the_planner_engine():
+    """A deterministic sweep must not be compared with an LLM sweep."""
+    deterministic = _report(
+        _result("anju-kafei", True),
+        planner="deterministic",
+        created_at="2026-10-22T09:00:00+00:00",
+    )
+    llm = _report(
+        _result("anju-kafei", True), planner="llm", created_at="2026-10-21T09:00:00+00:00"
+    )
+    current = _report(
+        _result("anju-kafei", True), planner="llm", created_at="2026-10-23T09:00:00+00:00"
+    )
+    current_deterministic = _report(
+        _result("anju-kafei", True),
+        planner="deterministic",
+        created_at="2026-10-23T09:00:00+00:00",
+    )
+
+    # The newer deterministic sweep is skipped for the older same-engine one.
+    assert select_baseline(current, [deterministic, llm]) is llm
+    # Nothing compatible at all: no comparison rather than a fake regression.
+    assert select_baseline(current_deterministic, [llm]) is None
+
+
+def test_select_baseline_accepts_a_report_written_before_the_engine_existed():
+    """An old report has no engine recorded; it still serves as a baseline."""
+    old = _report(_result("anju-kafei", True), created_at="2026-10-20T09:00:00+00:00")
+    current = _report(
+        _result("anju-kafei", True), planner="llm", created_at="2026-10-23T09:00:00+00:00"
+    )
+
+    assert old.planner == ""
+    assert select_baseline(current, [old]) is old
+
+
+def test_the_comparison_records_both_planner_engines():
+    """The delta is never silently presented as like-for-like."""
+    baseline = _report(
+        _result("anju-kafei", True), planner="llm", created_at="2026-10-21T09:00:00+00:00"
+    )
+    current = _report(
+        _result("anju-kafei", False),
+        planner="deterministic",
+        created_at="2026-10-22T09:00:00+00:00",
+    )
+
+    comparison = compare_reports(current, baseline)
+
+    assert comparison.baseline_planner == "llm"
+    assert comparison.current_planner == "deterministic"
+    assert comparison.planner_changed is True
 
 
 def test_load_history_skips_corrupt_files_and_returns_newest_first(store_dir):

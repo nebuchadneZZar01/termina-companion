@@ -762,6 +762,14 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_rag_help": (
             "Turn the wiki evidence off to compare plan quality with and without it."
         ),
+        "eval_planner": "Planner engine",
+        "eval_planner_help": (
+            "The deterministic baseline rebuilds the objective chain without an "
+            "LLM call, to measure what the model adds. A sweep is only compared "
+            "with a stored sweep from the same engine."
+        ),
+        "eval_planner_llm": "LLM",
+        "eval_planner_deterministic": "Deterministic baseline",
         "eval_run": "Run evaluation",
         "eval_stop": "Stop evaluation",
         "eval_running": "Running the evaluation...",
@@ -787,7 +795,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_load_last": "Load last report",
         "eval_no_saved_report": "No saved evaluation report yet.",
         "eval_saved_report": "Every run is saved to {path}.",
-        "eval_report_meta": "Model: {model} · wiki retrieval: {rag} · repeats: {repeats}",
+        "eval_report_meta": (
+            "Model: {model} · planner: {planner} · wiki retrieval: {rag} · repeats: {repeats}"
+        ),
         "eval_rag_on": "on",
         "eval_rag_off": "off",
         "eval_rag_degraded": "degraded",
@@ -1146,6 +1156,14 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_rag_help": (
             "Disattiva le prove dal wiki per confrontare la qualità dei piani con e senza."
         ),
+        "eval_planner": "Motore di pianificazione",
+        "eval_planner_help": (
+            "La baseline deterministica ricostruisce la catena di obiettivi senza "
+            "chiamare un LLM, per misurare cosa aggiunge il modello. Una prova "
+            "viene confrontata solo con una prova salvata dallo stesso motore."
+        ),
+        "eval_planner_llm": "LLM",
+        "eval_planner_deterministic": "Baseline deterministica",
         "eval_run": "Esegui la valutazione",
         "eval_stop": "Interrompi la valutazione",
         "eval_running": "Valutazione in corso...",
@@ -1171,7 +1189,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "eval_load_last": "Carica ultimo report",
         "eval_no_saved_report": "Nessun report di valutazione salvato.",
         "eval_saved_report": "Ogni prova viene salvata in {path}.",
-        "eval_report_meta": "Modello: {model} · retrieval wiki: {rag} · ripetizioni: {repeats}",
+        "eval_report_meta": (
+            "Modello: {model} · motore: {planner} · retrieval wiki: {rag} · ripetizioni: {repeats}"
+        ),
         "eval_rag_on": "attivo",
         "eval_rag_off": "disattivo",
         "eval_rag_degraded": "degradato",

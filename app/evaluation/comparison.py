@@ -91,17 +91,38 @@ def compare_reports(current: EvaluationReport, baseline: EvaluationReport) -> Sw
     return SweepComparison(
         baseline_created_at=baseline.created_at,
         baseline_model=baseline.models,
+        baseline_planner=baseline.planner,
         baseline_rag=baseline.wiki_retrieval,
         baseline_passed=baseline.passed,
         baseline_total=baseline.total,
         baseline_repeats=baseline.repeats,
         current_model=current.models,
+        current_planner=current.planner,
         current_rag=current.wiki_retrieval,
         current_passed=current.passed,
         current_total=current.total,
         current_repeats=current.repeats,
         changes=changes,
     )
+
+
+def _planner_compatible(current: EvaluationReport, baseline: EvaluationReport) -> bool:
+    """Whether two sweeps may be compared at all.
+
+    A report saved before the ablation existed carries no planner engine and is
+    still compatible — refusing to compare would throw away the whole history.
+    Two recorded engines that differ are never compared: a deterministic sweep
+    against an LLM sweep measures the engine switch, not the change under
+    test, so a regression there would be an artifact.
+
+    args:
+        current (EvaluationReport): the sweep being compared.
+        baseline (EvaluationReport): the stored candidate.
+
+    returns:
+        bool: True when the engines are unknown or equal.
+    """
+    return not current.planner or not baseline.planner or current.planner == baseline.planner
 
 
 def select_baseline(
@@ -114,10 +135,11 @@ def select_baseline(
     ``created_at`` is skipped, so computing the comparison after saving the
     new report is safe.
 
-    Preference order: the newest sweep run with the same wiki flag (comparing
-    a sweep with and without retrieval measures a different thing), then the
-    newest sweep at all. Reports without results are ignored: there is nothing
-    to compare.
+    A candidate from a different planner engine is discarded outright (see
+    :func:`_planner_compatible`), because the two sweeps would not measure the
+    same thing. Within the compatible ones, preference goes to the newest sweep
+    run with the same wiki flag — comparing a sweep with and without retrieval
+    measures a different thing too — then to the newest compatible sweep.
 
     args:
         current (EvaluationReport): the sweep being compared.
@@ -125,13 +147,15 @@ def select_baseline(
             first.
 
     returns:
-        EvaluationReport | None: the baseline, or None when no stored sweep
-        can be used.
+        EvaluationReport | None: the baseline, or None when no stored sweep is
+        compatible.
     """
     usable = [
         report
         for report in candidates
-        if report.results and report.created_at != current.created_at
+        if report.results
+        and report.created_at != current.created_at
+        and _planner_compatible(current, report)
     ]
     if not usable:
         return None

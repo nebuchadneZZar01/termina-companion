@@ -1250,7 +1250,7 @@ def test_evaluation_worker_saves_the_report(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
     scenario = SCENARIOS_BY_ID["anju-kafei"]
 
-    def _fake_run(scenarios, rag_on=True, on_progress=None, should_stop=None):
+    def _fake_run(scenarios, rag_on=True, planner="", on_progress=None, should_stop=None):
         """Emit one result per scenario without touching a model."""
         for item in scenarios:
             if on_progress is not None:
@@ -1259,12 +1259,13 @@ def test_evaluation_worker_saves_the_report(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setattr(tasks, "run_scenarios", _fake_run)
     task = tasks._EvaluationTask(total=1)
-    tasks._run_evaluation([scenario], rag_on=False, task=task)
+    tasks._run_evaluation([scenario], rag_on=False, planner="llm", task=task)
 
     saved = load_report()
     assert saved is not None
     assert [result.scenario_id for result in saved.results] == ["anju-kafei"]
     assert saved.passed == 1
+    assert saved.planner == "llm"
 
 
 def test_evaluation_worker_skips_an_empty_sweep(tmp_path, monkeypatch) -> None:
@@ -1280,13 +1281,13 @@ def test_evaluation_worker_skips_an_empty_sweep(tmp_path, monkeypatch) -> None:
         )
     )
 
-    def _failing_run(scenarios, rag_on=True, on_progress=None, should_stop=None):
+    def _failing_run(scenarios, rag_on=True, planner="", on_progress=None, should_stop=None):
         """Raise before producing any result, like an unconfigured LLM."""
         raise RuntimeError("LLM not configured")
 
     monkeypatch.setattr(tasks, "run_scenarios", _failing_run)
     task = tasks._EvaluationTask(total=1)
-    tasks._run_evaluation([SCENARIOS_BY_ID["anju-kafei"]], rag_on=False, task=task)
+    tasks._run_evaluation([SCENARIOS_BY_ID["anju-kafei"]], rag_on=False, planner="llm", task=task)
 
     saved = load_report()
     assert saved is not None
