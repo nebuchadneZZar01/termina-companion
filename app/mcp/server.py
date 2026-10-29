@@ -17,6 +17,7 @@ from app.mcp.tools import (
     get_npc_schedule,
     get_objective,
     get_quest_info,
+    list_quests,
     search_quests,
 )
 
@@ -33,6 +34,7 @@ mcp = MCPServer(
 
 _TOOLS = (
     search_quests,
+    list_quests,
     get_npc_schedule,
     get_quest_info,
     get_objective,

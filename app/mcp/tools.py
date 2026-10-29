@@ -79,6 +79,27 @@ def search_quests(goal_text: str, quest_progress: dict[str, str] | None = None) 
     ]
 
 
+def list_quests() -> list[dict]:
+    """Return every quest with its full objective chain.
+
+    Unlike :func:`search_quests` this is not goal-filtered: it is the
+    authoritative chain read the State Agent and the planner need to summarise
+    progress and reconcile a plan.
+
+    returns:
+        list[dict]: one dict per quest, with ``{"id", "name", "objectives"}``
+        where each objective is its JSON-serialized ``Objective``.
+    """
+    return [
+        {
+            "id": quest.id,
+            "name": quest.name,
+            "objectives": [o.model_dump(mode="json") for o in quest.objectives],
+        }
+        for quest in _KB.quests
+    ]
+
+
 def get_npc_schedule(npc_id: str) -> dict:
     """Return an NPC's name, location and availability windows.
 
