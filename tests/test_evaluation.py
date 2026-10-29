@@ -198,6 +198,63 @@ def test_step_outside_its_slot_fails_the_temporal_check():
     assert "temporal_ordering" in _kinds(result)
 
 
+def test_a_recurring_objective_may_be_planned_on_a_later_day():
+    """A daily availability repeats, so Day 2 still fits its slot."""
+    scenario = SCENARIOS_BY_ID["song-of-storms"]
+    objective = next(
+        obj for obj in relevant_objectives(scenario) if obj.id == "ss_learn_song_storms"
+    )
+    assert objective.recurring
+
+    result = evaluate_plan(
+        Plan(
+            goal=scenario.goal,
+            steps=[
+                PlanStep(
+                    title=objective.title,
+                    objective_ref=objective.id,
+                    location=objective.location,
+                    window=TimeWindow(
+                        start=ClockTime(day=2, hour=14), end=ClockTime(day=2, hour=15)
+                    ),
+                )
+            ],
+        ),
+        scenario,
+        tool_calls=_tool_calls(scenario),
+    )
+
+    # The plan is incomplete, but the timing itself is legitimate.
+    assert "temporal_ordering" not in _kinds(result)
+
+
+def test_a_one_off_objective_may_not_be_planned_on_a_later_day():
+    """A dated window happens once, so a later-day step is still outside it."""
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+    objective = next(obj for obj in relevant_objectives(scenario) if obj.id == "ak_get_kafei_mask")
+    assert not objective.recurring
+
+    result = evaluate_plan(
+        Plan(
+            goal=scenario.goal,
+            steps=[
+                PlanStep(
+                    title=objective.title,
+                    objective_ref=objective.id,
+                    location=objective.location,
+                    window=TimeWindow(
+                        start=ClockTime(day=2, hour=14), end=ClockTime(day=2, hour=15)
+                    ),
+                )
+            ],
+        ),
+        scenario,
+        tool_calls=_tool_calls(scenario),
+    )
+
+    assert "temporal_ordering" in _kinds(result)
+
+
 def test_overlapping_steps_fail_the_temporal_check():
     """Two steps that overlap in time fail."""
     scenario = SCENARIOS_BY_ID["anju-kafei"]

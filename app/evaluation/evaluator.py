@@ -12,7 +12,9 @@ Checks, each producing issues of its own kind:
 * ``objective_achievement`` — the expected objectives are in the plan, the
   goal objective comes last and forbidden objectives are absent.
 * ``temporal_ordering`` — steps are chronological, never overlap, stay inside
-  their objective's slot and never start before the player's current time.
+  an availability of their objective still open at the player's clock (a
+  recurring objective may be planned on a later game day) and never start
+  before that clock.
 * ``prerequisites`` — every step's items, masks and prerequisite objectives
   are satisfied by the player's state or by an earlier step.
 * ``tool_usage`` — the Knowledge Agent consulted the MCP tools the goal needs.
@@ -40,6 +42,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
+from app.agents.planning_clock import occurrences
 from app.data.mock_knowledge import Objective
 from app.domain import Plan, PlanStep, ValidationResult
 from app.domain import clock_key as _clock
@@ -397,21 +400,30 @@ def _check_temporal(
                 )
             )
         objective = by_id.get(step.objective_ref)
-        if objective is not None and not (
-            objective.window.contains(step.window.start)
-            and _clock(step.window.end) <= _clock(objective.window.end)
-        ):
-            issues.append(
-                EvaluationIssue(
-                    severity="error",
-                    kind="temporal_ordering",
-                    message=(
-                        f"Step {idx + 1} window {step.window} falls outside the "
-                        f"objective's slot {objective.window}."
-                    ),
-                    step_idx=idx,
-                )
+        if objective is not None:
+            # A recurring objective repeats every game day, so a later-day step
+            # is legitimate even though the base window names Day 1: compare
+            # against the occurrences still open at the player's clock, the same
+            # way the planner and the Critic do.
+            open_windows = occurrences(objective, now)
+            fitted = any(
+                window.contains(step.window.start) and _clock(step.window.end) <= _clock(window.end)
+                for window in open_windows
             )
+            if not fitted:
+                detail = (
+                    f"falls outside the objective's slot {objective.window}."
+                    if not open_windows
+                    else f"falls outside every availability open at {now}."
+                )
+                issues.append(
+                    EvaluationIssue(
+                        severity="error",
+                        kind="temporal_ordering",
+                        message=f"Step {idx + 1} window {step.window} {detail}",
+                        step_idx=idx,
+                    )
+                )
         if idx and _clock(step.window.start) < _clock(plan.steps[idx - 1].window.end):
             issues.append(
                 EvaluationIssue(
