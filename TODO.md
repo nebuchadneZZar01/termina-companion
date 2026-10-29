@@ -467,15 +467,15 @@ a real infeasibility.
 
 # Phase 12 — Production Readiness
 
-* [ ] Complete README
+* [x] Complete README (install/first run, architecture, troubleshooting, offline demo)
 * [x] Add `.env.example`
 * [ ] Improve error handling
 * [x] Improve logging
 * [ ] Complete test suite
 * [ ] Verify installation from a clean environment
 * [ ] Verify end-to-end execution
-* [ ] Document architecture
-* [ ] Add architecture diagram
+* [x] Document architecture
+* [x] Add architecture diagram (Mermaid in `README.md`, ASCII kept as fallback)
 * [x] Stabilize demo mode (offline `--deterministic --no-rag` run, tested)
 * [ ] Review dependencies
 * [x] Route the State Agent and the planner's `planning_chain.py` through the
