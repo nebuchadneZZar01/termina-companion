@@ -104,10 +104,10 @@ def save_state(data: dict[str, Any] | SaveSnapshot) -> Path:
 
 def load_state(filename: str = DEFAULT_SAVE_NAME) -> SaveSnapshot | None:
     """Load state data from JSON, or None if not found/invalid."""
-    path = get_save_path(filename)
-    if not path.exists():
-        return None
     try:
+        path = get_save_path(filename)
+        if not path.exists():
+            return None
         with path.open("r", encoding="utf-8") as f:
             raw = json.load(f)
         return SaveSnapshot.model_validate(raw)

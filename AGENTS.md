@@ -520,7 +520,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   including hermetic wiki/cache scenarios. `test_reachability.py` pins the
   dead-branch closure, `test_scheduling.py` the shared placement decision and
   `test_temporal_matrix.py` is the deterministic clock matrix (no LLM) over the
-  whole three-day cycle, and `test_docs.py` keeps the README scenario and check
+  whole three-day cycle, `test_failure_paths.py` the explicit/degraded error
+  matrix (CLI, graph nodes, malformed LLM output, broken save directory), and
+  `test_docs.py` keeps the README scenario and check
   tables in sync with the code instead of trusting them to be retyped.
 
 ## Tooling
@@ -540,6 +542,7 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   uv run ruff check .                                 # lint
   uv run ruff format .                                # format
   uv run pytest                                       # tests
+  uv run pytest --cov=app --cov-report=term-missing   # tests + coverage
   uv run python -m app                                # headless pipeline demo
   uv run python -m app --deterministic --no-rag       # offline demo
   uv run streamlit run main.py                        # Streamlit UI
