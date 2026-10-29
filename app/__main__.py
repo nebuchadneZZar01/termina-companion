@@ -1,10 +1,15 @@
 """Headless demo of the full pipeline.
 
-Run with ``uv run python -m app`` after configuring an LLM provider. Ollama
-can be used for a local run without an external API key.
+Run with ``uv run python -m app`` after configuring an LLM provider, or fully
+offline with ``uv run python -m app --deterministic --no-rag``. Ollama can be
+used for a local run without an external API key.
 """
 
 from __future__ import annotations
+
+import argparse
+import logging
+import os
 
 from app.agents.planning_agent import PlanningAgentError
 from app.domain import ClockTime, GameState, Goal
@@ -12,18 +17,23 @@ from app.graph import MAX_PLANNING_ATTEMPTS, run_pipeline
 from app.llm import LLMConfigurationError
 from app.log import configure_logging
 from app.memory.models import PlayerPreferences
+from app.state import PlanningState
 from app.trace import current_run, setup_tracing
 
+logger = logging.getLogger(__name__)
 
-def demo() -> None:
+
+def demo(planner: str | None = None) -> PlanningState:
     """Run the headless Anju & Kafei demo and print the pipeline output.
 
     args:
-        (none)
+        planner (str | None): per-run planner engine override (``"llm"`` or
+            ``"deterministic"``); None uses the configured ``PLANNER``.
 
     returns:
-        None: prints the goal, state, retrieved context, plan,
-        validation and the run trace to stdout.
+        PlanningState: the finished run, so a caller can assert on it. A run
+        that fails on LLM configuration or planning returns a state with no
+        plan; the caller decides the exit code.
     """
     configure_logging()
     setup_tracing()
@@ -39,13 +49,12 @@ def demo() -> None:
     print("Player:", game_state.model_dump())
     print("Memory: in-memory (preferences: completionist demo)")
 
-    try:
-        result = run_pipeline(
-            game_state, goal, preferences=PlayerPreferences(playstyle="completionist")
-        )
-    except (LLMConfigurationError, PlanningAgentError) as exc:
-        print(f"\nPlanning failed: {exc}")
-        return
+    result = run_pipeline(
+        game_state,
+        goal,
+        preferences=PlayerPreferences(playstyle="completionist"),
+        planner=planner,
+    )
 
     print("\n--- State Agent understood ---")
     print(result.state_summary)
@@ -94,6 +103,7 @@ def demo() -> None:
             )
 
     plan_label = f"{result.replan_attempts} planning attempt(s) of max {MAX_PLANNING_ATTEMPTS}"
+    print(f"\nPlanner engine: {result.plan_engine or 'llm'}")
     print(f"\n--- Plan ({plan_label}) ---")
     if result.plan:
         for i, step in enumerate(result.plan.steps, 1):
@@ -127,7 +137,63 @@ def demo() -> None:
             else " goal not reachable with this state."
         )
     )
+    return result
+
+
+def _parser() -> argparse.ArgumentParser:
+    """Build the command-line parser for the headless demo."""
+    parser = argparse.ArgumentParser(
+        description="Run the Termina Companion planning pipeline once, headless."
+    )
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="skip the LLM and rebuild the objective chain deterministically",
+    )
+    parser.add_argument(
+        "--no-rag",
+        action="store_true",
+        help="disable the supplemental wiki retrieval for this run",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="print the full traceback when the pipeline fails unexpectedly",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the demo from the command line.
+
+    args:
+        argv (list[str] | None): arguments to parse; None uses ``sys.argv``.
+
+    returns:
+        int: 0 when the run produced a plan, 1 when planning failed.
+    """
+    args = _parser().parse_args(argv)
+    previous_rag = os.environ.get("RAG_ENABLED")
+    if args.no_rag:
+        os.environ["RAG_ENABLED"] = "0"
+    try:
+        result = demo("deterministic" if args.deterministic else None)
+    except (LLMConfigurationError, PlanningAgentError) as exc:
+        print(f"\nPlanning failed: {exc}")
+        return 1
+    except Exception as exc:  # noqa: BLE001 - the CLI reports the failure, never a raw crash
+        if args.debug:
+            logger.exception("Headless demo failed")
+        print(f"\nPlanning failed: {type(exc).__name__}: {exc}")
+        return 1
+    finally:
+        if args.no_rag:
+            if previous_rag is None:
+                os.environ.pop("RAG_ENABLED", None)
+            else:
+                os.environ["RAG_ENABLED"] = previous_rag
+    return 0 if result.plan else 1
 
 
 if __name__ == "__main__":
-    demo()
+    raise SystemExit(main())
