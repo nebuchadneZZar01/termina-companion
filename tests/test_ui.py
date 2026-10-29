@@ -306,6 +306,7 @@ def test_apply_pending_load_sets_widget_keys_before_render(monkeypatch) -> None:
         masks=["Kafei's Mask"],
         inventory=["Room Key"],
         quest_progress=["Anju & Kafei"],
+        completed_objectives=["ak_get_kafei_mask"],
         goal="Help Anju",
         migration_warning="migrated",
     )
@@ -321,6 +322,7 @@ def test_apply_pending_load_sets_widget_keys_before_render(monkeypatch) -> None:
     assert stub.session_state["save_masks"] == ["Kafei's Mask"]
     assert stub.session_state["save_inventory"] == ["Room Key"]
     assert stub.session_state["save_quests"] == ["Anju & Kafei"]
+    assert stub.session_state["save_objectives"] == ["ak_get_kafei_mask"]
     assert stub.session_state["save_goal"] == "Help Anju"
     assert stub.session_state["_save_warning"] == "migrated"
     assert stub.session_state["_load_ok"] is True

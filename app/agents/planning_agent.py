@@ -29,8 +29,10 @@ from app.agents.planning_chain import (
     _dedupe_steps,
     _ground_llm_steps,
     _reconcile_plan,
+    dead_for,
 )
 from app.agents.planning_draft import _DraftPlan, _materialize_plan
+from app.data.mock_knowledge import Objective
 from app.domain import Plan
 from app.llm import get_chat_model, llm_error_hint
 from app.progress import report
@@ -47,6 +49,11 @@ class PlanningAgentError(RuntimeError):
 def run(state: PlanningState) -> dict:
     """Build an ordered, time-boxed plan with the configured LLM.
 
+    Objectives the clock has already closed are left out of the plan and out of
+    the LLM context. When every objective is closed, no LLM call is made at all:
+    the run returns an empty plan tagged ``plan_engine="unreachable"``, which the
+    Critic turns into an explicit temporal verdict instead of a generic failure.
+
     args:
         state (PlanningState): the workflow state with player state, goal
         and retrieved objectives.
@@ -54,22 +61,38 @@ def run(state: PlanningState) -> dict:
     returns:
         dict: the generated ``plan``, the untouched LLM ``plan_proposal``
         (before grounding and reconciliation), the incremented
-        ``replan_attempts``, ``plan_engine`` (``"llm"``) and ``plan_model``.
+        ``replan_attempts``, ``plan_engine`` (``"llm"`` or
+        ``"unreachable"``) and ``plan_model``.
 
     raises:
         PlanningAgentError: if no model is available, the LLM call fails, or
             neither the LLM nor the deterministic chain yields any step.
     """
-    model = get_chat_model(**state.llm_config)
-    if model is None:
-        raise PlanningAgentError(
-            "Planning Agent requires a configured LLM. Set LLM_PROVIDER and its credentials."
-        )
-
     if not state.relevant_objectives:
         logger.error("Planning Agent: no relevant objectives to plan from")
         raise PlanningAgentError(
             "No relevant objectives were found for this goal; nothing to plan."
+        )
+
+    dead = dead_for(state)
+    live = [obj for obj in state.relevant_objectives if obj.id not in dead]
+    if not live:
+        logger.warning(
+            "Planning Agent: every objective is out of reach at %s; no LLM call",
+            state.game_state.time,
+        )
+        return {
+            "plan": Plan(goal=state.goal.description),
+            "plan_proposal": None,
+            "replan_attempts": state.replan_attempts + 1,
+            "plan_engine": "unreachable",
+            "plan_model": "",
+        }
+
+    model = get_chat_model(**state.llm_config)
+    if model is None:
+        raise PlanningAgentError(
+            "Planning Agent requires a configured LLM. Set LLM_PROVIDER and its credentials."
         )
 
     plan_model = getattr(model, "model_name", "") or model.__class__.__name__
@@ -81,14 +104,14 @@ def run(state: PlanningState) -> dict:
             "attempt": state.replan_attempts + 1,
         }
     )
-    result = _llm_run(state, model)
+    result = _llm_run(state, model, _live_context(state, live))
     # Keep the untouched proposal: the evaluator compares it with the
     # reconciled plan to measure what the deterministic rebuild had to fix.
     # The post-processing mutates in place, so this must be a deep copy.
     proposal = result.model_copy(deep=True)
     result = _ground_llm_steps(result, state.relevant_objectives)
     result = _dedupe_steps(result)
-    result = _clamp_windows(result, state.relevant_objectives)
+    result = _clamp_windows(result, state.relevant_objectives, state.game_state.time)
     result = _reconcile_plan(result, state)
     if not result.steps:
         logger.error(
@@ -107,7 +130,35 @@ def run(state: PlanningState) -> dict:
     }
 
 
-def _llm_run(state: PlanningState, model) -> Plan:
+def _live_context(state: PlanningState, live: list[Objective]) -> str:
+    """The planner context with the objectives the clock closed left out.
+
+    The Knowledge Agent ships one block per objective plus the supplemental
+    evidence tail, so leaving the closed objectives out is a selection, never a
+    text edit. A state built without blocks (tests, headless callers) keeps its
+    rendered context untouched.
+
+    args:
+        state (PlanningState): the workflow state with the retrieved context.
+        live (list[Objective]): the objectives still reachable.
+
+    returns:
+        str: the structured context for the live objectives, then the evidence.
+    """
+    if not state.planner_context_blocks:
+        return state.retrieved_context
+    structured = "\n".join(
+        state.planner_context_blocks[obj.id]
+        for obj in live
+        if obj.id in state.planner_context_blocks
+    )
+    structured = structured or "No relevant objectives found."
+    if not state.planner_context_suffix:
+        return structured
+    return f"{structured}\n\n{state.planner_context_suffix}"
+
+
+def _llm_run(state: PlanningState, model, context: str) -> Plan:
     """Ask the LLM for a structured plan, with replan feedback when provided.
 
     The model answers against the permissive ``_DraftPlan`` schema, so raw
@@ -119,6 +170,7 @@ def _llm_run(state: PlanningState, model) -> Plan:
     args:
         state (PlanningState): the workflow state with goal and context.
         model (BaseChatModel): the configured chat model.
+        context (str): the rendered objectives, closed ones already removed.
 
     returns:
         Plan: the LLM-produced plan.
@@ -170,7 +222,7 @@ def _llm_run(state: PlanningState, model) -> Plan:
         f"Player state:\n{state.state_summary}\n"
         f"Goal: {state.goal.description}\n"
         f"{_memory_context(state)}"
-        f"Relevant objectives:\n{state.retrieved_context}"
+        f"Relevant objectives:\n{context}"
     )
     started = time.perf_counter()
     report(

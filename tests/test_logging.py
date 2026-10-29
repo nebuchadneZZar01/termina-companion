@@ -113,7 +113,7 @@ def test_planning_agent_logs_llm_failure(caplog, monkeypatch):
     """The Planning Agent logs an LLM failure and does not fall back."""
     monkeypatch.setattr(planning_agent, "get_chat_model", lambda: _RaisingModel())
     state = PlanningState(
-        game_state=GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn"),
+        game_state=GameState(time=ClockTime(day=1, hour=6), location="Stockpot Inn"),
         goal=Goal(description="Reunite Anju and Kafei"),
         relevant_objectives=_kafei_objectives(),
     )
@@ -130,7 +130,7 @@ def test_planner_labels_raw_proposal_and_final_plan(caplog, fake_planner_model):
     proposes N steps but prints fewer: the final plan is the one rebuilt by the
     post-processing (grounding, dedup, clamping and prerequisite chain).
     """
-    state = GameState(time=ClockTime(day=2, hour=8), location="Stockpot Inn")
+    state = GameState(time=ClockTime(day=1, hour=6), location="Stockpot Inn")
     goal = Goal(description="Reunite Anju and Kafei")
     with caplog.at_level(logging.INFO, logger="app.agents.planning_agent"):
         run_pipeline(state, goal)

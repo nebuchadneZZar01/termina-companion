@@ -58,13 +58,14 @@ def render() -> None:
                 day_val = int(st.session_state.get("save_day", 1))
                 hour_val = _internal_hour(tm_val.hour)
                 data = {
-                    "version": 2,
+                    "version": 3,
                     "day": day_val,
                     "time": {"day": day_val, "hour": hour_val, "minute": tm_val.minute},
                     "location": st.session_state.get("save_location") or "South Clock Town",
                     "masks": list(st.session_state.get("save_masks") or []),
                     "inventory": list(st.session_state.get("save_inventory") or []),
                     "quest_progress": list(st.session_state.get("save_quests") or []),
+                    "completed_objectives": list(st.session_state.get("save_objectives") or []),
                     "goal": goal_val or "",
                 }
                 try:

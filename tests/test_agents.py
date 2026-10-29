@@ -67,21 +67,18 @@ def test_state_agent_summary_does_not_infer_a_quest_from_location():
     assert "Anju and Kafei" not in summary
 
 
-def test_progress_summary_lists_completed_quest():
+def test_state_agent_reports_completed_quests():
     """A quest marked done in quest_progress is reported as completed."""
-    from app.agents.state_agent import _progress_summary
-
-    kb = build_default_knowledge()
-    out = _progress_summary({"anju_kafei": "done"}, kb)
-    assert "Completed quests: Anju and Kafei" in out
+    state = _state(quest_progress={"anju_kafei": "done"})
+    assert "Completed quests: Anju and Kafei" in state_agent.run(state)["state_summary"]
 
 
-def test_progress_summary_empty_without_completed_quests():
-    """No progress is reported when no quest is completed."""
-    from app.agents.state_agent import _progress_summary
-
-    kb = build_default_knowledge()
-    assert _progress_summary({}, kb) == ""
+def test_state_agent_reports_partial_objective_progress():
+    """A declared completed objective shows up as partial quest progress."""
+    state = _state(completed_objectives=["ak_get_kafei_mask"])
+    summary = state_agent.run(state)["state_summary"]
+    assert "Anju and Kafei in progress" in summary
+    assert "Get Kafei's Mask from Madame Aroma" in summary
 
 
 def test_knowledge_agent_is_rule_based():
@@ -386,6 +383,63 @@ def test_reconcile_starts_after_the_furthest_owned_reward():
     assert out.steps[0].depends_on == []
 
 
+def _state_at(time: ClockTime, objectives: list[Objective]) -> PlanningState:
+    """Build a PlanningState for the given clock and objective set."""
+    gs = GameState(time=time, location="Stockpot Inn")
+    return PlanningState(
+        game_state=gs,
+        goal=Goal(description="x"),
+        relevant_objectives=objectives,
+    )
+
+
+def test_reconcile_never_schedules_a_step_before_now():
+    """Only objectives still available at the player's clock reach the plan."""
+    state = _state_at(ClockTime(day=2, hour=12), _relevant("kafei letter") + _relevant("pamela"))
+    out = planning_chain._reconcile_plan(Plan(goal="x"), state)
+    refs = [s.objective_ref for s in out.steps]
+    assert "ak_get_kafei_mask" not in refs
+    assert "pf_find_pamela" in refs
+    now = (2, 12, 0)
+    for step in out.steps:
+        start = step.window.start
+        assert (start.day, start.hour, start.minute) >= now
+
+
+def test_reconcile_keeps_a_recurring_quest_reachable_on_a_later_day():
+    """A daily availability still plans a full chain on Day 2."""
+    state = _state_at(ClockTime(day=2, hour=12), _relevant("pamela"))
+    out = planning_chain._reconcile_plan(Plan(goal="x"), state)
+    assert [s.objective_ref for s in out.steps] == [
+        "pf_find_pamela",
+        "pf_restore_river",
+        "pf_enter_house",
+        "pf_free_father",
+        "pf_reunite_pamela",
+    ]
+    for step in out.steps:
+        assert step.window.start.day == 2
+
+
+def test_reconcile_prunes_declared_completed_objectives():
+    """An objective the player declared done is never planned again."""
+    state = _state(completed_objectives=["ak_get_kafei_mask"])
+    out = planning_chain._reconcile_plan(Plan(goal="x"), state)
+    refs = [s.objective_ref for s in out.steps]
+    assert "ak_get_kafei_mask" not in refs
+    assert refs[0] == "ak_get_room_key"
+
+
+def test_reconcile_keeps_the_chain_when_only_a_later_objective_is_done():
+    """The explicit set is per objective: earlier steps stay plannable."""
+    state = _state(completed_objectives=["ak_talk_to_anju"])
+    out = planning_chain._reconcile_plan(Plan(goal="x"), state)
+    refs = [s.objective_ref for s in out.steps]
+    assert refs[:2] == ["ak_get_kafei_mask", "ak_get_room_key"]
+    assert "ak_talk_to_anju" not in refs
+    assert "ak_meet_in_kitchen" in refs
+
+
 def test_reconcile_skips_traded_away_rewards():
     """A traded-away reward still marks its objective and ancestors as done."""
     state = _state(inventory=["Mountain Title Deed"]).model_copy(
@@ -422,6 +476,76 @@ def test_reconcile_keeps_requirements_the_inventory_does_not_cover():
     refs = [s.objective_ref for s in out.steps]
     assert refs[0] == "ak_get_kafei_mask"
     assert "ak_meet_kafei" not in refs  # its reward is already owned
+
+
+def test_planning_agent_skips_the_llm_when_every_objective_is_closed(monkeypatch):
+    """Nothing reachable means no LLM call and an explicit unreachable engine."""
+    calls: list[dict] = []
+
+    def _model(**kwargs):
+        calls.append(kwargs)
+        raise AssertionError("the LLM must not be called")
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", _model)
+    state = _state_at(ClockTime(day=2, hour=8), _relevant("kafei letter"))
+    result = planning_agent.run(state)
+    assert calls == []
+    assert result["plan"].steps == []
+    assert result["plan_engine"] == "unreachable"
+    assert result["plan_proposal"] is None
+
+
+def test_planning_prompt_leaves_out_the_closed_objectives(monkeypatch):
+    """The LLM sees only the objectives the clock has not closed."""
+    prompts: list[list] = []
+
+    class _Capture:
+        model_name = "capture"
+
+        def with_structured_output(self, _schema):
+            return self
+
+        def invoke(self, messages, **_kwargs):
+            prompts.append(messages)
+            window = TimeWindow(start=ClockTime(day=2, hour=13), end=ClockTime(day=2, hour=14))
+            return Plan(
+                goal="x",
+                steps=[
+                    PlanStep(
+                        title="find pamela",
+                        objective_ref="pf_find_pamela",
+                        location="Music Box House",
+                        window=window,
+                    )
+                ],
+            )
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", lambda **_kwargs: _Capture())
+    objectives = _relevant("kafei letter") + _relevant("pamela")
+    state = _state_at(ClockTime(day=2, hour=8), objectives).model_copy(
+        update={
+            "planner_context_blocks": {
+                obj.id: f"- [{obj.id}] {obj.title} ({obj.location}, {obj.window})"
+                for obj in objectives
+            },
+            "planner_context_suffix": "[RAG evidence: no matching passage.]",
+        }
+    )
+    planning_agent.run(state)
+    human = next(m.content for m in prompts[0] if getattr(m, "type", "") == "human")
+    assert "pf_find_pamela" in human
+    assert "ak_get_kafei_mask" not in human
+    assert "[RAG evidence: no matching passage.]" in human
+
+
+def test_knowledge_agent_exposes_one_context_block_per_objective():
+    """The planner can select live objectives instead of editing rendered text."""
+    state = _state()
+    result = knowledge_agent.run(state)
+    blocks = result["planner_context_blocks"]
+    assert set(blocks) == {obj.id for obj in result["relevant_objectives"]}
+    assert blocks["ak_reunite"].startswith("- [ak_reunite] ")
+    assert result["planner_context_suffix"]
 
 
 def test_planning_agent_llm_plan_is_grounded(monkeypatch):
@@ -480,7 +604,8 @@ def test_clamp_windows_pins_window_inside_objective_slot():
     """A window spanning outside the slot is cut to the intersection."""
     w = TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=2, hour=21))
     plan = _plan_step("ak_talk_to_anju", "Stockpot Inn", w)
-    out = planning_chain._clamp_windows(plan, _state().relevant_objectives)
+    state = _state()
+    out = planning_chain._clamp_windows(plan, state.relevant_objectives, state.game_state.time)
     assert out.steps[0].objective_ref == "ak_talk_to_anju"
     assert out.steps[0].window.start == ClockTime(day=1, hour=14, minute=20)
     assert out.steps[0].window.end == ClockTime(day=1, hour=21, minute=5)
@@ -491,7 +616,7 @@ def test_clamp_windows_falls_back_when_window_is_disjoint():
     w = TimeWindow(start=ClockTime(day=1, hour=10), end=ClockTime(day=1, hour=11))
     plan = _plan_step("ak_sakon_hideout", "Sakon's Hideout", w)
     state = _state()
-    out = planning_chain._clamp_windows(plan, state.relevant_objectives)
+    out = planning_chain._clamp_windows(plan, state.relevant_objectives, state.game_state.time)
     obj = next(o for o in state.relevant_objectives if o.id == "ak_sakon_hideout")
     step_window = out.steps[0].window
     assert step_window.start == obj.window.start
@@ -505,7 +630,8 @@ def test_clamp_windows_leaves_ungrounded_steps_untouched():
     """Steps with an unknown objective ref pass through unchanged."""
     w = TimeWindow(start=ClockTime(day=3, hour=10), end=ClockTime(day=3, hour=11))
     plan = _plan_step("mystery", "Nowhere", w)
-    out = planning_chain._clamp_windows(plan, _state().relevant_objectives)
+    state = _state()
+    out = planning_chain._clamp_windows(plan, state.relevant_objectives, state.game_state.time)
     assert out.steps[0].window == w
 
 
@@ -721,20 +847,99 @@ def test_materialize_plan_builds_strict_plan_from_draft():
     )
 
 
-def test_window_inside_handles_earliest_at_cycle_end():
-    """A dependency ending at the cycle end never yields an invalid window."""
+def test_window_inside_reports_a_closed_objective():
+    """A one-off objective whose window ended has no slot left to give."""
     obj = next(o for q in _KB.quests for o in q.objectives if o.id == "ak_reunite")
-    out = planning_clock._window_inside(obj, ClockTime(day=3, hour=29, minute=59))
-    assert (out.start.day, out.start.hour, out.start.minute) < (
-        out.end.day,
-        out.end.hour,
-        out.end.minute,
+    now = ClockTime(day=3, hour=29, minute=59)
+    assert planning_clock._window_inside(obj, now, now) is None
+
+
+def test_window_inside_never_starts_before_now():
+    """Earliest before now is lifted to now, so no step lands in the past."""
+    obj = next(o for q in _KB.quests for o in q.objectives if o.id == "ak_talk_to_anju")
+    now = ClockTime(day=1, hour=15, minute=0)
+    out = planning_clock._window_inside(obj, ClockTime(day=1, hour=6), now)
+    assert out is not None
+    assert out.start == now
+
+
+def test_window_inside_uses_a_recurring_objectives_next_day():
+    """A daily availability is scheduled on the current day, not the first."""
+    obj = next(o for q in _KB.quests for o in q.objectives if o.id == "pf_find_pamela")
+    now = ClockTime(day=2, hour=10, minute=0)
+    out = planning_clock._window_inside(obj, now, now)
+    assert out is not None
+    assert out.start == now
+    assert out.end.day == 2
+
+
+def test_window_inside_keeps_a_recurring_night_window_after_midnight():
+    """A nightly availability repeats with its time of day, past midnight too."""
+    window = TimeWindow(start=ClockTime(day=1, hour=22), end=ClockTime(day=1, hour=28))
+    obj = Objective(
+        id="nightly",
+        title="Nightly",
+        location="Nowhere",
+        window=window,
+        recurring=True,
     )
-    assert (out.start.day, out.start.hour, out.start.minute) >= (
-        obj.window.start.day,
-        obj.window.start.hour,
-        obj.window.start.minute,
+    now = ClockTime(day=2, hour=2, minute=0)  # Day 2 02:00, i.e. 26:00
+    out = planning_clock._window_inside(obj, now, now)
+    assert out is not None
+    # 02:00 is inside the night that began at 22:00 on the same game day.
+    assert out.start == now
+    assert out.end == ClockTime(day=2, hour=27)
+
+
+def test_clamp_windows_drops_a_step_whose_slot_is_closed():
+    """A step for a closed objective is removed instead of scheduled late."""
+    w = TimeWindow(start=ClockTime(day=1, hour=10), end=ClockTime(day=1, hour=11))
+    plan = _plan_step("ak_sakon_hideout", "Sakon's Hideout", w)
+    state = _state()
+    out = planning_chain._clamp_windows(
+        plan,
+        state.relevant_objectives,
+        ClockTime(day=3, hour=28, minute=30),
     )
+    assert out.steps == []
+
+
+def test_clamp_windows_remaps_depends_on_after_dropping_a_step():
+    """Dropping a step keeps the dependency indices of the steps that remain."""
+    closed = Objective(
+        id="closed",
+        title="Closed",
+        location="Nowhere",
+        window=TimeWindow(start=ClockTime(day=1, hour=8), end=ClockTime(day=1, hour=9)),
+    )
+    still_open = Objective(
+        id="open",
+        title="Open",
+        location="Nowhere",
+        window=TimeWindow(start=ClockTime(day=1, hour=10), end=ClockTime(day=1, hour=12)),
+    )
+    plan = Plan(
+        goal="x",
+        steps=[
+            PlanStep(
+                title="closed",
+                objective_ref="closed",
+                location="Nowhere",
+                window=closed.window,
+            ),
+            PlanStep(
+                title="open",
+                objective_ref="open",
+                location="Nowhere",
+                window=still_open.window,
+                depends_on=[0],
+            ),
+        ],
+    )
+    now = ClockTime(day=1, hour=11)
+    out = planning_chain._clamp_windows(plan, [closed, still_open], now)
+    assert [s.objective_ref for s in out.steps] == ["open"]
+    assert out.steps[0].depends_on == []
 
 
 class _DegenerateWindowModel:

@@ -37,6 +37,11 @@ class PlanningState(BaseModel):
     # MCP tools invoked by the Knowledge Agent, as "tool" or "tool:<arg>".
     tool_calls: list[str] = Field(default_factory=list)
     retrieved_context: str = ""
+    # One rendered planner context block per objective, so the planner can drop
+    # the objectives the clock has already closed without editing text.
+    planner_context_blocks: dict[str, str] = Field(default_factory=dict)
+    # The supplemental RAG evidence tail, appended after the live blocks.
+    planner_context_suffix: str = ""
     retrieved_evidence: list[Evidence] = Field(default_factory=list)
     retrieval_engine: str = ""
     retrieval_status: str = ""

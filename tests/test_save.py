@@ -13,13 +13,14 @@ def _store(store_dir):
 
 def _payload() -> dict:
     return {
-        "version": 2,
+        "version": 3,
         "day": 2,
         "time": {"day": 2, "hour": 9, "minute": 30},
         "location": "North Clock Town",
         "masks": ["Keaton Mask"],
         "inventory": ["Kafei's Letter"],
         "quest_progress": ["human_girl"],
+        "completed_objectives": ["ak_get_kafei_mask"],
         "goal": "Reunite Anju and Kafei",
     }
 
@@ -31,7 +32,7 @@ def test_save_and_load_round_trip():
 
     snapshot = load_state()
     assert snapshot is not None
-    assert snapshot.version == 2
+    assert snapshot.version == 3
     assert snapshot.day == 2
     assert snapshot.time.hour == 9
     assert snapshot.time.minute == 30
@@ -39,6 +40,7 @@ def test_save_and_load_round_trip():
     assert snapshot.masks == ["Keaton Mask"]
     assert snapshot.inventory == ["Kafei's Letter"]
     assert snapshot.quest_progress == ["human_girl"]
+    assert snapshot.completed_objectives == ["ak_get_kafei_mask"]
     assert snapshot.goal == "Reunite Anju and Kafei"
     assert snapshot.migration_warning == ""
 
@@ -54,7 +56,7 @@ def test_save_migrates_legacy_pre_dawn_hour_to_previous_night():
     snapshot = load_state()
 
     assert snapshot is not None
-    assert snapshot.version == 2
+    assert snapshot.version == 3
     assert snapshot.day == 1
     assert snapshot.time == ClockTime(day=1, hour=26, minute=30)
     assert snapshot.migration_warning == ""
@@ -72,10 +74,28 @@ def test_save_clamps_legacy_day_one_pre_dawn_with_a_warning():
     snapshot = load_state()
 
     assert snapshot is not None
-    assert snapshot.version == 2
+    assert snapshot.version == 3
     assert snapshot.day == 1
     assert snapshot.time == ClockTime(day=1, hour=6)
     assert "clamped" in snapshot.migration_warning
+
+
+def test_version_two_save_loads_with_empty_completed_objectives():
+    """A version-2 save has no partial progress, so the new field stays empty."""
+    save_state(
+        {
+            "version": 2,
+            "day": 2,
+            "time": {"day": 2, "hour": 9, "minute": 30},
+            "quest_progress": ["human_girl"],
+        }
+    )
+    snapshot = load_state()
+
+    assert snapshot is not None
+    assert snapshot.version == 3
+    assert snapshot.quest_progress == ["human_girl"]
+    assert snapshot.completed_objectives == []
 
 
 def test_save_accepts_snapshot_model():

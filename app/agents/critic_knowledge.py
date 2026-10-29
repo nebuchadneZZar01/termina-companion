@@ -64,14 +64,28 @@ class KnowledgeView:
         if cached is not None:
             return cached
         try:
-            with traced_span("mcp.get_objective", kind="TOOL", input_value=ref) as tool_span:
-                payload = get_objective(ref)
-                set_output(tool_span, payload)
+            return self._fetch_objective(ref)
         except ValueError:
             return None
         except Exception as exc:  # noqa: BLE001 - degrades to an unknown ref
             logger.warning("Critic: get_objective(%s) failed: %s", ref, exc)
             return None
+
+    def _fetch_objective(self, ref: str) -> Objective:
+        """Fetch an objective through the tool and cache it with its quest id.
+
+        args:
+            ref (str): the objective id.
+
+        returns:
+            Objective: the authoritative objective.
+
+        raises:
+            Exception: whatever the tool raises, for the caller to degrade.
+        """
+        with traced_span("mcp.get_objective", kind="TOOL", input_value=ref) as tool_span:
+            payload = get_objective(ref)
+            set_output(tool_span, payload)
         objective = Objective.model_validate(payload["objective"])
         self._objectives[ref] = objective
         self._quest_of[ref] = payload["quest_id"]
@@ -90,6 +104,29 @@ class KnowledgeView:
         if self.objective(ref) is None:
             return None
         return self._quest_of.get(ref)
+
+    def quest_for_objective(self, ref: str) -> Quest | None:
+        """The quest that owns an objective, resolving caller overrides too.
+
+        ``quest_id`` keeps returning None for an override, because a caller can
+        supply synthetic objectives. A verdict needs the quest's name, so this
+        variant asks the tool for the owner when the cache does not know it.
+
+        args:
+            ref (str): the objective id.
+
+        returns:
+            Quest | None: the owning quest, or None when it cannot be resolved.
+        """
+        if self.objective(ref) is None:
+            return None
+        if ref not in self._quest_of:
+            try:
+                self._fetch_objective(ref)
+            except Exception as exc:  # noqa: BLE001 - degrades to no quest name
+                logger.warning("Critic: owner of %s unknown: %s", ref, exc)
+                return None
+        return self.quest(self._quest_of[ref])
 
     def quest(self, quest_id: str) -> Quest | None:
         """Resolve a quest id to its authoritative quest.
@@ -118,6 +155,31 @@ class KnowledgeView:
         )
         self._quests[quest_id] = quest
         return quest
+
+    def objective_positions(self, objectives: list[Objective]) -> dict[str, tuple[str, int]]:
+        """Where each objective sits in its quest's chain, through the tools.
+
+        The scheduler needs the position to apply the owned-reward floor the
+        same way the planner does. The quests are resolved through the MCP view,
+        so the Critic keeps reading game knowledge from one place; a quest the
+        tools cannot resolve simply leaves its objectives unpositioned.
+
+        args:
+            objectives (list[Objective]): the objectives to position.
+
+        returns:
+            dict[str, tuple[str, int]]: objective id → (quest id, chain index).
+        """
+        positions: dict[str, tuple[str, int]] = {}
+        quests: dict[str, Quest] = {}
+        for objective in objectives:
+            quest = self.quest_for_objective(objective.id)
+            if quest is not None:
+                quests.setdefault(quest.id, quest)
+        for quest in quests.values():
+            for idx, member in enumerate(quest.objectives):
+                positions.setdefault(member.id, (quest.id, idx))
+        return positions
 
     def npc(self, npc_id: str) -> NPC | None:
         """Resolve an NPC id to its schedule.

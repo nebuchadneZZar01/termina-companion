@@ -148,7 +148,11 @@ class GameState(BaseModel):
     location: str
     inventory: list[str] = Field(default_factory=list)
     masks: list[str] = Field(default_factory=list)
-    quest_progress: dict[str, str] = Field(default_factory=dict)  # quest_id -> objective seen
+    quest_progress: dict[str, str] = Field(default_factory=dict)  # quest_id -> "done"
+    # Objectives the player has already completed, by id. The explicit set is
+    # the source of truth for partial progress: nothing infers a chain position
+    # from it, so a nonlinear quest is described exactly.
+    completed_objectives: list[str] = Field(default_factory=list)
     notes: str = ""
 
 

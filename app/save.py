@@ -15,25 +15,28 @@ from app.settings import get_settings
 class SaveSnapshot(BaseModel):
     """Snapshot of UI/game state for save/load."""
 
-    version: int = 2
+    version: int = 3
     day: int = 1
     time: ClockTime
     location: str = "South Clock Town"
     masks: list[str] = Field(default_factory=list)
     inventory: list[str] = Field(default_factory=list)
     quest_progress: list[str] = Field(default_factory=list)
+    completed_objectives: list[str] = Field(default_factory=list)
     goal: str = ""
     migration_warning: str = ""
 
     @model_validator(mode="before")
     @classmethod
     def _migrate_legacy_clock(cls, data):
-        """Rewrite pre-game-day saves into the 06:00-05:59 clock model.
+        """Bring older save payloads up to the current snapshot version.
 
-        Old saves stored wall-clock hours 0-23 on an absolute day. In the new
-        model those early hours belong to the previous game day's night, e.g.
-        old Day 2 02:00 is Day 1 26:00. The invalid pre-dawn hours of Day 1
-        are clamped to the cycle start with a warning.
+        Version 2 added the game-day clock: old saves stored wall-clock hours
+        0-23 on an absolute day, so those early hours belong to the previous
+        game day's night (old Day 2 02:00 is Day 1 26:00). The invalid pre-dawn
+        hours of Day 1 clamp to the cycle start with a warning. Version 3 adds
+        explicitly completed objectives, whose empty default keeps a version-2
+        save loadable unchanged.
 
         args:
             data: the raw save payload.
@@ -41,13 +44,17 @@ class SaveSnapshot(BaseModel):
         returns:
             dict: the migrated payload, or the input unchanged.
         """
-        if not isinstance(data, dict) or int(data.get("version", 1)) >= 2:
+        if not isinstance(data, dict):
             return data
-        raw_time = data.get("time")
-        if not isinstance(raw_time, dict):
+        version = int(data.get("version", 1))
+        if version >= 3:
             return data
-
         out = dict(data)
+        out["version"] = 3
+        raw_time = data.get("time")
+        if version >= 2 or not isinstance(raw_time, dict):
+            return out
+
         day = int(raw_time.get("day", data.get("day", 1)))
         hour = int(raw_time.get("hour", 6))
         minute = int(raw_time.get("minute", 0))
@@ -60,7 +67,6 @@ class SaveSnapshot(BaseModel):
                 warning = (
                     "Legacy save time was before Day 1 06:00; clamped to the start of the cycle."
                 )
-        out["version"] = 2
         out["day"] = day
         out["time"] = {"day": day, "hour": hour, "minute": minute}
         if warning:

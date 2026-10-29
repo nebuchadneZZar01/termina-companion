@@ -93,6 +93,7 @@ def _render_play(editor: dict, kb) -> None:
             inventory=list(editor["inventory"]),
             masks=list(editor["masks"]),
             quest_progress={editor["quest_names"][q]: "done" for q in editor["quests"]},
+            completed_objectives=list(editor.get("objectives") or []),
         )
         goal = Goal(description=goal_text)
 

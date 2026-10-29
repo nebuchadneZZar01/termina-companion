@@ -11,7 +11,7 @@ directly.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.domain import ClockTime, TimeWindow
 
@@ -61,6 +61,12 @@ class Objective(BaseModel):
     description: str = ""
     location: str
     window: TimeWindow
+    # A recurring objective is available again on every game day, with the same
+    # time of day, for as long as the cycle lasts. It models a place or an NPC
+    # you can visit, not a scene that happens once, so it can never fall into
+    # the past. A one-off objective happens once per cycle: once its window
+    # closes it is gone until the Song of Time rewinds the three days.
+    recurring: bool = False
     prerequisites: list[str] = Field(default_factory=list)
     requires_items: list[str] = Field(default_factory=list)
     requires_masks: list[str] = Field(default_factory=list)
@@ -70,6 +76,27 @@ class Objective(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     npc_id: str = ""
     event_ref: str = ""
+
+    @model_validator(mode="after")
+    def _recurring_is_not_a_dated_event(self) -> "Objective":
+        """Reject an objective that claims to both repeat and happen once.
+
+        A scheduled event is a single dated beat (a delivery, a night watch), so
+        its availability cannot recur every day. Catching the contradiction when
+        the knowledge base loads keeps a mistyped flag from silently turning a
+        one-off scene into a daily one.
+
+        returns:
+            Objective: the validated objective.
+
+        raises:
+            ValueError: when a recurring objective is bound to an event.
+        """
+        if self.recurring and self.event_ref:
+            raise ValueError(
+                f"objective {self.id!r} is recurring and bound to event {self.event_ref!r}"
+            )
+        return self
 
 
 class Quest(BaseModel):
@@ -647,6 +674,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Obtain the Lens of Truth to see things that are invisible to the naked eye."
                 ),
                 location="Lone Peak Shrine",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 provides_items=["Lens of Truth"],
                 keywords=[
@@ -667,6 +695,7 @@ def build_default_knowledge() -> KnowledgeBase:
                 title="See Darmani's spirit at the Goron Graveyard with the Lens of Truth",
                 description="Use the Lens of Truth to see Darmani's spirit at the Goron Graveyard.",
                 location="Goron Graveyard",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dg_get_lens"],
                 requires_items=["Lens of Truth"],
@@ -692,6 +721,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "grants you the Goron Mask."
                 ),
                 location="Goron Graveyard",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dg_see_darmani"],
                 provides_masks=["Goron Mask"],
@@ -721,6 +751,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Obtain hot spring water from Darmani's grave to thaw the frozen Goron Elder."
                 ),
                 location="Goron Graveyard",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 requires_quests=["darmani_spirit"],
                 provides_items=["Hot Spring Water"],
@@ -734,6 +765,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Goron Elder and learn the Lullaby Intro."
                 ),
                 location="Path to Snowhead",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dg_get_hot_spring"],
                 requires_items=["Hot Spring Water"],
@@ -745,6 +777,7 @@ def build_default_knowledge() -> KnowledgeBase:
                 title="Learn the full Goron Lullaby from the Baby Goron in Goron Shrine",
                 description="Learn the full Goron Lullaby from the Baby Goron in Goron Shrine.",
                 location="Goron Shrine",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dg_thaw_elder"],
                 npc_id="baby_goron",
@@ -765,6 +798,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "to soothe him. In return, he grants you the Zora Mask."
                 ),
                 location="Great Bay Coast",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 npc_id="mikau",
                 provides_masks=["Zora Mask"],
@@ -792,6 +826,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "and Pinnacle Rock."
                 ),
                 location="Zora Hall",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["mm_heal_mikau"],
                 npc_id="indigo_gos",
@@ -805,6 +840,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "stolen eggs."
                 ),
                 location="Pirates' Fortress",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["mm_talk_band"],
                 keywords=["eggs", "pirates", "fortress", "uova"],
@@ -814,6 +850,7 @@ def build_default_knowledge() -> KnowledgeBase:
                 title="Retrieve three Zora Eggs from Pinnacle Rock",
                 description="Recover the remaining three Zora Eggs from Pinnacle Rock.",
                 location="Pinnacle Rock",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["mm_get_fortress_eggs"],
                 keywords=["eggs", "pinnacle", "rock"],
@@ -823,6 +860,7 @@ def build_default_knowledge() -> KnowledgeBase:
                 title="Deliver Lulu's eggs to the Marine Research Lab",
                 description="Deliver all seven Zora Eggs to the Marine Research Lab.",
                 location="Marine Research Lab",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["mm_get_pinnacle_eggs"],
                 keywords=["eggs", "lab", "deliver"],
@@ -832,6 +870,7 @@ def build_default_knowledge() -> KnowledgeBase:
                 title="Learn the New Wave Bossa Nova from the baby Zoras",
                 description="The baby Zoras teach Link the New Wave Bossa Nova at Zora Hall.",
                 location="Zora Hall",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["mm_deliver_eggs"],
                 npc_id="indigo_gos",
@@ -844,6 +883,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Play the New Wave Bossa Nova for Lulu at Zora Cape to help her recover."
                 ),
                 location="Zora Cape",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["mm_learn_bossa_nova"],
                 npc_id="lulu",
@@ -861,6 +901,7 @@ def build_default_knowledge() -> KnowledgeBase:
                 title="Find Pamela and her cursed father at the Music Box House",
                 description="Travel to Ikana Canyon and visit the Music Box House.",
                 location="Music Box House",
+                recurring=True,
                 window=_tw(1, (6, 0), (29, 0)),
                 npc_id="pamela",
                 keywords=[
@@ -883,6 +924,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "can be reached."
                 ),
                 location="Ikana Canyon",
+                recurring=True,
                 window=_tw(1, (6, 0), (29, 0)),
                 prerequisites=["pf_find_pamela"],
                 requires_quests=["song_of_storms"],
@@ -896,6 +938,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "rests."
                 ),
                 location="Music Box House",
+                recurring=True,
                 window=_tw(1, (6, 0), (29, 0)),
                 prerequisites=["pf_restore_river"],
                 npc_id="pamela",
@@ -919,6 +962,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "grants you the Gibdo Mask."
                 ),
                 location="Music Box House",
+                recurring=True,
                 window=_tw(1, (6, 0), (29, 0)),
                 prerequisites=["pf_enter_house"],
                 provides_masks=["Gibdo Mask"],
@@ -947,6 +991,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Pamela is overjoyed to be reunited with her father after breaking his curse."
                 ),
                 location="Music Box House",
+                recurring=True,
                 window=_tw(1, (6, 0), (29, 0)),
                 prerequisites=["pf_free_father"],
                 npc_id="pamela",
@@ -968,6 +1013,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Deku Mask."
                 ),
                 location="Clock Tower",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 provides_masks=["Deku Mask"],
                 npc_id="mask_salesman",
@@ -981,6 +1027,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "the disappearance of the Deku Princess."
                 ),
                 location="Deku Palace",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dp_get_deku_mask"],
                 requires_masks=["Deku Mask"],
@@ -995,6 +1042,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "dungeon to learn the Sonata of Awakening."
                 ),
                 location="Deku Palace",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dp_talk_king"],
                 npc_id="monkey",
@@ -1007,6 +1055,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Rescue Koume in Southern Swamp to obtain the boat cruise to Woodfall Temple."
                 ),
                 location="Southern Swamp",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dp_learn_sonata"],
                 npc_id="koume",
@@ -1020,6 +1069,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "the source of the poison."
                 ),
                 location="Woodfall Temple",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dp_save_koume"],
                 keywords=["woodfall", "swamp", "temple", "sonata", "palude"],
@@ -1033,6 +1083,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "in an Empty Bottle."
                 ),
                 location="Woodfall Temple",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dp_enter_woodfall"],
                 requires_items=["Empty Bottle"],
@@ -1045,6 +1096,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Return the Deku Princess to the Deku King in Deku Palace to lift the blame."
                 ),
                 location="Deku Palace",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dp_rescue_princess"],
                 keywords=["princess", "return", "king", "palace"],
@@ -1056,6 +1108,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Race the Deku Butler through the Deku Shrine to earn the Mask of Scents."
                 ),
                 location="Deku Shrine",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dp_return_princess"],
                 provides_masks=["Mask of Scents"],
@@ -1161,6 +1214,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Use the Sonata of Awakening to wake Captain Keeta in the Ikana Graveyard."
                 ),
                 location="Ikana Graveyard",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 requires_quests=["deku_princess"],
                 npc_id="captain_keeta",
@@ -1171,6 +1225,7 @@ def build_default_knowledge() -> KnowledgeBase:
                 title="Open the grave of the Composer Brother Flat",
                 description="Open the grave of the Composer Brother Flat in the Ikana Graveyard.",
                 location="Ikana Graveyard",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["ss_wake_keeta"],
                 keywords=["grave", "flat", "composer", "ikana"],
@@ -1182,6 +1237,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Learn the Song of Storms from the ghost of Flat in the Ikana Graveyard."
                 ),
                 location="Ikana Graveyard",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["ss_open_grave"],
                 npc_id="flat",
@@ -1203,6 +1259,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "the Clock Tower to make the moon drop a Moon's Tear."
                 ),
                 location="Astral Observatory",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 provides_items=["Moon's Tear"],
                 requires_quests=["deku_princess"],
@@ -1216,6 +1273,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Town Title Deed."
                 ),
                 location="South Clock Town",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dc_get_moon_tear"],
                 requires_items=["Moon's Tear"],
@@ -1231,6 +1289,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Swamp Title Deed."
                 ),
                 location="Southern Swamp",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dc_get_land_deed"],
                 requires_items=["Town Title Deed"],
@@ -1246,6 +1305,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Mountain Title Deed."
                 ),
                 location="Goron Village",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dc_land_to_swamp"],
                 requires_items=["Swamp Title Deed"],
@@ -1261,6 +1321,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "to obtain the Ocean Title Deed."
                 ),
                 location="Zora Hall",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dc_swamp_to_mountain"],
                 requires_items=["Mountain Title Deed"],
@@ -1276,6 +1337,7 @@ def build_default_knowledge() -> KnowledgeBase:
                     "Huge Rupee."
                 ),
                 location="Ikana Canyon",
+                recurring=True,
                 window=_tw(1, (6, 0), (23, 59)),
                 prerequisites=["dc_mountain_to_bay"],
                 requires_items=["Ocean Title Deed"],

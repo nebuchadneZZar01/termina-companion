@@ -35,6 +35,18 @@ def _draft_fallback_window(start: ClockTime) -> TimeWindow:
     )
 
 
+def _offset(t: ClockTime) -> int:
+    """Minutes elapsed since the cycle start, Day 1 06:00.
+
+    args:
+        t (ClockTime): the time to measure.
+
+    returns:
+        int: the signed minute offset from the cycle start.
+    """
+    return (t.day - 1) * 24 * 60 + (t.hour - 6) * 60 + t.minute
+
+
 def _add_minutes(t: ClockTime, minutes: int) -> ClockTime:
     """Shift a clock by minutes, clamped to the playable cycle.
 
@@ -48,43 +60,78 @@ def _add_minutes(t: ClockTime, minutes: int) -> ClockTime:
     returns:
         ClockTime: the resulting time, inside Day 1 06:00 to Day 3 29:59.
     """
-    total = (t.day - 1) * 24 * 60 + (t.hour - 6) * 60 + t.minute + minutes
+    total = _offset(t) + minutes
     total = min(max(total, 0), 3 * 24 * 60 - 1)
     day, rem = divmod(total, 24 * 60)
     hour, minute = divmod(rem, 60)
     return ClockTime(day=day + 1, hour=hour + 6, minute=minute)
 
 
-def _window_inside(obj: Objective, earliest: ClockTime) -> TimeWindow:
-    """Clamp a one-hour slot inside an objective's window, after ``earliest``.
+def _window_inside(obj: Objective, earliest: ClockTime, now: ClockTime) -> TimeWindow | None:
+    """Clamp a one-hour slot inside an objective's next availability.
+
+    The slot never starts before ``now``: an objective whose window has already
+    closed is not available any more, so no slot can host it.
 
     args:
-        obj (Objective): the objective whose window constrains the slot.
+        obj (Objective): the objective whose availability constrains the slot.
         earliest (ClockTime): the earliest the slot may start (e.g. the
-        previous step's end).
+            previous step's end).
+        now (ClockTime): the player's current time; nothing is scheduled before.
 
     returns:
-        TimeWindow: a slot no later than the objective's window, always with
-        ``end`` strictly after ``start``.
+        TimeWindow | None: a slot inside an availability occurrence, always
+        with ``end`` strictly after ``start``, or None when the objective has
+        no availability left after ``now``.
     """
-    start = _max_clock(earliest, obj.window.start)
-    if _clock(start) >= _clock(obj.window.end):
-        start = obj.window.start
-    end = min(_add_hours(start, _SLOT), obj.window.end, key=_clock)
-    if _clock(end) <= _clock(start):
-        # The slot is too short for a whole hour (e.g. the LLM anchored the
-        # previous step at the last playable instant, Day 3 29:59). Forcing
-        # ``end`` to Day 3 29:59 would reproduce the LLM's degenerate window,
-        # so pin the whole authoritative slot instead.
-        if _clock(obj.window.start) < _clock(obj.window.end):
-            return TimeWindow(start=obj.window.start, end=obj.window.end)
-        logger.warning(
-            "Planning Agent: objective %s has a zero-length slot %s; no step can fit inside it",
-            obj.id,
-            obj.window,
-        )
-        return _draft_fallback_window(obj.window.start)
-    return TimeWindow(start=start, end=end)
+    for occurrence in occurrences(obj, now):
+        start = _max_clock(earliest, now, occurrence.start)
+        if _clock(start) >= _clock(occurrence.end):
+            continue
+        end = min(_add_hours(start, _SLOT), occurrence.end, key=_clock)
+        return TimeWindow(start=start, end=end)
+    logger.warning("Planning Agent: objective %s has no availability left after %s", obj.id, now)
+    return None
+
+
+def occurrences(obj: Objective, now: ClockTime) -> list[TimeWindow]:
+    """The availability windows of an objective still open at ``now``.
+
+    A one-off objective happens once per cycle: its window is its only
+    occurrence, and it disappears as soon as ``now`` reaches the window end. A
+    recurring objective comes back on every game day at the same time of day, so
+    its window repeats on each remaining day — a nightly window keeps running
+    past midnight into the same game day's night.
+
+    args:
+        obj (Objective): the objective whose availability to compute.
+        now (ClockTime): the player's current time.
+
+    returns:
+        list[TimeWindow]: the occurrences still open at ``now``, in
+        chronological order; empty when the objective is already gone.
+    """
+    windows = _day_shifted(obj.window) if obj.recurring else [obj.window]
+    return [w for w in windows if _clock(w.end) > _clock(now)]
+
+
+def _day_shifted(window: TimeWindow) -> list[TimeWindow]:
+    """Repeat a window on every game day, preserving its time of day.
+
+    args:
+        window (TimeWindow): the base availability, on any game day.
+
+    returns:
+        list[TimeWindow]: one occurrence per game day of the cycle.
+    """
+    span = _offset(window.end) - _offset(window.start)
+    out: list[TimeWindow] = []
+    for day in range(1, 4):
+        start = ClockTime(day=day, hour=window.start.hour, minute=window.start.minute)
+        end = _add_minutes(start, span)
+        if _clock(end) > _clock(start):
+            out.append(TimeWindow(start=start, end=end))
+    return out
 
 
 def _max_clock(*times: ClockTime) -> ClockTime:

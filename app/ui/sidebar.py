@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 import streamlit as st
 
+from app.agents.progress import objective_labels
 from app.data.mock_knowledge import MASKS
 from app.domain import internal_hour as _internal_hour
 from app.i18n import t, tr
@@ -181,6 +182,7 @@ def _apply_pending_load() -> None:
         st.session_state["save_masks"] = list(snapshot.masks)
         st.session_state["save_inventory"] = list(snapshot.inventory)
         st.session_state["save_quests"] = list(snapshot.quest_progress)
+        st.session_state["save_objectives"] = list(snapshot.completed_objectives)
         st.session_state["save_goal"] = snapshot.goal or ""
         st.session_state["_load_ok"] = True
     except Exception as exc:
@@ -285,6 +287,20 @@ def _render_sidebar_editor(kb) -> dict:
         placeholder=t("select_placeholder"),
         key="save_quests",
     )
+    # Partial progress is explicit: the player picks the objectives already
+    # done and nothing infers a chain position from the selection. The widget
+    # stores objective ids, so a save round-trips them unchanged.
+    labels = objective_labels(kb)
+    if st.session_state.get("save_objectives") is None:
+        st.session_state["save_objectives"] = []
+    done_objectives = st.multiselect(
+        t("completed_objectives"),
+        list(labels),
+        format_func=lambda ref: tr(labels[ref]),
+        help=t("completed_objectives_help"),
+        placeholder=t("select_placeholder"),
+        key="save_objectives",
+    )
     return {
         "day": day,
         "time": when,
@@ -293,4 +309,5 @@ def _render_sidebar_editor(kb) -> dict:
         "inventory": list(inventory or []),
         "quests": list(done_q or []),
         "quest_names": quest_names,
+        "objectives": list(done_objectives or []),
     }

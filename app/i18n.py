@@ -507,6 +507,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "inventory_add_button": "Add",
         "quest_progress": "Quest Progress",
         "quest_progress_help": ("Select quests already completed \u2014 they\u2019ll be skipped."),
+        "completed_objectives": "Completed objectives",
+        "completed_objectives_help": (
+            "Select the single objectives you already completed. "
+            "Partial progress is never inferred from the location."
+        ),
         "goal_example": "e.g. Reunite Anju and Kafei before the dawn of the Third Day",
         "stop_plan": "Stop",
         "stop_plan_help": "Stop after the current agent or LLM call finishes.",
@@ -638,6 +643,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_location": "location",
         "kind_prerequisite": "prerequisite",
         "kind_quest_prerequisite": "quest prerequisite",
+        "kind_unreachable": "out of reach",
+        "kind_missing_step": "missing step",
         "no_issues": "No issues.",
         "validation_details": "Validation details",
         "problems": "Problems",
@@ -868,6 +875,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "quest_progress_help": (
             "Seleziona le missioni gi\u00e0 completate \u2014 verranno saltate."
         ),
+        "completed_objectives": "Obiettivi completati",
+        "completed_objectives_help": (
+            "Seleziona i singoli obiettivi che hai gi\u00e0 completato. "
+            "Il progresso parziale non viene mai dedotto dalla posizione."
+        ),
         "goal_example": "Es. Ricongiungi Anju e Kafei prima dell'alba del Terzo Giorno",
         "stop_plan": "Stop",
         "stop_plan_help": (
@@ -1005,6 +1017,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "kind_location": "posizione",
         "kind_prerequisite": "prerequisito",
         "kind_quest_prerequisite": "prerequisito quest",
+        "kind_unreachable": "fuori portata",
+        "kind_missing_step": "passo mancante",
         "no_issues": "Nessun problema.",
         "validation_details": "Dettagli validazione",
         "problems": "Problemi",
@@ -1273,6 +1287,22 @@ _MSGS_IT: dict[str, str] = {
     "Missing mask(s): ": "Maschere mancanti: ",
     "Missing prerequisite(s): ": "Prerequisiti mancanti: ",
     "Quest prerequisite missing: ": "Prerequisito quest mancante: ",
+    "Step starts at ": "Il passo inizia alle ",
+    ", but it is now ": ", ma ora sono le ",
+    ": its window ended at ": ": la sua finestra si \u00e8 chiusa alle ",
+    ". Use the Song of Time to restart the cycle.": (
+        ". Usa la Canzone del Tempo per riavviare il ciclo."
+    ),
+    "Quest prerequisite out of reach: ": "Prerequisito quest fuori portata: ",
+    "Its window has closed; use the Song of Time to restart the cycle.": (
+        "La sua finestra si \u00e8 chiusa; usa la Canzone del Tempo per riavviare il ciclo."
+    ),
+    " is out of reach. Use the Song of Time to restart the cycle.": (
+        " \u00e8 fuori portata. Usa la Canzone del Tempo per riavviare il ciclo."
+    ),
+    "it no longer fits before ": "non entra pi\u00f9 prima di ",
+    " fits at ": " sta in ",
+    " but the plan does not schedule it.": " ma il piano non lo pianifica.",
     ". Complete this quest first.": ". Completa questa quest prima.",
     ". Complete these quests first.": ". Completa queste quest prima.",
     "Depends on a step that ends after this one starts.": (

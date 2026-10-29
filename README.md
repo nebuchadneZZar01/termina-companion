@@ -43,6 +43,61 @@ the page stays still while the agents reason.
 The page has two tabs: **Play** (the state editor and the planning flow) and
 **Evaluation** (the evaluation sweep, see below).
 
+## Temporal reachability and the Song of Time
+
+The three days are one finite timeline. An objective's window is a dated
+occurrence inside that timeline, not a slot that comes back tomorrow: once the
+window is over, everything that needed it is over too, and only the Song of Time
+reopens it.
+
+The one explicit exception is a **recurring** objective — a daily availability
+such as a place to visit or an NPC to talk to. It repeats on every game day with
+the same time of day and the same duration (a nightly window keeps running past
+midnight inside the same game day), so it never falls into the past. Dated
+scenes (the Anju & Kafei chain, the Bombers, Romani Ranch) stay one-off.
+
+What the pipeline does with that:
+
+- the planner never schedules a step at an hour that has already gone by; an
+  objective whose window has closed has no slot to give, so it is left out of the
+  plan and out of the LLM context. When nothing is left, no LLM call is made: the
+  run returns an empty plan with the `unreachable` engine badge.
+- expiry propagates through `prerequisites` and through the `requires_quests`
+  gate between quests. A dead prerequisite strands its transitive successors, a
+  quest that can no longer be completed strands the objectives gated behind it,
+  and unrelated quests stay plannable.
+- explicit progress never expires. An objective listed under **Completed
+  objectives** (sidebar), a quest marked done, and any objective whose reward the
+  player already holds are treated as done and are never reported as unreachable.
+- the budget is checked, not only the dates. Each step needs an hour and the
+  chain is scheduled in order, so a goal can fail simply because what is left of
+  the cycle cannot hold the whole chain: six one-hour objectives in the last two
+  hours of Day 3 no longer fit. Every objective that stops fitting is reported
+  with its own issue, the end of its last availability and the Song of Time.
+- the verdict is a failure with `unreachable` issues, one per dead chain or per
+  objective that no longer fits, naming the quest, the missed objective, the end
+  of its availability and the Song of Time. The plan still lists the steps that
+  are feasible, so a partly closed goal shows both what can be done and what has
+  to wait for a new cycle. The graph does not re-plan on these issues: a new
+  attempt cannot change the clock.
+- a plan can no longer pass while it silently lost a step. The Critic rebuilds
+  the same schedule from the objectives and the clock and compares the plan with
+  it: an objective that still fits but has no step is a `missing_step` error.
+- a gate towards a quest that is merely incomplete is still `quest_prerequisite`
+  ("complete this quest first"). It becomes `unreachable` only when that quest can
+  no longer be completed either.
+
+Partial progress is never inferred from the player's location: select the
+objectives you already did in the sidebar. Saves carry them in version 3; version
+2 files still load unchanged.
+
+The closure lives in `app/agents/reachability.py` (`dead_objectives`,
+`dead_quests`), the availability arithmetic in `occurrences()` in
+`app/agents/planning_clock.py`, and the shared scheduling decision in
+`app/agents/scheduling.py` (`select_chain`, `schedule_chain`). The behaviour is
+pinned by `tests/test_reachability.py`, `tests/test_scheduling.py` and the
+deterministic clock matrix in `tests/test_temporal_matrix.py`.
+
 ## Save/Load
 
 The sidebar has **Save** and **Load** buttons for the current game state
@@ -50,8 +105,9 @@ The sidebar has **Save** and **Load** buttons for the current game state
 
 Saves are written as JSON to `saves/last_save.json` (the directory is
 derived from `RAG_QDRANT_PATH`, so it sits next to `.cache/`). **Load**
-restores every form field from that file; if no valid save exists the app
-shows a warning and keeps the current state. Saves from the earlier absolute-day
+restores every form field from that file, including the completed objectives; if
+no valid save exists the app shows a warning and keeps the current state. The
+file is at version 3; version 2 saves (no completed objectives) load unchanged. Saves from the earlier absolute-day
 clock are migrated to the game-day model on load: an old `Day 2 02:00` becomes
 `Day 1 02:00 (+1)`, while invalid pre-dawn Day 1 times clamp to `Day 1 06:00`
 with a warning.
@@ -434,9 +490,10 @@ Game State → State Agent → Knowledge Agent → Planning Agent
 The LangGraph workflow has four nodes, one module per agent under
 `app/agents/`. Agent responsibilities remain separate. Planning output is
 post-processed deterministically: references, titles and locations are grounded
-to MCP objectives, duplicate steps are removed, windows are clamped to
-objective slots, and the authoritative prerequisite chain is rebuilt before
-validation. The Critic re-reads requirements and dependency timing from those
+to MCP objectives, duplicate steps are removed, windows are clamped to the
+objective's next open availability (never before the player's clock), objectives
+whose window has closed are dropped, and the authoritative prerequisite chain is
+rebuilt before validation. The Critic re-reads requirements and dependency timing from those
 objectives through the MCP tools, so a grounding mistake in a step cannot hide
 an infeasibility.
 
@@ -445,14 +502,14 @@ an infeasibility.
 | **State Agent** | `GameState`, `Goal` | Canonical state and summary | Rule-based state normalization and summary. |
 | **Knowledge Agent** | `GameState`, `Goal` | Objectives, schedules, events, RAG evidence and context | Rule-based MCP plus adaptive RAG; RAG failure degrades to structured context. |
 | **Planning Agent** | State summary and retrieved context | `Plan` | Configured LLM with deterministic grounding and temporal post-processing. |
-| **Critic Agent** | `Plan`, state and objectives; knowledge resolved through MCP tools | `ValidationResult` | Rule-based feasibility checks from authoritative objectives (requirements, dependency timing, overlaps) and bounded re-planning trigger. |
+| **Critic Agent** | `Plan`, state and objectives; knowledge resolved through MCP tools | `ValidationResult` | Rule-based feasibility checks from authoritative objectives (requirements, dependency timing, overlaps, temporal reachability) and bounded re-planning trigger. |
 
 | Component | Responsibility |
 |---|---|
 | `app/domain.py` | Pydantic game-state, goal, plan and validation contracts. |
 | `app/data/mock_knowledge.py` | Structured demo data; the Knowledge Agent and the Critic read it through the MCP tools, while the State Agent and the planning chain still read `build_default_knowledge()` (see `TODO.md`). |
 | `app/mcp/` | Pure game-data tools and external MCP server; authoritative knowledge seam. |
-| `app/agents/` | State, Knowledge, Planning and Critic graph nodes. |
+| `app/agents/` | State, Knowledge, Planning and Critic graph nodes, plus `progress.py` (explicit objective progress) and `reachability.py` (what the clock has closed). |
 | `app/rag/` | Adaptive wiki client, cleanup/chunking, FastEmbed adapter, Qdrant store and cache-aside retrieval. |
 | `app/state.py` | `PlanningState`, including RAG evidence, status, warning, ingested pages and indexed-source manifest. |
 | `app/graph.py` | LangGraph wiring and `MAX_PLANNING_ATTEMPTS = 3` loop. |
@@ -481,3 +538,8 @@ architecture is not tied to one quest.
   are in place; the next step is comparing a sweep against the stored history
   to flag regressions (per-scenario deltas over pass rate, check kinds and
   `proposal_fidelity` warnings).
+- **Next-cycle planning** — the Song of Time currently produces an infeasible
+  verdict, not a plan for the new cycle. Planning across the restart needs
+  cycle-bound item permanence in the knowledge base, a cycle reference on `Plan`
+  anchored at Day 1 06:00, a Critic check against the shifted clock and an
+  evaluation scenario.
