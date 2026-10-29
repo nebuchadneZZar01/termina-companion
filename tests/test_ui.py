@@ -399,7 +399,7 @@ def test_agent_registry_rebuilds_attempts_and_durations(monkeypatch) -> None:
     task = tasks._PlanningTask()
     task.log = [
         ("start", "state"),
-        ("update", "state", {"game_state": state, "state_engine": "rule-based"}),
+        ("update", "state", {"game_state": state, "state_engine": "deterministic"}),
         ("start", "plan"),
         (
             "update",
@@ -428,6 +428,20 @@ def test_agent_registry_rebuilds_attempts_and_durations(monkeypatch) -> None:
     assert ">1.0s<" in markup
     assert ">2.0s<" in markup
     assert "<code>m</code>" in markup
+
+
+def test_registry_engine_chip_reads_the_reported_engine_ids() -> None:
+    """The chip shows deterministic engines verbatim and names the LLM engine."""
+    assert "deterministic" in registry._registry_engine_html(
+        "state", {"state_engine": "deterministic"}
+    )
+    assert "deterministic" in registry._registry_engine_html(
+        "knowledge", {"knowledge_engine": "deterministic"}
+    )
+    llm = registry._registry_engine_html("plan", {"plan_engine": "llm", "plan_model": "m"})
+    assert "LLM" in llm
+    assert "<code>m</code>" in llm
+    assert registry._registry_engine_html("state", {}) == ""
 
 
 def test_planning_task_stop_is_cooperative_and_does_not_start_new_work() -> None:

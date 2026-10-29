@@ -53,7 +53,7 @@ def test_search_quests_failure_degrades_to_empty_context(monkeypatch):
     result = knowledge_agent.run(_state())
 
     assert result["relevant_objectives"] == []
-    assert result["knowledge_engine"] == "rule-based"
+    assert result["knowledge_engine"] == "deterministic"
     assert "[RAG evidence: no matching passage.]" in result["retrieved_context"]
 
 

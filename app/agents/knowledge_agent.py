@@ -114,7 +114,7 @@ def run(state: PlanningState) -> dict:
         "retrieval_wiki_unreachable": retrieval.wiki_unreachable,
         "retrieval_ingested_pages": retrieval.ingested_pages,
         "retrieval_indexed_sources": retrieval.indexed_sources,
-        "knowledge_engine": "rule-based",
+        "knowledge_engine": "deterministic",
     }
 
 
@@ -326,7 +326,7 @@ def _format_evidence(retrieval: RetrievalResult) -> list[str]:
 
 def _log_objectives(objectives) -> None:
     """Log the retrieved objectives at INFO level."""
-    logger.info("Knowledge Agent [rule-based]: %d objective(s)", len(objectives))
+    logger.info("Knowledge Agent [deterministic]: %d objective(s)", len(objectives))
     for obj in objectives:
         logger.info("  - %s: %s", obj.id, obj.title)
 

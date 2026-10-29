@@ -55,9 +55,9 @@ def _state(**kw) -> PlanningState:
     )
 
 
-def test_state_agent_is_rule_based():
-    """The State Agent reports the rule-based engine."""
-    assert state_agent.run(_state())["state_engine"] == "rule-based"
+def test_state_agent_is_deterministic():
+    """The State Agent reports the deterministic engine."""
+    assert state_agent.run(_state())["state_engine"] == "deterministic"
 
 
 def test_state_agent_summary_does_not_infer_a_quest_from_location():
@@ -81,14 +81,14 @@ def test_state_agent_reports_partial_objective_progress():
     assert "Get Kafei's Mask from Madame Aroma" in summary
 
 
-def test_knowledge_agent_is_rule_based():
-    """The Knowledge Agent reports the rule-based engine."""
-    assert knowledge_agent.run(_state())["knowledge_engine"] == "rule-based"
+def test_knowledge_agent_is_deterministic():
+    """The Knowledge Agent reports the deterministic engine."""
+    assert knowledge_agent.run(_state())["knowledge_engine"] == "deterministic"
 
 
-def test_critic_agent_is_rule_based():
-    """The Critic Agent reports the rule-based engine."""
-    assert critic_agent.run(_state())["critic_engine"] == "rule-based"
+def test_critic_agent_is_deterministic():
+    """The Critic Agent reports the deterministic engine."""
+    assert critic_agent.run(_state())["critic_engine"] == "deterministic"
 
 
 def test_critic_agent_records_one_attempt_per_run():

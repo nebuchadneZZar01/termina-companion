@@ -88,15 +88,15 @@ def _kafei_objectives():
     return [obj for quest in kb.quests for obj in quest.objectives if obj.id.startswith("ak_")]
 
 
-def test_state_agent_logs_rule_based_path(caplog):
-    """The State Agent logs that it used the rule-based path."""
+def test_state_agent_logs_deterministic_path(caplog):
+    """The State Agent logs that it used the deterministic path."""
     state = PlanningState(
         game_state=GameState(time=ClockTime(day=2, hour=8), location="stockpot inn"),
         goal=Goal(description="Reunite Anju and Kafei"),
     )
     with caplog.at_level(logging.INFO, logger="app.agents.state_agent"):
         state_agent.run(state)
-    assert any("State Agent [rule-based]" in r.message for r in caplog.records)
+    assert any("State Agent [deterministic]" in r.message for r in caplog.records)
 
 
 class _RaisingModel:
