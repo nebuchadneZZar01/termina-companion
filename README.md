@@ -115,12 +115,18 @@ with a warning.
 ## Run the headless demo
 
 ```sh
-uv run python -m app
+uv run python -m app                             # configured LLM
+uv run python -m app --deterministic --no-rag    # fully offline
 ```
 
 The demo prints understood state, structured MCP knowledge, adaptive RAG
 status/evidence, the generated plan and validation. Configure an LLM first;
 Ollama or LM Studio work locally without an external API key.
+
+`--deterministic` skips the LLM and rebuilds the objective chain with the same
+engine the evaluation baseline uses, while `--no-rag` disables the supplemental
+wiki retrieval for that run only, so the two together need no provider and no
+network. `--debug` adds the traceback when the run fails unexpectedly.
 
 ## Run with an LLM
 
