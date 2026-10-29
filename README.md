@@ -579,11 +579,6 @@ three LLM repeats.
 
 ## Architecture
 
-```text
-Game State → State Agent → Knowledge Agent → Planning Agent
-          → Critic/Validator → Plan   (bounded re-planning loop on failure)
-```
-
 ```mermaid
 flowchart TD
     GS["Game state + goal"] --> MEM["Memory: retrieve episodes"]

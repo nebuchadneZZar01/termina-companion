@@ -475,7 +475,7 @@ a real infeasibility.
 * [ ] Verify installation from a clean environment
 * [ ] Verify end-to-end execution
 * [x] Document architecture
-* [x] Add architecture diagram (Mermaid in `README.md`, ASCII kept as fallback)
+* [x] Add architecture diagram (Mermaid in `README.md`)
 * [x] Stabilize demo mode (offline `--deterministic --no-rag` run, tested)
 * [ ] Review dependencies
 * [x] Route the State Agent and the planner's `planning_chain.py` through the
