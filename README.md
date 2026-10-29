@@ -513,32 +513,34 @@ was recorded stays compatible). Run the two sweeps back to back with the same
 numbers: a deterministic sweep needs no LLM provider, so it is reproducible
 offline.
 
-**Measured on 2026-10-29** — `llama3.2` on a local Ollama, one sweep per engine,
-`--rag off` (both engines therefore read identical structured context, and no
-wiki leg can degrade):
+**Measured on 2026-10-29** — `llama3.2` on a local Ollama, `--rag off` (both
+engines therefore read identical structured context, and no wiki leg can
+degrade), one deterministic sweep and three LLM sweeps:
 
-| Engine | Pass rate | Failing scenario | Total time |
+| Engine | Pass rate | Failing scenario | Time |
 |---|---|---|---|
-| LLM (`llama3.2`) | 11/12 (0.92) | `romani-ranch` (`critic`) | 1148 s (mean 96 s, max 294 s) |
-| Deterministic | 11/12 (0.92) | `romani-ranch` (`critic`) | under 1 s |
+| LLM (`llama3.2`, 3 sweeps) | 36/36 (1.00) | none | 6080 s total, ~34 min per sweep |
+| Deterministic (1 sweep) | 12/12 (1.00) | none | under 1 s |
 
-Neither sweep had a `run_error`, and both produced the same step count for
-every scenario (9, 4, 3, 3, 7, 6, 3, 5, 8, 5, 6, 0): the retrieved chain
-decides the step set and the model only influences windows. Parity on the pass
-rate is the expected outcome, because most checks encode deterministic
-guarantees.
+No run in either engine raised a `run_error`, and both produced the same step
+count for every scenario (9, 4, 3, 3, 7, 6, 3, 5, 8, 5, 6, 0): the retrieved
+chain decides the step set and the model only influences windows. Parity on the
+pass rate is the expected outcome, because most checks encode deterministic
+guarantees — what the ablation buys is the cost column, two hours of model time
+against under a second.
 
-The model's own contribution is visible in the proposal-fidelity warnings: in
-6 of the 11 plan scenarios the raw LLM proposal omitted at least one expected
-objective (`anju-kafei`, `darmani-spirit`, `goron-lullaby`, `mikau-eggs`,
-`song-of-storms`, `romani-ranch`), so the deterministic rebuild was
-load-bearing, not cosmetic. Neither engine needed a re-plan.
+The model's own contribution is visible in the proposal-fidelity warnings: over
+the three repeats, 8 of the 11 plan scenarios produced at least one run whose
+raw LLM proposal omitted an expected objective (14 warnings in 36 runs), so the
+deterministic rebuild was load-bearing, not cosmetic. Neither engine needed a
+re-plan.
 
-The one failure is identical on both sides and has nothing to do with the
-engine: `rr_defend_ranch` is a night window (02:30-05:15) whose objective names
-Romani, whose schedule only covers 06:00-18:00, so the Critic rejects the step.
-That is a knowledge-data problem, tracked in `TODO.md`; the ablation's finding
-is the parity, not the number itself.
+The first measurements were worse (11/12 and 10/12) and both losses were bugs,
+not model behaviour: the `romani-ranch` data bound an event to an NPC schedule
+that cannot contain its window, and the evaluator judged recurring objectives
+against their Day 1 occurrence only. Both are fixed, and the fix is why the
+published numbers are 100% on the deterministic side and stable across the
+three LLM repeats.
 
 ## Architecture
 

@@ -457,15 +457,18 @@ a real infeasibility.
   the model adds beyond the deterministic chain. Run both engines with the same
   `--rag` flag on a warm store, discard a sweep whose `wiki_retrieval` is
   `degraded`, and keep `run_error` scenarios out of the engine comparison.
-  Measured 2026-10-29 (`llama3.2` on Ollama, `--rag off`, one sweep each, no
-  `run_error`): 11/12 both engines, identical step counts on every scenario,
-  six proposal-fidelity warnings on the LLM side, no re-plan on either side.
-  Numbers and protocol live in `README.md` under *The deterministic baseline*.
-* [ ] Fix the one engine-independent failure the sweep surfaced and rerun it:
-  `rr_defend_ranch` is a night window (02:30-05:15) that names Romani, whose
-  schedule only covers 06:00-18:00, so the Critic rejects an otherwise correct
-  plan. Decide whether the objective should reference an NPC at all (it is an
-  event) or whether the schedule is incomplete, then re-measure.
+  Measured 2026-10-29 (`llama3.2` on Ollama, `--rag off`, one deterministic
+  sweep and three LLM sweeps, no `run_error`): 12/12 deterministic and 36/36
+  LLM, identical step counts on every scenario, 14 proposal-fidelity warnings
+  in 36 LLM runs across 8 of the 11 plan scenarios, no re-plan on either side,
+  ~34 min of model time per LLM sweep against under a second. Numbers and
+  protocol live in `README.md` under *The deterministic baseline*.
+* [x] Fix the two harness bugs the first sweeps surfaced and re-measure:
+  `rr_defend_ranch` bound an event to Romani's daytime schedule, which no plan
+  could satisfy, and the evaluator judged recurring objectives against their
+  Day 1 occurrence only. Both are fixed (`fix(knowledge)`, `fix(evaluation)`),
+  the data invariant is pinned by a test, and the rerun above is the
+  measurement after the fixes.
 
 # Phase 12 — Production Readiness
 
