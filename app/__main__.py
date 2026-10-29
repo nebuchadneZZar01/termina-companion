@@ -142,9 +142,7 @@ def demo(planner: str | None = None) -> PlanningState:
 
 def _parser() -> argparse.ArgumentParser:
     """Build the command-line parser for the headless demo."""
-    parser = argparse.ArgumentParser(
-        description="Run the Termina Companion planning pipeline once, headless."
-    )
+    parser = argparse.ArgumentParser(description="Run the TaIA planning pipeline once, headless.")
     parser.add_argument(
         "--deterministic",
         action="store_true",

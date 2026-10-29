@@ -1,25 +1,42 @@
-# Termina Companion
+# TaIA
 
 Multi-agent temporal planner for *The Legend of Zelda: Majora's Mask*, built with
 LangGraph, Pydantic and Streamlit. It turns player state and a goal into a
 structured, validated plan within the three-day cycle.
 
+TaIA takes its name from **Taya**, the Italian name of Link's fairy companion in
+*Majora's Mask*.
+
 This is a working **end-to-end prototype**. State, Knowledge and Critic agents
-use deterministic logic and structured demo data; the Planning Agent always
-calls a configured LLM. The Knowledge Agent adds supplemental evidence from an
-adaptive Zelda Wiki RAG cache, while MCP tools remain authoritative for game
-rules. Provider configuration is required; local providers such as Ollama can
-run without an external API key. In-memory player memory (preferences plus
-past episodes), OpenTelemetry tracing and a plan-evaluation harness are
-active; persistent memory remains future work.
+use deterministic logic and structured demo data; the Planning Agent calls a
+configured LLM by default, while the explicit deterministic engine
+(`PLANNER=deterministic` or the headless `--deterministic` flag) skips the call
+for evaluation and offline demos. The Knowledge Agent adds supplemental evidence
+from an adaptive Zelda Wiki RAG cache, while MCP tools remain authoritative for
+game rules. Provider configuration is required for the LLM path; local providers
+such as Ollama can run without an external API key. In-memory player memory
+(preferences plus past episodes), OpenTelemetry tracing and a plan-evaluation
+harness are active; persistent memory remains future work.
 
 ## Install
 
-Requires [uv](https://docs.astral.sh/uv/).
+Requires Python 3.13 and [uv](https://docs.astral.sh/uv/). The wiki leg also
+needs network access to the Zelda Wiki.
 
 ```sh
 uv sync
+cp .env.example .env    # fill LLM_PROVIDER and its credentials
 ```
+
+The first offline run needs neither a key nor the network:
+
+```sh
+uv run python -m app --deterministic --no-rag
+```
+
+A normal first run downloads the FastEmbed embedding model (a few hundred MB)
+and creates the embedded Qdrant store under `.cache/termina-companion/qdrant`;
+both are reused afterwards. The offline demo skips them.
 
 ## Run the Streamlit UI
 
@@ -548,15 +565,39 @@ against their Day 1 occurrence only. Both are fixed, and the fix is why the
 published numbers are 100% on the deterministic side and stable across the
 three LLM repeats.
 
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `No LLM provider configured` | `LLM_PROVIDER` unset | Set it in `.env`; for an offline run use `--deterministic --no-rag`. |
+| `404 page not found` from Ollama/LM Studio | Base URL without the OpenAI-compatible path | Use `.../v1`, or leave `LLM_BASE_URL` empty for the provider default. |
+| `404 model not found` / connection refused | Model name or server not running | Check `LLM_MODEL`, start the server, verify the port. |
+| Qdrant lock or timeout while another run is active | Embedded Qdrant holds an exclusive lock on its path | Close the UI or point `RAG_QDRANT_PATH` at an isolated copy. |
+| `wiki_miss` with a `wiki_unreachable` warning | Wiki throttled or unreachable | The run continues on structured MCP data; retry later or raise `RAG_WIKI_BUDGET_SECONDS`. |
+| Phoenix UI empty after a run | Wrong endpoint or port | Export to `http://localhost:6006`; `:4318` belongs to a generic OTel Collector, not Phoenix. |
+| Demo fails without credentials | LLM path is the default | Add `--deterministic --no-rag`. |
+
 ## Architecture
 
-```text
-Game State → State Agent → Knowledge Agent → Planning Agent
-          → Critic/Validator → Plan   (bounded re-planning loop on failure)
+```mermaid
+flowchart TD
+    GS["Game state + goal"] --> MEM["Memory: retrieve episodes"]
+    MEM --> ST["State Agent"]
+    ST --> KN["Knowledge Agent"]
+    KN --> MCP["MCP tools<br/>authoritative objectives, schedules, events"]
+    KN --> RAG["Adaptive Zelda Wiki RAG<br/>supplemental evidence"]
+    KN --> PL["Planning Agent"]
+    PL <--> LLM["Configured LLM<br/>(skipped by the deterministic engine)"]
+    PL --> CR["Critic / Validator"]
+    CR -->|"valid"| OUT["Validated plan"]
+    CR -->|"issues, attempt < 3"| PL
+    CR -->|"terminal issue or 3 attempts"| OUT
+    OUT --> STORE["Memory: store one episode"]
+    PL -.-> TR["OpenTelemetry spans"]
+    CR -.-> PH["Phoenix annotations"]
 ```
 
-The LangGraph workflow has four nodes, one module per agent under
-`app/agents/`. Agent responsibilities remain separate. Planning output is
+The workflow has four graph nodes, one module per agent under `app/agents/`. Agent responsibilities remain separate. Planning output is
 post-processed deterministically: references, titles and locations are grounded
 to MCP objectives, duplicate steps are removed, windows are clamped to the
 objective's next open availability (never before the player's clock), objectives
@@ -577,7 +618,7 @@ an infeasibility.
 | `app/domain.py` | Pydantic game-state, goal, plan and validation contracts. |
 | `app/data/mock_knowledge.py` | Structured demo data; the agents read it through the MCP tools (the planner's chains via `app/agents/quest_view.py`), while only the Streamlit page reads it directly for display. |
 | `app/mcp/` | Pure game-data tools and external MCP server; authoritative knowledge seam. |
-| `app/agents/` | State, Knowledge, Planning and Critic graph nodes, plus `progress.py` (explicit objective progress) and `reachability.py` (what the clock has closed). |
+| `app/agents/` | State, Knowledge, Planning and Critic graph nodes, plus `quest_view.py` (cached quest chains through the MCP tools), `progress.py` (explicit objective progress) and `reachability.py` (what the clock has closed). |
 | `app/rag/` | Adaptive wiki client, cleanup/chunking, FastEmbed adapter, Qdrant store and cache-aside retrieval. |
 | `app/state.py` | `PlanningState`, including RAG evidence, status, warning, ingested pages and indexed-source manifest. |
 | `app/graph.py` | LangGraph wiring and `MAX_PLANNING_ATTEMPTS = 3` loop. |
@@ -601,13 +642,15 @@ architecture is not tied to one quest.
 - **Persistent memory** — in-memory preferences and episodes exist via
   `MemoryStore`; persist them (extend `GameState`, attach a graph
   checkpointer or a file/DB store behind the same protocol).
-- **Tracing and audit** — add request IDs and LangGraph/tool/retrieval events.
-- **Plan evaluation** — the scenario/plan evaluator and the trajectory checks
-  are in place; the next step is comparing a sweep against the stored history
-  to flag regressions (per-scenario deltas over pass rate, check kinds and
-  `proposal_fidelity` warnings).
-- **Next-cycle planning** — the Song of Time currently produces an infeasible
-  verdict, not a plan for the new cycle. Planning across the restart needs
+- **Tracing and audit** — run/agent/LLM/MCP/RAG spans, Phoenix annotations and
+  the in-run audit are in place; extend them with a long-lived backend,
+  retention policy and alerting on failed runs.
+- **Plan evaluation** — the scenario/plan evaluator, the trajectory checks and
+  the comparison against the stored history (regressions, improvements, gaps)
+  are in place; extend them with more scenarios and richer trajectory metrics.
+- **Next-cycle planning** — deferred (see the backlog in `TODO.md`). The Song
+  of Time currently produces an infeasible verdict, not a plan for the new
+  cycle. Planning across the restart needs
   cycle-bound item permanence in the knowledge base, a cycle reference on `Plan`
   anchored at Day 1 06:00, a Critic check against the shifted clock and an
   evaluation scenario.

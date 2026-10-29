@@ -1,4 +1,4 @@
-"""Adaptive, supplemental wiki retrieval for Termina Companion.
+"""Adaptive, supplemental wiki retrieval for TaIA.
 
 The RAG package is separate from authoritative MCP game data. It searches a
 persistent local Qdrant collection first and fetches Zelda Wiki pages only on a

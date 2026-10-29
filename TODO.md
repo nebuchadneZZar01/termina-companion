@@ -1,4 +1,4 @@
-# Termina Companion — TODO
+# TaIA — TODO
 
 ## Current Status
 
@@ -467,7 +467,7 @@ a real infeasibility.
 
 # Phase 12 — Production Readiness
 
-* [ ] Complete README
+* [x] Complete README (install/first run, architecture, troubleshooting, offline demo)
 * [x] Add `.env.example`
 * [x] Improve error handling (offline CLI failures, graph node errors recorded,
   broken save directory degrades on load; failure-path matrix)
@@ -476,8 +476,8 @@ a real infeasibility.
   `pytest-cov` in the dev group)
 * [ ] Verify installation from a clean environment
 * [ ] Verify end-to-end execution
-* [ ] Document architecture
-* [ ] Add architecture diagram
+* [x] Document architecture
+* [x] Add architecture diagram (Mermaid in `README.md`)
 * [x] Stabilize demo mode (offline `--deterministic --no-rag` run, tested)
 * [ ] Review dependencies
 * [x] Route the State Agent and the planner's `planning_chain.py` through the

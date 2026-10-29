@@ -1,4 +1,4 @@
-"""Termina Companion: multi-agent temporal planning companion for Majora's Mask."""
+"""TaIA: multi-agent temporal planning companion for Majora's Mask."""
 
 from app.graph import build_graph, run_pipeline
 
