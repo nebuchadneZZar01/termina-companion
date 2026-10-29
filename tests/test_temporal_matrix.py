@@ -11,8 +11,9 @@ from __future__ import annotations
 import pytest
 
 from app.agents.critic_agent import validate_plan
-from app.agents.planning_chain import _OBJECTIVE_POSITION, _reconcile_plan, dead_for
+from app.agents.planning_chain import _reconcile_plan, dead_for
 from app.agents.progress import done_objective_ids
+from app.agents.quest_view import objective_positions
 from app.agents.scheduling import schedule_chain, select_chain
 from app.data.mock_knowledge import Objective, build_default_knowledge
 from app.domain import ClockTime, GameState, Goal, Plan
@@ -60,7 +61,7 @@ def _schedule(state: PlanningState, dead: dict[str, str]):
             _KB.quests, game_state.completed_objectives, game_state.quest_progress
         ),
         dead=dead,
-        positions=_OBJECTIVE_POSITION,
+        positions=objective_positions(),
     )
     return schedule_chain(chain, game_state.time)
 

@@ -6,32 +6,15 @@ import logging
 
 from app.agents.planning_clock import _max_clock, _window_inside, occurrences
 from app.agents.progress import done_objective_ids
+from app.agents.quest_view import load_quest, load_quests, objective_positions
 from app.agents.reachability import dead_objectives
 from app.agents.scheduling import schedule_chain, select_chain
-from app.data.mock_knowledge import Objective, Quest, build_default_knowledge
+from app.data.mock_knowledge import Objective
 from app.domain import ClockTime, Plan, PlanStep, TimeWindow
 from app.domain import clock_key as _clock
 from app.state import PlanningState
 
-_KB = build_default_knowledge()
-# objective id -> (quest id, position in the quest's chain)
-_OBJECTIVE_POSITION = {
-    obj.id: (quest.id, idx) for quest in _KB.quests for idx, obj in enumerate(quest.objectives)
-}
-
 logger = logging.getLogger(__name__)
-
-
-def _load_quest(quest_id: str) -> Quest | None:
-    """Resolve a quest from the in-memory knowledge base.
-
-    args:
-        quest_id (str): the quest id to resolve.
-
-    returns:
-        Quest | None: the quest, or None when the knowledge base does not know it.
-    """
-    return next((quest for quest in _KB.quests if quest.id == quest_id), None)
 
 
 def dead_for(state: PlanningState) -> dict[str, str]:
@@ -49,14 +32,15 @@ def dead_for(state: PlanningState) -> dict[str, str]:
         objective is still reachable.
     """
     gs = state.game_state
+    quests = load_quests()
     return dead_objectives(
         state.relevant_objectives,
         gs.time,
         owned_items=set(gs.inventory),
         owned_masks=set(gs.masks),
         done_quests={qid for qid, status in gs.quest_progress.items() if status == "done"},
-        done_objectives=done_objective_ids(_KB.quests, gs.completed_objectives, gs.quest_progress),
-        load_quest=_load_quest,
+        done_objectives=done_objective_ids(quests, gs.completed_objectives, gs.quest_progress),
+        load_quest=load_quest,
     )
 
 
@@ -189,7 +173,7 @@ def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
     owned_items = set(state.game_state.inventory)
     owned_masks = set(state.game_state.masks)
     done_ids = done_objective_ids(
-        _KB.quests,
+        load_quests(),
         state.game_state.completed_objectives,
         state.game_state.quest_progress,
     )
@@ -202,7 +186,7 @@ def _reconcile_plan(plan: Plan, state: PlanningState) -> Plan:
         owned_masks=owned_masks,
         done_ids=done_ids,
         dead=dead,
-        positions=_OBJECTIVE_POSITION,
+        positions=objective_positions(),
     )
     # The scheduler decides what fits; the LLM only suggests when. A dropped
     # objective has no slot left before the cycle ends, so no window of its own.
