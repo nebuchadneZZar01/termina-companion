@@ -106,3 +106,43 @@ def test_objectives_are_one_off_unless_flagged():
     window = TimeWindow(start=ClockTime(day=1, hour=6), end=ClockTime(day=1, hour=7))
     obj = Objective(id="plain", title="Plain", location="Nowhere", window=window)
     assert obj.recurring is False
+
+
+def _minutes(clock: ClockTime) -> int:
+    """Monotone minute key over the game-day clock (Day 1 06:00 = 360)."""
+    return (clock.day - 1) * 24 * 60 + clock.hour * 60 + clock.minute
+
+
+def test_every_objective_naming_an_npc_is_possible_in_its_schedule():
+    """An NPC-bound objective must overlap an availability window by an hour.
+
+    The Critic requires a plan step to sit inside one of the NPC's schedule
+    windows, so an objective whose window never overlaps one can never be
+    planned by any engine: the sweep would fail for a data reason and look like
+    a planner regression. An objective window wider than the schedule is fine,
+    because the planner places the step inside the overlapping part.
+    """
+    kb = build_default_knowledge()
+    npcs = {npc.id: npc for npc in kb.npcs}
+    impossible: list[str] = []
+    for quest in kb.quests:
+        for objective in quest.objectives:
+            if not objective.npc_id:
+                continue
+            npc = npcs.get(objective.npc_id)
+            if npc is None:
+                impossible.append(f"{objective.id}: unknown NPC {objective.npc_id!r}")
+                continue
+            usable = max(
+                (
+                    min(_minutes(window.end), _minutes(objective.window.end))
+                    - max(_minutes(window.start), _minutes(objective.window.start))
+                    for window in npc.schedule
+                ),
+                default=0,
+            )
+            if usable < 60:
+                impossible.append(
+                    f"{objective.id}: {objective.window} has no hour inside {npc.name}'s schedule"
+                )
+    assert not impossible, impossible

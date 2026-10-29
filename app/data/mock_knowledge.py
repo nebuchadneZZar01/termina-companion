@@ -1171,7 +1171,10 @@ def build_default_knowledge() -> KnowledgeBase:
                 window=_tw(1, (26, 30), (29, 15)),
                 prerequisites=["rr_learn_epona"],
                 requires_items=["Bow"],
-                npc_id="romani",
+                # The invasion is an event, not a conversation: the event window
+                # is the constraint, and Romani is inside the house while the
+                # player defends the barn. Her daytime schedule only covers the
+                # training objective.
                 event_ref="ranch_aliens",
                 keywords=["aliens", "them", "barn", "bow", "defend", "ranch", "notte"],
             ),
