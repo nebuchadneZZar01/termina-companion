@@ -469,9 +469,11 @@ a real infeasibility.
 
 * [ ] Complete README
 * [x] Add `.env.example`
-* [ ] Improve error handling
+* [x] Improve error handling (offline CLI failures, graph node errors recorded,
+  broken save directory degrades on load; failure-path matrix)
 * [x] Improve logging
-* [ ] Complete test suite
+* [x] Complete test suite (692 tests, 91% line coverage, failure-path matrix;
+  `pytest-cov` in the dev group)
 * [ ] Verify installation from a clean environment
 * [ ] Verify end-to-end execution
 * [ ] Document architecture
