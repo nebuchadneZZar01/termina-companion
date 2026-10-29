@@ -78,7 +78,13 @@ def run_scenario(scenario: PlanScenario, planner: str = "") -> ScenarioResult:
     )
     outcome.duration_s = round(time.perf_counter() - started, 1)
     outcome.retrieval_status = state.retrieval_status
-    outcome.model = state.plan_model or state.plan_engine
+    # The producing model, as the report metadata reads it. The deterministic
+    # engine has no model either, but its name there still tells a sweep apart;
+    # the unreachable short-circuit is a verdict, not a producer, so it must not
+    # show up as one.
+    outcome.model = state.plan_model or (
+        state.plan_engine if state.plan_engine != "unreachable" else ""
+    )
     # The trace ids of this run's root span, kept in the report so the score
     # can be posted onto the Phoenix trace and the report links back to it.
     outcome.run_id = current_run_id()

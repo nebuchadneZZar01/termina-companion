@@ -717,6 +717,16 @@ def test_run_scenarios_records_the_sweep_metadata(monkeypatch):
     assert [result.scenario_id for result in report.results] == [scenario.id]
 
 
+def test_the_unreachable_verdict_is_not_reported_as_a_model(store_dir):
+    """A sweep must not list "unreachable" among the producing models."""
+    from app.evaluation import runner
+
+    result = runner.run_scenario(_late_scenario(), planner="llm")
+
+    assert result.passed, [issue.message for issue in result.issues]
+    assert result.model == ""
+
+
 def test_run_scenarios_records_the_deterministic_engine(monkeypatch):
     """The ablation sweep says so, so two reports stay comparable."""
     from app.evaluation import runner
