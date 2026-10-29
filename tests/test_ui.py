@@ -897,6 +897,16 @@ def test_semantic_entity_styles_are_shared_by_state_knowledge_and_plan(
     assert 'class="tc-mask">Kafei' in why_markup
 
 
+def test_theme_dims_disabled_buttons() -> None:
+    """A disabled control keeps its shape but loses the accent and the hover."""
+    css = theme._THEME_CSS
+
+    assert '[data-testid="stButton"] button[kind="primary"]:disabled,' in css
+    assert '[data-testid="stButton"] button[kind="primary"]:disabled:hover' in css
+    assert "cursor: not-allowed" in css
+    assert "rgba(224, 178, 82, 0.28)" in css
+
+
 def test_fairy_greeting_accepts_a_custom_message() -> None:
     import datetime
 
