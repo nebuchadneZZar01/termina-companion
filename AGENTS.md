@@ -155,8 +155,10 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   Agent lists completed quests only and never infers an active quest from the
   player's location. The Planning
   Agent always calls the configured LLM unless every retrieved objective is
-  already out of reach; missing configuration, invocation errors and empty
-  output fail explicitly. LLM output is post-processed
+  already out of reach; missing configuration and invocation errors fail
+  explicitly, while an empty LLM plan is still rebuilt against the objective
+  chain and only fails when that rebuild yields no step. LLM output
+  is post-processed
   deterministically: refs, titles and locations are grounded to the knowledge
   objectives and each step's window is clamped inside an availability
   occurrence still open at the player's clock, never before it

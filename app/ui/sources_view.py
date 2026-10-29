@@ -173,7 +173,8 @@ def _render_rag_evidence(
             f"{item.score:.3f}</span></div>"
             f'<div class="tc-detail-line">{html.escape(excerpt)}</div>'
             f'<div class="tc-detail-muted">{html.escape(t("rag_source"))}: '
-            f"{html.escape(source)}</div>"
+            f'<a class="tc-detail-link" href="{html.escape(source, quote=True)}" '
+            f'target="_blank" rel="noopener noreferrer">{html.escape(source)}</a></div>'
             f"{revision}</div>"
         )
     _html_block(f'<div class="tc-detail-list">{"".join(cards)}</div>')
