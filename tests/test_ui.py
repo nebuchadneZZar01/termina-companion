@@ -907,6 +907,14 @@ def test_theme_dims_disabled_buttons() -> None:
     assert "rgba(224, 178, 82, 0.28)" in css
 
 
+def test_theme_styles_primary_button_labels_globally() -> None:
+    """Every primary button label uses the Cinzel treatment, not just the goal row."""
+    css = theme._THEME_CSS
+
+    assert '[data-testid="stButton"] button[kind="primary"] *' in css
+    assert '.st-key-goal_row [data-testid="stButton"] button[kind="primary"]' not in css
+
+
 def test_fairy_greeting_accepts_a_custom_message() -> None:
     import datetime
 

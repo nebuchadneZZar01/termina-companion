@@ -140,6 +140,12 @@ h1, h2, h3, h4, h5, h6 {
   border-color: #efc46e;
   color: #1a1630;
 }
+[data-testid="stButton"] button[kind="primary"],
+[data-testid="stButton"] button[kind="primary"] * {
+  font-family: Cinzel, serif !important;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
 /* Disabled controls: same shape, spent fill, no hover reaction. */
 [data-testid="stButton"] button:disabled,
 [data-testid="stButton"] button:disabled:hover {
@@ -154,12 +160,6 @@ h1, h2, h3, h4, h5, h6 {
   border-color: rgba(224, 178, 82, 0.38);
   color: rgba(232, 230, 242, 0.55);
   cursor: not-allowed;
-}
-.st-key-goal_row [data-testid="stButton"] button[kind="primary"],
-.st-key-goal_row [data-testid="stButton"] button[kind="primary"] * {
-  font-family: Cinzel, serif !important;
-  font-weight: 700;
-  letter-spacing: 0.02em;
 }
 .st-key-goal_row [data-testid="stWidgetLabel"],
 .st-key-goal_row [data-testid="stWidgetLabel"] p {
