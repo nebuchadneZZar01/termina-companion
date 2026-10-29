@@ -103,7 +103,7 @@ class _EvaluationTask:
     error: str = ""
 
 
-def _save_evaluation_report(results: list[ScenarioResult], rag_on: bool) -> None:
+def _save_evaluation_report(results: list[ScenarioResult], rag_on: bool, planner: str) -> None:
     """Persist the outcome of a sweep.
 
     The report is written from the worker thread, so it survives a closed
@@ -113,6 +113,7 @@ def _save_evaluation_report(results: list[ScenarioResult], rag_on: bool) -> None
     args:
         results (list[ScenarioResult]): the evaluated scenarios.
         rag_on (bool): whether the supplemental wiki retrieval ran.
+        planner (str): the planner engine the sweep used.
 
     returns:
         None: writes the report, logging a warning on failure.
@@ -120,14 +121,14 @@ def _save_evaluation_report(results: list[ScenarioResult], rag_on: bool) -> None
     if not results:
         return
     try:
-        path = save_report(EvaluationReport(results=results, rag_on=rag_on))
+        path = save_report(EvaluationReport(results=results, rag_on=rag_on, planner=planner))
     except Exception as exc:  # noqa: BLE001 - a failed save must not kill the sweep
         logger.warning("Could not save the evaluation report: %s", exc)
         return
     logger.info("Evaluation report saved to %s", path)
 
 
-def _run_evaluation(scenarios, rag_on: bool, task: _EvaluationTask) -> None:
+def _run_evaluation(scenarios, rag_on: bool, planner: str, task: _EvaluationTask) -> None:
     """Run the evaluation sweep in the worker thread.
 
     Every finished scenario is pushed to the task queue so the UI can show
@@ -137,6 +138,7 @@ def _run_evaluation(scenarios, rag_on: bool, task: _EvaluationTask) -> None:
     args:
         scenarios (list[PlanScenario]): the scenarios to run.
         rag_on (bool): whether the supplemental wiki retrieval runs.
+        planner (str): the planner engine (``"llm"`` or ``"deterministic"``).
         task (_EvaluationTask): the task collecting the results.
 
     returns:
@@ -161,13 +163,14 @@ def _run_evaluation(scenarios, rag_on: bool, task: _EvaluationTask) -> None:
         run_scenarios(
             scenarios,
             rag_on=rag_on,
+            planner=planner,
             on_progress=_on_progress,
             should_stop=task.stop_event.is_set,
         )
     except Exception as exc:  # noqa: BLE001 - the UI shows the failure
         task.events.put(exc)
     finally:
-        _save_evaluation_report(collected, rag_on=rag_on)
+        _save_evaluation_report(collected, rag_on=rag_on, planner=planner)
         task.events.put(None)
 
 
@@ -214,13 +217,13 @@ def _drain_evaluation_task(task: _EvaluationTask, wait: float = 0.0) -> bool:
     return progressed
 
 
-def _start_evaluation_task(scenario_ids: list[str], rag_on: bool) -> _EvaluationTask:
+def _start_evaluation_task(scenario_ids: list[str], rag_on: bool, planner: str) -> _EvaluationTask:
     """Create, register and start one background evaluation sweep."""
     scenarios = [SCENARIOS_BY_ID[sid] for sid in scenario_ids if sid in SCENARIOS_BY_ID]
     task = _EvaluationTask(total=len(scenarios))
     task.thread = threading.Thread(
         target=_run_evaluation,
-        args=(scenarios, rag_on, task),
+        args=(scenarios, rag_on, planner, task),
         daemon=True,
         name="termina-evaluation",
     )

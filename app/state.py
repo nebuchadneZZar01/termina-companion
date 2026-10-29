@@ -32,6 +32,10 @@ class PlanningState(BaseModel):
     game_state: GameState
     goal: Goal
     llm_config: dict = Field(default_factory=dict)
+    # Per-run planner engine ("llm"/"deterministic"); empty falls back to
+    # Settings.planner. Read per run, so a sweep never flips a process-wide
+    # flag while another run is in flight.
+    planner: str = ""
     state_summary: str = ""
     relevant_objectives: list[Objective] = Field(default_factory=list)
     # MCP tools invoked by the Knowledge Agent, as "tool" or "tool:<arg>".

@@ -131,10 +131,16 @@ def _render_evaluation_results(report: EvaluationReport) -> None:
         return
 
     if report.rag_on is not None or report.models:
+        planner_label = (
+            t(f"eval_planner_{report.planner}")
+            if report.planner in ("llm", "deterministic")
+            else t("eval_unknown")
+        )
         st.caption(
             t(
                 "eval_report_meta",
                 model=_fmt_model(report.models),
+                planner=planner_label,
                 rag=t(f"eval_rag_{report.wiki_retrieval}"),
                 repeats=report.repeats,
             )
@@ -364,6 +370,14 @@ def _render_evaluation(editor: dict) -> None:
         key="eval_scenarios",
     )
     rag_on = st.toggle(t("eval_rag"), value=True, help=t("eval_rag_help"), key="eval_rag")
+    planner = st.selectbox(
+        t("eval_planner"),
+        options=["llm", "deterministic"],
+        index=0 if get_settings().planner == "llm" else 1,
+        format_func=lambda value: t(f"eval_planner_{value}"),
+        help=t("eval_planner_help"),
+        key="eval_planner_engine",
+    )
 
     with st.container(key="eval_actions"):
         run_col, stop_col = st.columns([3, 2])
@@ -389,7 +403,7 @@ def _render_evaluation(editor: dict) -> None:
         st.rerun()
 
     if run and not running and scenario_ids:
-        _start_evaluation_task(scenario_ids, rag_on)
+        _start_evaluation_task(scenario_ids, rag_on, planner)
         st.rerun()
 
     load_col, hint_col = st.columns([1, 3])

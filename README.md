@@ -136,7 +136,9 @@ Supported providers: `openai`, `openrouter`, `ollama`, `lmstudio`, `anthropic`,
 `google`. Configure `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY` and
 `LLM_BASE_URL` (or set them in `.env`); `.env.example` is the complete
 annotated reference. Missing configuration, invocation errors and empty model
-output fail explicitly. The Planning Agent never substitutes a fallback plan.
+output fail explicitly. The Planning Agent never substitutes a fallback plan;
+`PLANNER=deterministic` is not a fallback but an explicit evaluation mode — see
+*The deterministic baseline* under Evaluation.
 
 Ollama and LM Studio serve the OpenAI-compatible API under `/v1`, so use
 `LLM_BASE_URL=http://localhost:11434/v1` (or leave it empty to get the
@@ -349,17 +351,21 @@ which is implemented in the next section.
 ## Evaluation
 
 The evaluation harness measures whether a plan produced by the pipeline
-actually reaches the player's goal. It ships nine scenarios — one per quest,
-spanning every game area — each with a player state, a goal phrased the way a
+actually reaches the player's goal. It ships twelve scenarios — one per quest,
+spanning every game area, plus a late-clock variant that expects no plan at
+all — each with a player state, a goal phrased the way a
 player would phrase it, and the objectives the plan is expected to contain:
 
 | Scenario | What it covers |
 |---|---|
 | `anju-kafei` | Nine-step main chain over three days: Kafei's Mask, Room Key, letter, pendant, Sakon's Hideout and the reunion |
+| `anju-kafei-late` | The same chain at Day 3 after midnight: every window has closed, so the expected outcome is the unreachable verdict, not a plan |
 | `bombers-notebook` | A notebook earned from the leader unlocks the hidden hideout |
-| `darmani-ghost` | Longest mask chain, night meeting at 22:00, lullaby the next day |
+| `darmani-spirit` | Longest mask chain, night meeting at 22:00, the Song of Healing the next day |
+| `goron-lullaby` | Goron Village chain ending with the Goron Lullaby |
 | `mikau-eggs` | The Zora Mask gates every later step, eggs need a daytime window |
 | `mikau-with-zora-mask` | The Zora Mask is already owned, so the shore step must be skipped |
+| `song-of-storms` | Ikana Valley chain ending with the Song of Storms |
 | `pamela-father` | Night-only slots after midnight (00:00-04:00) behind the Gibdo Mask |
 | `deku-princess` | Two-day chain through the Southern Swamp, gated by the Deku Mask |
 | `romani-ranch` | Early-morning purchase, 02:00 alien defence, moonlit milk delivery |
@@ -367,7 +373,7 @@ player would phrase it, and the objectives the plan is expected to contain:
 
 The evaluator is deterministic and never calls an LLM. It reads game knowledge
 only through the MCP tools (`search_quests`, `check_prerequisites`), so it
-measures what the Knowledge Agent could have known, and it runs nine checks:
+measures what the Knowledge Agent could have known, and it runs ten checks:
 
 | Check | Fails when |
 |---|---|
@@ -377,6 +383,7 @@ measures what the Knowledge Agent could have known, and it runs nine checks:
 | `prerequisites` | A step's items, masks or prerequisite objectives are not satisfied when it happens |
 | `tool_usage` | The Knowledge Agent skipped a tool the goal needed (quest search, NPC schedule, event) |
 | `critic` | The Critic rejected the plan |
+| `outcome` | The scenario expects the unreachable verdict but the run produced a plan, planned instead of short-circuiting, or was rejected for an unrelated reason |
 | `trajectory_order` | The run produced its plan without consulting the MCP tools, or without a Critic verdict |
 | `replan_bound` | The run overshot `MAX_PLANNING_ATTEMPTS` (a late acceptance is a warning) |
 | `proposal_fidelity` | The LLM's raw proposal omitted expected objectives the deterministic rebuild had to add (warning) |
@@ -409,19 +416,24 @@ uv run python scripts/evaluate_plans.py --list
 uv run python scripts/evaluate_plans.py
 uv run python scripts/evaluate_plans.py --scenario anju-kafei --repeat 3
 uv run python scripts/evaluate_plans.py --rag off
+uv run python scripts/evaluate_plans.py --planner deterministic
 uv run python scripts/evaluate_plans.py --json reports/evaluation.json
 ```
 
-The harness runs the full pipeline once per scenario, so it needs a configured
-LLM provider (like the rest of the app). It prints one `PASS`/`FAIL` line per
+The harness runs the full pipeline once per scenario, so with the default LLM
+engine it needs a configured LLM provider (like the rest of the app).
+`--planner deterministic` (or `PLANNER=deterministic`) runs the ablation
+baseline instead: the objective chain is rebuilt without a model call, and the
+late-clock scenario short-circuits before the LLM in both engines, so those
+sweeps run without a provider. The harness prints one `PASS`/`FAIL` line per
 scenario with the failed checks, then the aggregate pass rate, and exits `1`
 when any scenario fails — so it can gate a run:
 
 ```
-[1/9] anju-kafei             PASS  (12.4s)
-[2/9] bombers-notebook       PASS  (9.8s)
+[1/12] anju-kafei            PASS  (12.4s)
+[2/12] anju-kafei-late       PASS  (0.4s)
 ...
-Pass rate: 9/9 = 1.00
+Pass rate: 12/12 = 1.00
 Failures by check: none
 ```
 
@@ -434,12 +446,13 @@ Every run also writes its report to the shared store
 derived from `RAG_QDRANT_PATH` (`.cache/saves/` by default, gitignored) plus a
 timestamped copy in `evaluations/` underneath it. `--json` writes an extra
 copy at an explicit path. The report records its sweep metadata — the RAG
-flag, the model that produced each plan, the repeat count and a creation
-timestamp — so two saved sweeps can be compared instead of retyped from the
-terminal.
+flag, the planner engine, the model that produced each plan, the repeat count
+and a creation timestamp — so two saved sweeps can be compared instead of
+retyped from the terminal.
 
 Each sweep is also compared with the newest compatible stored one (the same
-wiki flag is preferred; `--baseline PATH` picks another report explicitly).
+wiki flag is preferred, and a sweep is never compared across planner engines;
+`--baseline PATH` picks another report explicitly).
 A scenario that passed before and fails now is printed as a regression with the
 check that broke it, a scenario that improved is noted, and a scenario present
 on only one side is reported as `new`/`missing`: a partial sweep never looks
@@ -456,7 +469,8 @@ is also the ordinary outcome of a wiki with nothing relevant for a query.
 ### Evaluation tab
 
 The same sweep runs in the browser: open the app and switch to the
-**Evaluation** tab, pick the scenarios, and press *Run evaluation*. The sweep
+**Evaluation** tab, pick the scenarios, the wiki toggle and the planner engine,
+and press *Run evaluation*. The sweep
 runs in a background thread with a progress bar and a cooperative *Stop*
 control, then shows the pass rate, a per-scenario table and the failed checks
 of every scenario. Both entry points share `app/evaluation/runner.py`, so they
@@ -480,6 +494,54 @@ often its raw proposal already contained the expected objectives. The warning
 names the omitted objectives by title and explains that the deterministic
 rebuild added them, so it never hides behind the internal refs.
 
+### The deterministic baseline
+
+`--planner deterministic` (or `PLANNER=deterministic`) runs the same sweep
+with the chain built directly from the retrieved objectives: no model call, no
+proposal, every window placed by the shared scheduler. Retrieval, scheduling
+and the Critic are shared with the LLM engine, so the two sweeps differ only by
+what the model contributes. That is the ablation behind the pass rate: most
+checks encode deterministic guarantees, so expect the baseline to match or beat
+the model, and read the interesting part as the delta — which objectives the
+model proposed on its own, where it produced a window the rebuild had to fix,
+and whether a run needed a re-plan.
+
+Both engines record their name in the report, and a sweep is only compared
+with a stored sweep from the same engine (a report written before the engine
+was recorded stays compatible). Run the two sweeps back to back with the same
+`--rag` flag, keep `wiki_retrieval` healthy, and note the model when publishing
+numbers: a deterministic sweep needs no LLM provider, so it is reproducible
+offline.
+
+**Measured on 2026-10-29** — `llama3.2` on a local Ollama, `--rag off` (both
+engines therefore read identical structured context, and no wiki leg can
+degrade), one deterministic sweep and three LLM sweeps:
+
+| Engine | Pass rate | Failing scenario | Time |
+|---|---|---|---|
+| LLM (`llama3.2`, 3 sweeps) | 36/36 (1.00) | none | 6080 s total, ~34 min per sweep |
+| Deterministic (1 sweep) | 12/12 (1.00) | none | under 1 s |
+
+No run in either engine raised a `run_error`, and both produced the same step
+count for every scenario (9, 4, 3, 3, 7, 6, 3, 5, 8, 5, 6, 0): the retrieved
+chain decides the step set and the model only influences windows. Parity on the
+pass rate is the expected outcome, because most checks encode deterministic
+guarantees — what the ablation buys is the cost column, two hours of model time
+against under a second.
+
+The model's own contribution is visible in the proposal-fidelity warnings: over
+the three repeats, 8 of the 11 plan scenarios produced at least one run whose
+raw LLM proposal omitted an expected objective (14 warnings in 36 runs), so the
+deterministic rebuild was load-bearing, not cosmetic. Neither engine needed a
+re-plan.
+
+The first measurements were worse (11/12 and 10/12) and both losses were bugs,
+not model behaviour: the `romani-ranch` data bound an event to an NPC schedule
+that cannot contain its window, and the evaluator judged recurring objectives
+against their Day 1 occurrence only. Both are fixed, and the fix is why the
+published numbers are 100% on the deterministic side and stable across the
+three LLM repeats.
+
 ## Architecture
 
 ```text
@@ -501,7 +563,7 @@ an infeasibility.
 |---|---|---|---|
 | **State Agent** | `GameState`, `Goal` | Canonical state and summary | Rule-based state normalization and summary. |
 | **Knowledge Agent** | `GameState`, `Goal` | Objectives, schedules, events, RAG evidence and context | Rule-based MCP plus adaptive RAG; RAG failure degrades to structured context. |
-| **Planning Agent** | State summary and retrieved context | `Plan` | Configured LLM with deterministic grounding and temporal post-processing. |
+| **Planning Agent** | State summary and retrieved context | `Plan` | Configured LLM with deterministic grounding and temporal post-processing; the deterministic baseline engine skips the LLM call. |
 | **Critic Agent** | `Plan`, state and objectives; knowledge resolved through MCP tools | `ValidationResult` | Rule-based feasibility checks from authoritative objectives (requirements, dependency timing, overlaps, temporal reachability) and bounded re-planning trigger. |
 
 | Component | Responsibility |

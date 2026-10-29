@@ -218,7 +218,10 @@ def _store_memory(state: PlanningState) -> None:
 
 
 def run_pipeline(
-    game_state: GameState, goal: Goal, preferences: PlayerPreferences | None = None
+    game_state: GameState,
+    goal: Goal,
+    preferences: PlayerPreferences | None = None,
+    planner: str | None = None,
 ) -> PlanningState:
     """Run the full planning pipeline end to end.
 
@@ -230,6 +233,10 @@ def run_pipeline(
         goal (Goal): what the player wants to achieve.
         preferences (PlayerPreferences | None): style hints saved to memory
             before the run; the retrieve node reloads them into state.
+        planner (str | None): the planner engine for this run (``"llm"`` or
+            ``"deterministic"``); None uses the configured ``PLANNER``. Passed
+            per run on purpose: the evaluation harness must not mutate the
+            process environment, since a UI sweep runs in its own thread.
 
     returns:
         PlanningState: the final workflow state with plan and validation.
@@ -237,7 +244,7 @@ def run_pipeline(
     if preferences is not None:
         get_memory_store().save_preferences(preferences)
     with pipeline_span(goal.description):
-        initial = PlanningState(game_state=game_state, goal=goal)
+        initial = PlanningState(game_state=game_state, goal=goal, planner=planner or "")
         mem = _retrieve_memory(initial)
         if mem:
             initial = initial.model_copy(update=mem)

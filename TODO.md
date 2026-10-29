@@ -6,7 +6,10 @@
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
-**Next up:** The deterministic baseline ablation, to take before Phase 12.
+**Next up:** The deterministic baseline ablation is measured (11/12 both
+engines, documented in `README.md`). Before Phase 12: fix the
+engine-independent `romani-ranch` schedule mismatch the sweep surfaced and
+rerun it.
 The temporal-reachability hardening under Validator & Planner Hardening is
 done.
 
@@ -20,8 +23,10 @@ Status map:
   also validates required masks in addition to NPC availability).
 * Phase 4 — Streamlit UI: complete.
 * Phase 5 — LLM Integration: complete (6 providers; the Planning Agent
-  always uses the LLM with structured output and fails explicitly when
-  configuration, invocation or output is unusable; State, Knowledge and Critic
+  uses the LLM with structured output and fails explicitly when
+  configuration, invocation or output is unusable, except under the
+  `PLANNER=deterministic` evaluation baseline, which makes no call; State,
+  Knowledge and Critic
   stay rule-based and deterministic; local providers support demo mode without
   external API keys).
 * Phase 6 — MCP: complete (MCP tools replace KB.retrieve(); the Knowledge
@@ -47,12 +52,14 @@ Status map:
   spans exported to a local Phoenix container via OTLP when configured, a
   cheap no-op otherwise; full LLM prompts go to spans, the Trace tab shows a
   run header, node timeline and errors only).
-* Phase 11 — Evaluation: complete for plan and trajectory evaluation (11
-  evaluation scenarios: one per quest plus a Zora-Mask-owned Mikau variant,
-  spanning every game area, a deterministic evaluator
-  with nine checks — plan shape, objective achievement, temporal ordering,
-  prerequisites, tool usage, critic, agent order, re-plan bound, LLM proposal
-  fidelity — an explicit PASS/FAIL per scenario, an aggregate pass rate, sweep
+* Phase 11 — Evaluation: complete for plan and trajectory evaluation (12
+  evaluation scenarios: one per quest plus a Zora-Mask-owned Mikau variant and
+  a Day 3 late-clock variant that expects the unreachable outcome, spanning
+  every game area, a deterministic evaluator
+  with ten checks — plan shape, objective achievement, temporal ordering,
+  prerequisites, tool usage, critic, outcome, agent order, re-plan bound, LLM
+  proposal fidelity — an explicit PASS/FAIL per scenario, an aggregate pass
+  rate, sweep
   metadata, a CLI harness (`scripts/evaluate_plans.py`), an Evaluation tab in
   the Streamlit UI and a persisted report; each run's scores are also posted
   to Phoenix as span annotations when tracing is configured). The
@@ -275,8 +282,9 @@ best-effort through the shared client in `app/phoenix.py`.
 # Phase 11 — Evaluation
 
 * [x] Define evaluation scenarios
-* [x] Start with a small scenario set (11 scenarios: one per quest plus a
-  Zora-Mask-owned Mikau variant, all areas)
+* [x] Start with a small scenario set (12 scenarios: one per quest plus a
+  Zora-Mask-owned Mikau variant and a Day 3 late-clock unreachable variant,
+  all areas)
 * [x] Define expected constraints for each scenario
 * [x] Implement the plan evaluator
 * [x] Check plan shape
@@ -426,24 +434,41 @@ a real infeasibility.
   (the letter, the room key and the pendant are cycle-bound and reset with the
   Song of Time), a cycle reference on `Plan` anchored at Day 1 06:00, a Critic
   check against the shifted clock and an evaluation scenario.
-* [ ] Add `expected_outcome` to the evaluation scenarios, so a sweep can assert
+* [x] Add `expected_outcome` to the evaluation scenarios, so a sweep can assert
   "unreachable at this clock" instead of only checking the plan shape. The
-  deterministic clock matrix in `tests/test_temporal_matrix.py` already covers
-  the case in `pytest`.
+  deterministic clock matrix in `tests/test_temporal_matrix.py` also covers the
+  case in `pytest`. Implemented as `PlanScenario.expected_outcome`
+  (`plan`/`unreachable`) with an `outcome` check, a validator that rejects the
+  contradictory combination, and the `anju-kafei-late` scenario pinned at Day 3
+  00:00, where all nine chain objectives are closed and no LLM call happens.
 
 ## Deterministic baseline ablation
 
-* [ ] Add a planner engine switch (`PLANNER=llm|deterministic`) and a
-  `--planner` flag in the evaluation CLI.
-* [ ] Build the baseline as `_reconcile_plan` over an empty plan, recording
+* [x] Add a planner engine switch (`PLANNER=llm|deterministic`) and a
+  `--planner` flag in the evaluation CLI (also a picker in the Evaluation tab).
+  The engine travels per run in `PlanningState.planner` and is never a
+  process-wide mutation, so a UI sweep thread cannot leak it.
+* [x] Build the baseline as `_reconcile_plan` over an empty plan, recording
   `plan_engine="deterministic"` and no `plan_proposal` (the fidelity check
   skips itself).
-* [ ] Record the planner engine in the sweep metadata so two saved reports stay
-  comparable.
-* [ ] Run an A/B sweep and document the result: pass rate, attempts and what
-  the model adds beyond the deterministic chain. Expect parity or a baseline
-  win on the pass rate, because most evaluator checks encode the deterministic
-  guarantees; the finding is about the model's semantic contribution.
+* [x] Record the planner engine in the sweep metadata so two saved reports stay
+  comparable, and never select a baseline from the other engine.
+* [x] Run an A/B sweep and document the result: pass rate, attempts and what
+  the model adds beyond the deterministic chain. Run both engines with the same
+  `--rag` flag on a warm store, discard a sweep whose `wiki_retrieval` is
+  `degraded`, and keep `run_error` scenarios out of the engine comparison.
+  Measured 2026-10-29 (`llama3.2` on Ollama, `--rag off`, one deterministic
+  sweep and three LLM sweeps, no `run_error`): 12/12 deterministic and 36/36
+  LLM, identical step counts on every scenario, 14 proposal-fidelity warnings
+  in 36 LLM runs across 8 of the 11 plan scenarios, no re-plan on either side,
+  ~34 min of model time per LLM sweep against under a second. Numbers and
+  protocol live in `README.md` under *The deterministic baseline*.
+* [x] Fix the two harness bugs the first sweeps surfaced and re-measure:
+  `rr_defend_ranch` bound an event to Romani's daytime schedule, which no plan
+  could satisfy, and the evaluator judged recurring objectives against their
+  Day 1 occurrence only. Both are fixed (`fix(knowledge)`, `fix(evaluation)`),
+  the data invariant is pinned by a test, and the rerun above is the
+  measurement after the fixes.
 
 # Phase 12 — Production Readiness
 

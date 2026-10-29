@@ -1,11 +1,13 @@
 """Planning Agent: builds an ordered, time-boxed plan from relevant objectives.
 
-The agent always asks the configured LLM via structured Pydantic output. It
+The agent asks the configured LLM via structured Pydantic output. It
 receives the state summary, retrieved objectives and, on re-planning, the
 previous validation feedback. The LLM answers against a permissive draft
 schema (``_DraftPlan``) so degenerate windows (e.g. zero-length at Day 3
 29:59) parse instead of failing the strict cross-field window check during
-invocation.
+invocation. With the deterministic engine (``PLANNER=deterministic``, the
+evaluation baseline) the LLM call is skipped and the plan is built from the
+objective chain alone.
 
 LLM output is post-processed deterministically: raw draft windows are
 sanitized into strict :class:`~app.domain.TimeWindow` objects; step refs,
@@ -36,6 +38,7 @@ from app.data.mock_knowledge import Objective
 from app.domain import Plan
 from app.llm import get_chat_model, llm_error_hint
 from app.progress import report
+from app.settings import get_settings
 from app.state import PlanningState
 from app.trace import TraceCallback
 
@@ -61,8 +64,8 @@ def run(state: PlanningState) -> dict:
     returns:
         dict: the generated ``plan``, the untouched LLM ``plan_proposal``
         (before grounding and reconciliation), the incremented
-        ``replan_attempts``, ``plan_engine`` (``"llm"`` or
-        ``"unreachable"``) and ``plan_model``.
+        ``replan_attempts``, ``plan_engine`` (``"llm"``, ``"deterministic"``
+        or ``"unreachable"``) and ``plan_model``.
 
     raises:
         PlanningAgentError: if no model is available, the LLM call fails, or
@@ -88,6 +91,9 @@ def run(state: PlanningState) -> dict:
             "plan_engine": "unreachable",
             "plan_model": "",
         }
+
+    if (state.planner or get_settings().planner) == "deterministic":
+        return _deterministic_run(state)
 
     model = get_chat_model(**state.llm_config)
     if model is None:
@@ -127,6 +133,49 @@ def run(state: PlanningState) -> dict:
         "replan_attempts": state.replan_attempts + 1,
         "plan_engine": "llm",
         "plan_model": plan_model,
+    }
+
+
+def _deterministic_run(state: PlanningState) -> dict:
+    """Build the plan from the objective chain, without an LLM call.
+
+    The baseline engine: retrieval and the Critic still run, only the model's
+    semantic step choice is dropped, so a sweep with and without it measures
+    what the model adds on top of :func:`_reconcile_plan`. Every window comes
+    from the shared scheduler, which is why the rebuilt plan is still
+    chronological, non-overlapping and never in the past.
+
+    args:
+        state (PlanningState): the workflow state with player state, goal and
+            retrieved objectives.
+
+    returns:
+        dict: the rebuilt ``plan``, ``plan_proposal=None`` (there is no model
+        proposal, so the fidelity check skips itself), the incremented
+        ``replan_attempts`` and ``plan_engine="deterministic"``.
+
+    raises:
+        PlanningAgentError: if the objective chain yields no step.
+    """
+    report(
+        {
+            "node": "plan",
+            "phase": "context",
+            "n": len(state.relevant_objectives),
+            "attempt": state.replan_attempts + 1,
+        }
+    )
+    result = _reconcile_plan(Plan(goal=state.goal.description), state)
+    if not result.steps:
+        logger.error("Planning Agent: the deterministic chain produced no step")
+        raise PlanningAgentError("The objective chain produced no plan step.")
+    _log_plan(result)
+    return {
+        "plan": result,
+        "plan_proposal": None,
+        "replan_attempts": state.replan_attempts + 1,
+        "plan_engine": "deterministic",
+        "plan_model": "",
     }
 
 

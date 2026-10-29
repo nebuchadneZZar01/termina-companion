@@ -16,6 +16,7 @@ from app.domain import (
     Plan,
     PlanStep,
     TimeWindow,
+    ValidationIssue,
     ValidationResult,
 )
 from app.domain import (
@@ -25,12 +26,16 @@ from app.evaluation.evaluator import evaluate_plan, relevant_objectives
 from app.evaluation.models import EvaluationReport, PlanScenario, ScenarioResult
 from app.evaluation.scenarios import EVALUATION_SCENARIOS, SCENARIOS_BY_ID
 from app.graph import MAX_PLANNING_ATTEMPTS, run_pipeline
-from app.state import AttemptRecord
+from app.state import AttemptRecord, PlanningState
 
 _KB = build_default_knowledge()
 _QUEST_OF_OBJECTIVE = {
     objective.id: quest.id for quest in _KB.quests for objective in quest.objectives
 }
+#: Scenarios that expect a plan; the unreachable ones have their own checks.
+_PLAN_SCENARIOS = [
+    scenario for scenario in EVALUATION_SCENARIOS if scenario.expected_outcome == "plan"
+]
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +145,7 @@ def test_scenario_ids_are_unique():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("scenario", EVALUATION_SCENARIOS, ids=lambda s: s.id)
+@pytest.mark.parametrize("scenario", _PLAN_SCENARIOS, ids=lambda s: s.id)
 def test_reference_plan_passes_every_scenario(scenario: PlanScenario):
     """The chain a correct plan follows passes every check."""
     result = evaluate_plan(_reference_plan(scenario), scenario, tool_calls=_tool_calls(scenario))
@@ -190,6 +195,63 @@ def test_step_outside_its_slot_fails_the_temporal_check():
     result = evaluate_plan(plan, scenario, tool_calls=_tool_calls(scenario))
 
     assert not result.passed
+    assert "temporal_ordering" in _kinds(result)
+
+
+def test_a_recurring_objective_may_be_planned_on_a_later_day():
+    """A daily availability repeats, so Day 2 still fits its slot."""
+    scenario = SCENARIOS_BY_ID["song-of-storms"]
+    objective = next(
+        obj for obj in relevant_objectives(scenario) if obj.id == "ss_learn_song_storms"
+    )
+    assert objective.recurring
+
+    result = evaluate_plan(
+        Plan(
+            goal=scenario.goal,
+            steps=[
+                PlanStep(
+                    title=objective.title,
+                    objective_ref=objective.id,
+                    location=objective.location,
+                    window=TimeWindow(
+                        start=ClockTime(day=2, hour=14), end=ClockTime(day=2, hour=15)
+                    ),
+                )
+            ],
+        ),
+        scenario,
+        tool_calls=_tool_calls(scenario),
+    )
+
+    # The plan is incomplete, but the timing itself is legitimate.
+    assert "temporal_ordering" not in _kinds(result)
+
+
+def test_a_one_off_objective_may_not_be_planned_on_a_later_day():
+    """A dated window happens once, so a later-day step is still outside it."""
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+    objective = next(obj for obj in relevant_objectives(scenario) if obj.id == "ak_get_kafei_mask")
+    assert not objective.recurring
+
+    result = evaluate_plan(
+        Plan(
+            goal=scenario.goal,
+            steps=[
+                PlanStep(
+                    title=objective.title,
+                    objective_ref=objective.id,
+                    location=objective.location,
+                    window=TimeWindow(
+                        start=ClockTime(day=2, hour=14), end=ClockTime(day=2, hour=15)
+                    ),
+                )
+            ],
+        ),
+        scenario,
+        tool_calls=_tool_calls(scenario),
+    )
+
     assert "temporal_ordering" in _kinds(result)
 
 
@@ -275,6 +337,167 @@ def test_critic_rejection_fails_the_critic_check():
 
     assert not result.passed
     assert "critic" in _kinds(result)
+
+
+# ---------------------------------------------------------------------------
+# Unreachable outcome
+# ---------------------------------------------------------------------------
+
+
+def _unreachable_verdict() -> ValidationResult:
+    """The Critic verdict of a chain the clock has closed."""
+    return ValidationResult(
+        valid=False,
+        issues=[
+            ValidationIssue(
+                severity="error",
+                kind="unreachable",
+                message=(
+                    "Anju and Kafei: Get Kafei's Mask from Madame Aroma: its window "
+                    "ended at Day 1, 20:00. Use the Song of Time to restart the cycle."
+                ),
+            )
+        ],
+    )
+
+
+def _late_scenario() -> PlanScenario:
+    return SCENARIOS_BY_ID["anju-kafei-late"]
+
+
+def test_the_late_scenario_clock_closes_every_objective():
+    """The unreachable scenario is pinned to a clock that closes every window."""
+    from app.agents.planning_chain import dead_for
+
+    scenario = _late_scenario()
+    objectives = relevant_objectives(scenario)
+    state = PlanningState(
+        game_state=scenario.game_state,
+        goal=Goal(description=scenario.goal),
+        relevant_objectives=objectives,
+    )
+
+    dead = dead_for(state)
+
+    assert objectives, "the goal must still retrieve the chain"
+    alive = sorted(objective.id for objective in objectives if objective.id not in dead)
+    assert not alive, f"still reachable at {scenario.game_state.time}: {alive}"
+
+
+def test_unreachable_scenario_passes_with_an_empty_plan_and_its_verdict():
+    """No plan plus the unreachable verdict is exactly the expected outcome."""
+    scenario = _late_scenario()
+
+    result = evaluate_plan(
+        Plan(goal=scenario.goal),
+        scenario,
+        plan_engine="unreachable",
+        validation=_unreachable_verdict(),
+    )
+
+    assert result.passed, [issue.message for issue in result.issues]
+    assert result.step_count == 0
+    assert result.error_count == 0
+
+
+def test_unreachable_scenario_fails_when_a_plan_is_produced():
+    """A plan at a clock that closed the chain is a failure, not a bonus."""
+    scenario = _late_scenario()
+    plan = Plan(
+        goal=scenario.goal,
+        steps=[
+            PlanStep(
+                title="Reunite Anju and Kafei",
+                objective_ref="ak_reunite",
+                location="Stockpot Inn",
+                window=TimeWindow(start=ClockTime(day=3, hour=24), end=ClockTime(day=3, hour=25)),
+            )
+        ],
+    )
+
+    result = evaluate_plan(plan, scenario, plan_engine="llm", validation=_unreachable_verdict())
+
+    assert not result.passed
+    assert "outcome" in _kinds(result)
+    assert result.step_count == 1
+
+
+def test_unreachable_scenario_fails_when_the_planner_called_the_llm():
+    """An empty plan from the LLM engine means the short-circuit did not fire."""
+    result = evaluate_plan(
+        Plan(goal=_late_scenario().goal),
+        _late_scenario(),
+        plan_engine="llm",
+        validation=_unreachable_verdict(),
+    )
+
+    assert not result.passed
+    assert "outcome" in _kinds(result)
+    assert any("plan_engine" in issue.message for issue in result.issues)
+
+
+def test_unreachable_scenario_fails_without_a_critic_verdict():
+    """The verdict is the evidence: without it the outcome is unproven."""
+    result = evaluate_plan(
+        Plan(goal=_late_scenario().goal),
+        _late_scenario(),
+        plan_engine="unreachable",
+        validation=None,
+    )
+
+    assert not result.passed
+    assert "outcome" in _kinds(result)
+
+
+def test_unreachable_scenario_fails_when_the_critic_accepted():
+    """A Critic that accepted the run contradicts the expected outcome."""
+    result = evaluate_plan(
+        Plan(goal=_late_scenario().goal),
+        _late_scenario(),
+        plan_engine="unreachable",
+        validation=ValidationResult(valid=True),
+    )
+
+    assert not result.passed
+    assert "outcome" in _kinds(result)
+
+
+def test_unreachable_scenario_fails_on_a_different_critic_reason():
+    """A generic rejection is not the temporal verdict the scenario expects."""
+    verdict = ValidationResult(
+        valid=False,
+        issues=[ValidationIssue(severity="error", kind="empty", message="No steps.")],
+    )
+
+    result = evaluate_plan(
+        Plan(goal=_late_scenario().goal),
+        _late_scenario(),
+        plan_engine="unreachable",
+        validation=verdict,
+    )
+
+    assert not result.passed
+    assert "outcome" in _kinds(result)
+    assert any("empty" in issue.message for issue in result.issues)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"required_objective_refs": ["ak_reunite"]},
+        {"terminal_objective_ref": "ak_reunite"},
+        {"expected_order": [("ak_get_kafei_mask", "ak_reunite")]},
+        {"min_steps": 1},
+    ],
+    ids=["required", "terminal", "order", "min_steps"],
+)
+def test_an_unreachable_scenario_rejects_plan_expectations(overrides):
+    """Expecting no plan and expecting steps at once is a contradiction."""
+    payload = _late_scenario().model_dump()
+    payload.update(overrides)
+
+    with pytest.raises(ValueError, match="unreachable scenario cannot expect a plan"):
+        PlanScenario.model_validate(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -532,12 +755,12 @@ def test_report_reports_what_the_wiki_retrieval_actually_did():
 
 
 def test_run_scenarios_records_the_sweep_metadata(monkeypatch):
-    """The sweep report carries the RAG flag and the producing model."""
+    """The sweep report carries the RAG flag, the engine and the model."""
     from app.evaluation import runner
 
     scenario = SCENARIOS_BY_ID["anju-kafei"]
 
-    def _fake_run_scenario(item):
+    def _fake_run_scenario(item, planner=""):
         """Stand in for the pipeline run, no LLM involved."""
         return ScenarioResult(scenario_id=item.id, passed=True, model="test-model")
 
@@ -546,8 +769,154 @@ def test_run_scenarios_records_the_sweep_metadata(monkeypatch):
     report = runner.run_scenarios([scenario], rag_on=False)
 
     assert report.rag_on is False
+    assert report.planner == "llm"
     assert report.models == "test-model"
     assert [result.scenario_id for result in report.results] == [scenario.id]
+
+
+def test_the_unreachable_verdict_is_not_reported_as_a_model(store_dir):
+    """A sweep must not list "unreachable" among the producing models."""
+    from app.evaluation import runner
+
+    result = runner.run_scenario(_late_scenario(), planner="llm")
+
+    assert result.passed, [issue.message for issue in result.issues]
+    assert result.model == ""
+
+
+def test_run_scenarios_records_the_deterministic_engine(monkeypatch):
+    """The ablation sweep says so, so two reports stay comparable."""
+    from app.evaluation import runner
+
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+    seen: list[str] = []
+
+    def _fake_run_scenario(item, planner=""):
+        """Record the engine the sweep passed down."""
+        seen.append(planner)
+        return ScenarioResult(scenario_id=item.id, passed=True, model="deterministic")
+
+    monkeypatch.setattr(runner, "run_scenario", _fake_run_scenario)
+
+    report = runner.run_scenarios([scenario], rag_on=False, planner="deterministic")
+
+    assert report.planner == "deterministic"
+    assert seen == ["deterministic"]
+
+
+def test_the_deterministic_engine_builds_the_chain_without_an_llm(monkeypatch):
+    """The baseline never asks for a model and records its own engine."""
+    from app.agents import planning_agent
+
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    def _no_model(**_kwargs):
+        raise AssertionError("the deterministic engine must not ask for a model")
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", _no_model)
+    state = PlanningState(
+        game_state=scenario.game_state,
+        goal=Goal(description=scenario.goal),
+        relevant_objectives=relevant_objectives(scenario),
+        planner="deterministic",
+    )
+
+    result = planning_agent.run(state)
+
+    assert result["plan_engine"] == "deterministic"
+    assert result["plan_proposal"] is None
+    assert result["plan_model"] == ""
+    assert [step.objective_ref for step in result["plan"].steps] == (
+        scenario.required_objective_refs
+    )
+
+
+def test_the_default_engine_still_asks_the_llm(monkeypatch):
+    """Without an opt-in the product path is untouched."""
+    from app.agents import planning_agent
+
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+    called: list[str] = []
+
+    def _model(**_kwargs):
+        called.append("asked")
+        raise RuntimeError("model requested")
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", _model)
+    state = PlanningState(
+        game_state=scenario.game_state,
+        goal=Goal(description=scenario.goal),
+        relevant_objectives=relevant_objectives(scenario),
+    )
+
+    with pytest.raises(RuntimeError, match="model requested"):
+        planning_agent.run(state)
+    assert called == ["asked"]
+
+
+def test_an_explicit_engine_beats_the_environment(monkeypatch):
+    """A run override wins over ``PLANNER``, so a sweep cannot leak sideways."""
+    from app.agents import planning_agent
+
+    monkeypatch.setenv("PLANNER", "deterministic")
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    def _model(**_kwargs):
+        raise RuntimeError("model requested")
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", _model)
+    state = PlanningState(
+        game_state=scenario.game_state,
+        goal=Goal(description=scenario.goal),
+        relevant_objectives=relevant_objectives(scenario),
+        planner="llm",
+    )
+
+    with pytest.raises(RuntimeError, match="model requested"):
+        planning_agent.run(state)
+
+
+def test_the_environment_engine_applies_without_an_override(monkeypatch):
+    """``PLANNER=deterministic`` is enough for the headless and CLI paths."""
+    from app.agents import planning_agent
+
+    monkeypatch.setenv("PLANNER", "deterministic")
+    scenario = SCENARIOS_BY_ID["anju-kafei"]
+
+    def _no_model(**_kwargs):
+        raise AssertionError("the deterministic engine must not ask for a model")
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", _no_model)
+    state = PlanningState(
+        game_state=scenario.game_state,
+        goal=Goal(description=scenario.goal),
+        relevant_objectives=relevant_objectives(scenario),
+    )
+
+    assert planning_agent.run(state)["plan_engine"] == "deterministic"
+
+
+def test_the_late_scenario_makes_no_llm_call(monkeypatch):
+    """The planner reports the closure itself, before touching a model."""
+    from app.agents import planning_agent
+
+    scenario = _late_scenario()
+
+    def _no_model(**_kwargs):
+        raise AssertionError("a fully closed chain must not reach the LLM")
+
+    monkeypatch.setattr(planning_agent, "get_chat_model", _no_model)
+    state = PlanningState(
+        game_state=scenario.game_state,
+        goal=Goal(description=scenario.goal),
+        relevant_objectives=relevant_objectives(scenario),
+        planner="llm",
+    )
+
+    result = planning_agent.run(state)
+
+    assert result["plan_engine"] == "unreachable"
+    assert result["plan"].steps == []
 
 
 # ---------------------------------------------------------------------------

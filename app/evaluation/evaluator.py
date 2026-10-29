@@ -12,7 +12,9 @@ Checks, each producing issues of its own kind:
 * ``objective_achievement`` — the expected objectives are in the plan, the
   goal objective comes last and forbidden objectives are absent.
 * ``temporal_ordering`` — steps are chronological, never overlap, stay inside
-  their objective's slot and never start before the player's current time.
+  an availability of their objective still open at the player's clock (a
+  recurring objective may be planned on a later game day) and never start
+  before that clock.
 * ``prerequisites`` — every step's items, masks and prerequisite objectives
   are satisfied by the player's state or by an earlier step.
 * ``tool_usage`` — the Knowledge Agent consulted the MCP tools the goal needs.
@@ -26,6 +28,10 @@ Checks, each producing issues of its own kind:
 * ``proposal_fidelity`` — a warning when the LLM's raw proposal omitted
   expected objectives that the deterministic rebuild had to add (the message
   names them by title, resolved through the same MCP lookup).
+* ``outcome`` — an ``unreachable`` scenario (the clock closed the whole chain)
+  produced no plan, the planner said so and the Critic confirmed it. This check
+  replaces every plan-shaped check on those scenarios: there is no plan to
+  inspect, and the verdict is the expected result.
 
 Warnings never fail a scenario: they measure the quality of the trajectory,
 not the validity of the final plan.
@@ -36,8 +42,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
+from app.agents.planning_clock import occurrences
 from app.data.mock_knowledge import Objective
-from app.domain import Plan, ValidationResult
+from app.domain import Plan, PlanStep, ValidationResult
 from app.domain import clock_key as _clock
 from app.evaluation.models import EvaluationIssue, PlanScenario, ScenarioResult
 from app.evaluation.trajectory import _check_proposal, _check_replan, _check_trajectory
@@ -58,6 +65,7 @@ def evaluate_plan(
     validation: ValidationResult | None = None,
     plan_proposal: Plan | None = None,
     attempt_log: Sequence[AttemptRecord] = (),
+    plan_engine: str = "",
 ) -> ScenarioResult:
     """Check a produced plan against a scenario's expectations.
 
@@ -72,6 +80,9 @@ def evaluate_plan(
             grounding and reconciliation, when the planner recorded it.
         attempt_log (Sequence[AttemptRecord], default ()): one record per
             planning attempt, oldest first.
+        plan_engine (str, default ""): the engine the planner reported
+            (``"llm"``, ``"deterministic"`` or ``"unreachable"``); empty on a
+            hand-built plan, which skips the engine-specific checks.
 
     returns:
         ScenarioResult: the outcome, with one issue per failed expectation.
@@ -79,6 +90,17 @@ def evaluate_plan(
     issues: list[EvaluationIssue] = []
     objectives = relevant_objectives(scenario)
     by_id = {obj.id: obj for obj in objectives}
+
+    if scenario.expected_outcome == "unreachable":
+        steps = plan.steps if plan is not None else []
+        _check_unreachable_outcome(steps, plan_engine, validation, issues)
+        return ScenarioResult(
+            scenario_id=scenario.id,
+            passed=not any(issue.severity == "error" for issue in issues),
+            issues=issues,
+            step_count=len(steps),
+            objective_refs=[step.objective_ref for step in steps],
+        )
 
     if plan is None or not plan.steps:
         issues.append(
@@ -107,6 +129,88 @@ def evaluate_plan(
         step_count=len(plan.steps),
         objective_refs=refs,
     )
+
+
+def _check_unreachable_outcome(
+    steps: Sequence[PlanStep],
+    plan_engine: str,
+    validation: ValidationResult | None,
+    issues: list[EvaluationIssue],
+) -> None:
+    """Check that a scenario expected no plan and got exactly that.
+
+    Three things must be true together, or the run is not the temporal verdict
+    the scenario describes: the plan is empty, the planner itself reported the
+    chain out of reach (rather than failing after calling the LLM), and the
+    Critic says ``unreachable`` instead of rejecting the plan for another
+    reason — an empty plan that fails for, say, an unknown objective would be a
+    regression disguised as the expected outcome.
+
+    args:
+        steps (Sequence[PlanStep]): the steps of the produced plan, empty when
+            no plan was produced.
+        plan_engine (str): the engine the planner reported; empty on a
+            hand-built plan, which skips the engine assertion.
+        validation (ValidationResult | None): the Critic's verdict.
+        issues (list[EvaluationIssue]): the issue list to append to.
+
+    returns:
+        None: appends to ``issues``.
+    """
+    if steps:
+        issues.append(
+            EvaluationIssue(
+                severity="error",
+                kind="outcome",
+                message=(
+                    "The scenario expects no plan at this clock, but the run "
+                    f"produced {len(steps)} step(s)."
+                ),
+            )
+        )
+        return
+    if plan_engine and plan_engine != "unreachable":
+        issues.append(
+            EvaluationIssue(
+                severity="error",
+                kind="outcome",
+                message=(
+                    "The scenario expects the chain to be fully out of reach, "
+                    f"but the planner reported plan_engine={plan_engine!r}."
+                ),
+            )
+        )
+    if validation is None:
+        issues.append(
+            EvaluationIssue(
+                severity="error",
+                kind="outcome",
+                message="No Critic verdict: the unreachable outcome cannot be confirmed.",
+            )
+        )
+        return
+    if validation.valid:
+        issues.append(
+            EvaluationIssue(
+                severity="error",
+                kind="outcome",
+                message="The Critic accepted a run the scenario expected to be out of reach.",
+            )
+        )
+        return
+    kinds = {issue.kind for issue in validation.issues if issue.severity == "error"}
+    if "unreachable" not in kinds:
+        reported = ", ".join(sorted(kinds)) or "no error"
+        issues.append(
+            EvaluationIssue(
+                severity="error",
+                kind="outcome",
+                message=(
+                    "The Critic rejected the run with "
+                    f"{reported} instead of an unreachable verdict."
+                ),
+            )
+        )
 
 
 def relevant_objectives(scenario: PlanScenario) -> list[Objective]:
@@ -296,21 +400,30 @@ def _check_temporal(
                 )
             )
         objective = by_id.get(step.objective_ref)
-        if objective is not None and not (
-            objective.window.contains(step.window.start)
-            and _clock(step.window.end) <= _clock(objective.window.end)
-        ):
-            issues.append(
-                EvaluationIssue(
-                    severity="error",
-                    kind="temporal_ordering",
-                    message=(
-                        f"Step {idx + 1} window {step.window} falls outside the "
-                        f"objective's slot {objective.window}."
-                    ),
-                    step_idx=idx,
-                )
+        if objective is not None:
+            # A recurring objective repeats every game day, so a later-day step
+            # is legitimate even though the base window names Day 1: compare
+            # against the occurrences still open at the player's clock, the same
+            # way the planner and the Critic do.
+            open_windows = occurrences(objective, now)
+            fitted = any(
+                window.contains(step.window.start) and _clock(step.window.end) <= _clock(window.end)
+                for window in open_windows
             )
+            if not fitted:
+                detail = (
+                    f"falls outside the objective's slot {objective.window}."
+                    if not open_windows
+                    else f"falls outside every availability open at {now}."
+                )
+                issues.append(
+                    EvaluationIssue(
+                        severity="error",
+                        kind="temporal_ordering",
+                        message=f"Step {idx + 1} window {step.window} {detail}",
+                        step_idx=idx,
+                    )
+                )
         if idx and _clock(step.window.start) < _clock(plan.steps[idx - 1].window.end):
             issues.append(
                 EvaluationIssue(

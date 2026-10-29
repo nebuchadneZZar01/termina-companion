@@ -4,14 +4,22 @@ Usage:
     uv run python scripts/evaluate_plans.py
     uv run python scripts/evaluate_plans.py --scenario anju-kafei --repeat 3
     uv run python scripts/evaluate_plans.py --rag off
+    uv run python scripts/evaluate_plans.py --planner deterministic
     uv run python scripts/evaluate_plans.py --baseline reports/old.json
     uv run python scripts/evaluate_plans.py --json reports/evaluation.json
     uv run python scripts/evaluate_plans.py --list
 
 Runs the full pipeline once per scenario (an LLM provider must be configured,
-like the rest of the app), evaluates the produced plan against the scenario's
-expectations and prints an explicit PASS/FAIL plus the aggregate pass rate.
-The exit code is 1 when any scenario fails, so the harness can gate a run.
+like the rest of the app, unless every selected scenario is out of reach or
+``--planner deterministic`` is used), evaluates the produced plan against the
+scenario's expectations and prints an explicit PASS/FAIL plus the aggregate
+pass rate. The exit code is 1 when any scenario fails, so the harness can gate
+a run.
+
+``--planner deterministic`` runs the ablation baseline: the objective chain is
+built without an LLM call, so a sweep with and without it shows what the model
+adds. The engine is recorded in the report, and a sweep is only compared with
+a stored sweep from the same engine.
 
 The memory store is cleared before every scenario, so the scenarios never see
 each other's past episodes and stay independent. ``--rag off`` disables the
@@ -85,6 +93,16 @@ def parse_args() -> argparse.Namespace:
         help="Enable or disable the supplemental wiki retrieval.",
     )
     parser.add_argument(
+        "--planner",
+        choices=["llm", "deterministic"],
+        default="",
+        help=(
+            "Planner engine: 'llm' (default) or 'deterministic', the ablation "
+            "baseline that builds the objective chain without an LLM call. "
+            "Defaults to PLANNER."
+        ),
+    )
+    parser.add_argument(
         "--baseline",
         metavar="PATH",
         default="",
@@ -146,8 +164,8 @@ def print_summary(report: EvaluationReport) -> None:
     """
     print()
     print(
-        f"Sweep: model={report.models or 'unknown'} wiki_retrieval={report.wiki_retrieval} "
-        f"repeats={report.repeats}"
+        f"Sweep: model={report.models or 'unknown'} planner={report.planner or 'unknown'} "
+        f"wiki_retrieval={report.wiki_retrieval} repeats={report.repeats}"
     )
     if report.wiki_retrieval == "degraded":
         print(
@@ -190,8 +208,10 @@ def print_comparison(comparison: SweepComparison) -> None:
     """
     when = comparison.baseline_created_at or "unknown time"
     print()
+    baseline_engine = comparison.baseline_planner or "unknown"
     print(
         f"Baseline {when} (model={comparison.baseline_model or 'unknown'}, "
+        f"planner={baseline_engine}, "
         f"wiki={comparison.baseline_rag}): "
         f"{comparison.baseline_passed}/{comparison.baseline_total} -> "
         f"{comparison.current_passed}/{comparison.current_total} "
@@ -201,6 +221,11 @@ def print_comparison(comparison: SweepComparison) -> None:
         print(
             f"        note: model {comparison.baseline_model or 'unknown'} -> "
             f"{comparison.current_model or 'unknown'}"
+        )
+    if comparison.planner_changed:
+        print(
+            f"        note: planner {comparison.baseline_planner or 'unknown'} -> "
+            f"{comparison.current_planner or 'unknown'}"
         )
     if comparison.rag_changed:
         print(f"        note: wiki retrieval {comparison.baseline_rag} -> {comparison.current_rag}")
@@ -266,10 +291,20 @@ def main() -> int:
         print_result(index, total, scenario, result)
 
     for _ in range(repeats):
-        report = run_scenarios(scenarios, rag_on=args.rag == "on", on_progress=_progress)
+        report = run_scenarios(
+            scenarios,
+            rag_on=args.rag == "on",
+            planner=args.planner,
+            on_progress=_progress,
+        )
         results.extend(report.results)
 
-    report = EvaluationReport(results=results, rag_on=args.rag == "on", repeats=repeats)
+    report = EvaluationReport(
+        results=results,
+        rag_on=args.rag == "on",
+        planner=report.planner,
+        repeats=repeats,
+    )
     report = stamp_report(report)
     print_summary(report)
 
@@ -281,7 +316,10 @@ def main() -> int:
     )
     if baseline is None:
         print()
-        print("No previous sweep to compare against.")
+        print(
+            "No compatible previous sweep to compare against "
+            "(a baseline must record the same planner engine)."
+        )
     else:
         comparison = compare_reports(report, baseline)
         print_comparison(comparison)

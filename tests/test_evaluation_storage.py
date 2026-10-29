@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app.evaluation.models import EvaluationIssue, EvaluationReport, ScenarioResult
@@ -79,6 +81,20 @@ def test_save_and_load_round_trip():
     assert second.issues[0].kind == "temporal_ordering"
     assert second.issues[0].step_idx == 1
     assert second.error_count == 2
+
+
+def test_a_report_written_before_the_engine_existed_still_loads():
+    """Old reports carry no planner engine; loading them must not break."""
+    payload = _report().model_dump()
+    payload.pop("planner")
+    path = get_eval_dir() / LAST_REPORT_NAME
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = load_report()
+
+    assert loaded is not None
+    assert loaded.planner == ""
+    assert loaded.total == 2
 
 
 def test_save_stamps_a_report_that_has_no_date():

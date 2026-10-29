@@ -14,6 +14,7 @@ def test_defaults_when_nothing_is_configured():
     assert settings.llm_provider is None
     assert settings.llm_api_key is None
     assert settings.log_level == "INFO"
+    assert settings.planner == "llm"
     assert settings.rag.enabled is True
     assert settings.rag.top_k == 4
     assert settings.phoenix_annotation_url is None
@@ -41,6 +42,18 @@ def test_api_key_is_a_secret(monkeypatch):
     assert settings.llm_api_key is not None
     assert settings.llm_api_key.get_secret_value() == "sk-secret"
     assert "sk-secret" not in repr(settings)
+
+
+def test_planner_engine_reads_the_environment(monkeypatch):
+    """The ablation engine is opt-in and validated at startup."""
+    assert get_settings().planner == "llm"
+
+    monkeypatch.setenv("PLANNER", "deterministic")
+    assert get_settings().planner == "deterministic"
+
+    monkeypatch.setenv("PLANNER", "magic")
+    with pytest.raises(ValidationError):
+        get_settings()
 
 
 def test_rag_settings_read_the_prefixed_environment(monkeypatch):

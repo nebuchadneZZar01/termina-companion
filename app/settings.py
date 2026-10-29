@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = None
     llm_base_url: str | None = None
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    #: Planner engine. ``llm`` is the product path; ``deterministic`` is the
+    #: evaluation baseline (the objective chain, no LLM call). A run can also
+    #: override it explicitly, so a sweep never mutates the environment.
+    planner: Literal["llm", "deterministic"] = "llm"
     otel_exporter_otlp_endpoint: str | None = None
     phoenix_base_url: str | None = None
     rag: RAGSettings = Field(default_factory=RAGSettings)
