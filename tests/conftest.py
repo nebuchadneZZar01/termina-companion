@@ -18,6 +18,7 @@ _ENV = (
     "LLM_MODEL",
     "LLM_BASE_URL",
     "LOG_LEVEL",
+    "PLANNER",
     "OTEL_EXPORTER_OTLP_ENDPOINT",
     "PHOENIX_BASE_URL",
     "RAG_ENABLED",
