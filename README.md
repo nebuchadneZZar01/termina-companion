@@ -569,7 +569,7 @@ an infeasibility.
 | Component | Responsibility |
 |---|---|
 | `app/domain.py` | Pydantic game-state, goal, plan and validation contracts. |
-| `app/data/mock_knowledge.py` | Structured demo data; the Knowledge Agent and the Critic read it through the MCP tools, while the State Agent and the planning chain still read `build_default_knowledge()` (see `TODO.md`). |
+| `app/data/mock_knowledge.py` | Structured demo data; the agents read it through the MCP tools (the planner's chains via `app/agents/quest_view.py`), while only the Streamlit page reads it directly for display. |
 | `app/mcp/` | Pure game-data tools and external MCP server; authoritative knowledge seam. |
 | `app/agents/` | State, Knowledge, Planning and Critic graph nodes, plus `progress.py` (explicit objective progress) and `reachability.py` (what the clock has closed). |
 | `app/rag/` | Adaptive wiki client, cleanup/chunking, FastEmbed adapter, Qdrant store and cache-aside retrieval. |

@@ -115,11 +115,11 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   architecture to one quest. The Anju & Kafei vertical slice is the
   game-accurate nine-step main path (Kafei's Mask, Room Key, kitchen
   letter, posting it, Kafei, pendant, Sakon's Hideout, reunion), with
-  optional rewards mentioned only in descriptions. The Knowledge Agent and
-  the Critic read it only through the tool functions in
-  `app/mcp/tools.py`; the State Agent and the planner's `planning_chain.py`
-  still call `build_default_knowledge()` directly for quest names and
-  objective positions (tracked in `TODO.md`). An objective's window is a
+  optional rewards mentioned only in descriptions. The Knowledge Agent, the
+  Critic, the State Agent and the planner's `planning_chain.py` read it only
+  through the tool functions in `app/mcp/tools.py` (the planner's quest chains
+  via the cached `app/agents/quest_view.py`); only the Streamlit page reads the
+  knowledge base directly, for display. An objective's window is a
   dated occurrence in the three-day cycle unless it is marked
   `recurring=True`: a recurring objective is a daily availability (a place to
   visit, an NPC to talk to) that repeats every game day at the same time of
@@ -137,12 +137,17 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   `planning_clock.py` (shared cycle arithmetic, including the `occurrences`
   of an objective still open at the player's clock) and `progress.py`
   (`done_objective_ids`, the progress summary and the sidebar's objective
-  labels). `reachability.py` is the pure closure that answers what the clock
-  has already closed: `dead_objectives` maps each stranded objective to the
+  labels). `quest_view.py` is the cached
+  read of every quest chain through the MCP tools: `load_quests`,
+  `load_quest` and `objective_positions` back the State Agent's progress
+  summary and the planner's chain positions, so agents never call
+  `build_default_knowledge()`. `reachability.py` is the pure closure that
+  answers what the clock has already closed: `dead_objectives` maps each
+  stranded objective to the
   root objective that ended its branch, `dead_quests` reports the gated quests
   that can no longer be completed, and the quest lookup is injected so the
-  planner reads the knowledge base while the Critic stays behind its
-  MCP-backed view. `scheduling.py` is the shared scheduling decision:
+  planner reads the MCP-backed quest view while the Critic stays behind its
+  own MCP-backed view. `scheduling.py` is the shared scheduling decision:
   `select_chain` applies explicit progress, owned rewards and the closed
   objectives to the retrieved set, and `schedule_chain` places the result
   greedily from the player's clock (one slot per objective, prerequisites and
@@ -220,12 +225,14 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   evidence. Retrieval runs immediately before planning; RAG failure is logged
   and degrades to structured context, never changing the objective chain.
 * `app/mcp/` — MCP tools and server. `app/mcp/tools.py` holds the pure
-  tool functions (search_quests, get_npc_schedule, get_quest_info,
-  get_objective, get_event, get_location, check_prerequisites) — the
+  tool functions (search_quests, list_quests, get_npc_schedule,
+  get_quest_info, get_objective, get_event, get_location,
+  check_prerequisites) — the
   game-data seam. `app/mcp/server.py` wraps them as a `MCPServer` for
-  external MCP clients. The Knowledge Agent and the Critic import them
-  directly for in-process use; the State Agent and `planning_chain.py` still
-  read the knowledge base directly (see `TODO.md`). RAG is not exposed as an
+  external MCP clients. The Knowledge Agent, the Critic, the State Agent and
+  the planner import them for in-process use (the planner's quest chains
+  through `app/agents/quest_view.py`); only the Streamlit page reads the
+  knowledge base directly, for display. RAG is not exposed as an
   MCP tool.
 * `app/rag/` — adaptive supplemental RAG package: Pydantic document/chunk/
   evidence/source-manifest contracts, MediaWiki client and HTML cleanup,

@@ -1,6 +1,7 @@
 """MCP tools: unit tests for each tool and an in-process Client integration."""
 
 import asyncio
+import json
 
 import pytest
 from mcp import Client
@@ -14,6 +15,7 @@ from app.mcp.tools import (
     get_npc_schedule,
     get_objective,
     get_quest_info,
+    list_quests,
     search_quests,
 )
 
@@ -68,6 +70,31 @@ def test_search_quests_returns_valid_objective_dicts():
         for raw in g["objectives"]:
             obj = Objective.model_validate(raw)
             assert obj.id.startswith("dg_")
+
+
+# ---------------------------------------------------------------------------
+# list_quests
+# ---------------------------------------------------------------------------
+
+
+def test_list_quests_returns_every_chain_without_filtering():
+    """list_quests returns every quest, not only the goal-relevant ones."""
+    quests = list_quests()
+    ids = {quest["id"] for quest in quests}
+    assert len(quests) > 1
+    assert {"anju_kafei", "goron_lullaby"} <= ids
+
+
+def test_list_quests_matches_get_quest_info():
+    """Each listed quest carries the same objectives as get_quest_info."""
+    for quest in list_quests():
+        assert quest["objectives"] == get_quest_info(quest["id"])["objectives"]
+
+
+def test_list_quests_is_json_serializable():
+    """The payload survives JSON encoding, so an MCP client can send it."""
+    payload = list_quests()
+    assert json.loads(json.dumps(payload)) == payload
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +290,7 @@ def _run_async(coro):
 
 
 def test_mcp_server_lists_all_tools():
-    """The MCP server exposes all 6 tools through the protocol."""
+    """The MCP server exposes all 8 tools through the protocol."""
 
     async def _check():
         async with Client(mcp) as client:
@@ -273,8 +300,10 @@ def test_mcp_server_lists_all_tools():
     tools = _run_async(_check())
     expected = {
         "search_quests",
+        "list_quests",
         "get_npc_schedule",
         "get_quest_info",
+        "get_objective",
         "get_event",
         "get_location",
         "check_prerequisites",

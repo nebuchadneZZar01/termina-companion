@@ -11,12 +11,10 @@ from __future__ import annotations
 import logging
 
 from app.agents.progress import progress_summary
-from app.data.mock_knowledge import build_default_knowledge
+from app.agents.quest_view import load_quests
 from app.state import PlanningState
 
 logger = logging.getLogger(__name__)
-
-_KB = build_default_knowledge()
 
 _ALIASES = {
     "stockpot": "Stockpot Inn",
@@ -48,7 +46,7 @@ def run(state: PlanningState) -> dict:
         f"Items: {', '.join(gs.inventory) or 'none'}. "
         f"Masks: {', '.join(gs.masks) or 'none'}."
     )
-    progress = progress_summary(_KB.quests, gs.completed_objectives, gs.quest_progress)
+    progress = progress_summary(load_quests(), gs.completed_objectives, gs.quest_progress)
     if progress:
         summary += f"\n{progress}"
     prefs = state.preferences.summary() if hasattr(state, "preferences") else "none"

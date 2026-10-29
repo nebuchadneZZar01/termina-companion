@@ -2,15 +2,14 @@
 
 ## Current Status
 
-**Current phase:** Phase 11 — Evaluation
+**Current phase:** Phase 12 — Production Readiness
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
-**Next up:** The deterministic baseline ablation is measured (11/12 both
-engines, documented in `README.md`). Before Phase 12: fix the
-engine-independent `romani-ranch` schedule mismatch the sweep surfaced and
-rerun it.
-The temporal-reachability hardening under Validator & Planner Hardening is
+**Next up:** Close the MCP knowledge seam: the `list_quests` tool, the cached
+`app/agents/quest_view.py` view and the State Agent / planning-chain refactor.
+The deterministic baseline ablation is measured (12/12 deterministic and 36/36
+LLM, documented in `README.md`), and the temporal-reachability hardening is
 done.
 
 Status map:
@@ -63,10 +62,10 @@ Status map:
   metadata, a CLI harness (`scripts/evaluate_plans.py`), an Evaluation tab in
   the Streamlit UI and a persisted report; each run's scores are also posted
   to Phoenix as span annotations when tracing is configured). The
-  sweep-to-sweep comparison
-  stays open; the `RAG_SIMILARITY_THRESHOLD` revisit is resolved (0.60
+  sweep-to-sweep comparison is implemented in `app/evaluation/comparison.py`;
+  the `RAG_SIMILARITY_THRESHOLD` revisit is resolved (0.60
   confirmed by an A/B sweep on 2026-10-21).
-* Phase 12 — Production Readiness: not started yet.
+* Phase 12 — Production Readiness: in progress.
 * Phase 13 — Deployment: not started yet.
 
 ### Target flow
@@ -430,10 +429,6 @@ a real infeasibility.
 
 * [x] Decided and implemented: an infeasible plan plus the Song of Time message,
   not a plan dated in the past.
-* [ ] Plan the next cycle. It needs item/mask permanence in the knowledge base
-  (the letter, the room key and the pendant are cycle-bound and reset with the
-  Song of Time), a cycle reference on `Plan` anchored at Day 1 06:00, a Critic
-  check against the shifted clock and an evaluation scenario.
 * [x] Add `expected_outcome` to the evaluation scenarios, so a sweep can assert
   "unreachable at this clock" instead of only checking the plan shape. The
   deterministic clock matrix in `tests/test_temporal_matrix.py` also covers the
@@ -483,7 +478,7 @@ a real infeasibility.
 * [ ] Add architecture diagram
 * [ ] Stabilize demo mode
 * [ ] Review dependencies
-* [ ] Route the State Agent and the planner's `planning_chain.py` through the
+* [x] Route the State Agent and the planner's `planning_chain.py` through the
   `app/mcp/tools.py` seam instead of importing `build_default_knowledge()`
   directly.
 * [x] Update `AGENTS.md`
@@ -505,6 +500,15 @@ for now).
 * [ ] Add deployment documentation to `README.md`
 * [ ] Alerting on failed healthchecks / app errors
 * [ ] Verify deployment on a clean environment
+
+# Backlog
+
+Deferred beyond the production-readiness work; not a Phase 12 prerequisite.
+
+* [ ] Plan the next cycle. It needs item/mask permanence in the knowledge base
+  (the letter, the room key and the pendant are cycle-bound and reset with the
+  Song of Time), a cycle reference on `Plan` anchored at Day 1 06:00, a Critic
+  check against the shifted clock and an evaluation scenario.
 
 ---
 
