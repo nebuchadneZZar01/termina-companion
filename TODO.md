@@ -2,15 +2,15 @@
 
 ## Current Status
 
-**Current phase:** Phase 13 — Deployment (not started)
+**Current phase:** Phase 13 — Deployment (complete)
 
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
-**Next up:** Phase 12 is complete: the MCP seam is closed, the offline demo is
-tested, the failure matrix and 91% coverage are in place, the README carries the
-architecture and troubleshooting, and the clean-environment run (692 tests plus
-the offline demo) passes. Phase 13 starts with the container build, CI image
-publication and deployment docs.
+**Next up:** Phase 13 is complete: the multi-stage image, the Compose `app`
+profile, the non-root runtime, the healthcheck and the GHCR publication from
+CI are in place, with deployment, alerting and container troubleshooting
+documented. The next work is the backlog item (a new cycle anchored at Day 1
+06:00 with cycle-bound item permanence).
 
 Status map:
 * Phase 0 — Foundation: complete.
@@ -68,7 +68,10 @@ Status map:
 * Phase 12 — Production Readiness: complete (MCP seam, offline demo, failure
   matrix and 91% coverage, README architecture/troubleshooting, clean-environment
   verification, dependency review, cleanup).
-* Phase 13 — Deployment: not started yet.
+* Phase 13 — Deployment: complete (multi-stage uv image with a non-root
+  runtime, `/_stcore/health` healthcheck and a `/data` volume, the Compose
+  `app` profile next to Phoenix, CI image build/smoke/publish to GHCR, and the
+  deployment, alerting and container troubleshooting docs).
 
 ### Target flow
 
@@ -499,16 +502,25 @@ Approach: GitHub Actions CI, container build for local use, lite monitoring
 (healthcheck + the OpenTelemetry spans from Phase 10; no external services
 for now).
 
-* [ ] Add `Dockerfile` for the Streamlit app
-* [ ] Add `docker-compose.yml` for local orchestration
-* [ ] Run the app as a non-root user in the container
-* [ ] Add healthcheck for the running app
-* [ ] Add GitHub Actions workflow: run `uv sync`, `ruff check`, `pytest` on every push
-* [ ] Build and tag the container image in CI
-* [ ] Publish the image to a container registry (optional)
-* [ ] Add deployment documentation to `README.md`
-* [ ] Alerting on failed healthchecks / app errors
-* [ ] Verify deployment on a clean environment
+* [x] Add `Dockerfile` for the Streamlit app (multi-stage uv build, slim
+  runtime, `/data` volume)
+* [x] Add `docker-compose.yml` for local orchestration (the `app` profile runs
+  TaIA next to Phoenix and overrides the OTLP endpoint for the Compose network)
+* [x] Run the app as a non-root user in the container (uid 10001)
+* [x] Add healthcheck for the running app (`/_stcore/health`, declared both in
+  the image and by Compose)
+* [x] Add GitHub Actions workflow: run `uv sync`, `ruff check`, `pytest` on every push
+* [x] Build and tag the container image in CI (`type=sha` plus `latest` on
+  `main`), with an offline smoke test of the built image
+* [x] Publish the image to a container registry (GHCR on `main` and `v*` tags;
+  pull requests build only)
+* [x] Add deployment documentation to `README.md`
+* [x] Alerting on failed healthchecks / app errors (Docker healthcheck plus
+  `restart: unless-stopped`; the external monitor/webhook recipe and the
+  container log stream are documented in the README)
+* [x] Verify deployment on a clean environment (image built from scratch, app
+  healthy on `:8501`, offline demo exit 0 inside the image, Compose
+  `app` profile healthy, non-root write on the `/data` volume)
 
 # Backlog
 

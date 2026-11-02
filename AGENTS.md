@@ -509,12 +509,22 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   the run id, node timeline and any errors after the plan. `--deterministic`
   and `--no-rag` run it fully offline (no LLM, no wiki), `--debug` adds the
   traceback of an unexpected failure.
-* `docker-compose.yml` — local observability stack: the Arize Phoenix
-  container (web UI and OTLP/HTTP receiver share `:6006`; Phoenix has no
-  `:4318` listener — that port belongs to the generic OTel Collector). The
-  Streamlit app runs on the host; start this with `docker compose up -d` and
-  set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006` to export spans. The
-  app is fully functional (no-op tracing) when it is not running.
+* `docker-compose.yml` — local stack. The default `docker compose up -d` starts
+  only the Arize Phoenix container (web UI and OTLP/HTTP receiver share
+  `:6006`; Phoenix has no `:4318` listener — that port belongs to the generic
+  OTel Collector). The `app` profile
+  (`docker compose --profile app up -d --build`) adds TaIA itself, reading
+  `.env`, persisting `/data` on the `termina_data` volume and overriding the
+  OTLP endpoint to `http://phoenix:6006`. The app is fully functional
+  (no-op tracing) when Phoenix is not running.
+* `Dockerfile` — multi-stage uv build of the Streamlit image: the frozen lock
+  file is resolved into a venv in the builder stage, the runtime stage is a
+  slim Python with `libgomp1`, the non-root user `app` (uid 10001), `/data` for
+  the Qdrant store, saves and FastEmbed cache, a `/_stcore/health` Docker
+  healthcheck and Streamlit headless on `:8501`. `.dockerignore` keeps the
+  context to sources, lock file and `.streamlit` config. CI builds the image,
+  smoke-tests it offline (`PLANNER=deterministic`, `RAG_ENABLED=0`), and pushes
+  it to GHCR on `main` and `v*` tags.
 * `tests/` — domain model, validation, re-planning, temporal reachability,
   RAG corpus/retrieval, tracing and Knowledge Agent integration tests,
   including hermetic wiki/cache scenarios. `test_reachability.py` pins the

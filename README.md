@@ -77,6 +77,59 @@ the page stays still while the agents reason.
 The page has two tabs: **Play** (the state editor and the planning flow) and
 **Evaluation** (the evaluation sweep, see below).
 
+## Run with Docker
+
+The container runs the same app with the same `.env`:
+
+```sh
+cp .env.example .env    # fill LLM_PROVIDER and its credentials
+docker build -t termina-companion .
+docker run --rm -p 8501:8501 --env-file .env termina-companion
+```
+
+Or start TaIA together with the Phoenix tracing backend through Compose:
+
+```sh
+docker compose --profile app up -d --build
+docker compose --profile app logs -f app
+```
+
+Open <http://localhost:8501> (set `TERMINA_PORT` to publish a different port).
+`curl localhost:8501/_stcore/health` answers `ok` when the app is healthy; the
+image declares the same endpoint as its Docker `HEALTHCHECK`, and the service
+restarts unless stopped. For real alerting, point an external monitor or
+webhook at that endpoint (`curl -fsS ... || your-notify-command`): app errors go
+to stderr, so the container logs are the error stream.
+
+What the container needs:
+
+- a provider in `.env`; without one the UI still starts, but planning fails
+  explicitly. To reach Ollama or LM Studio running on the host, set
+  `LLM_BASE_URL=http://host.docker.internal:11434/v1` (Compose maps the host
+  gateway; a plain `docker run` needs
+  `--add-host host.docker.internal:host-gateway`).
+- a writable `/data` volume. The embedded Qdrant store, the save files and the
+  FastEmbed model cache all live there (`RAG_QDRANT_PATH=/data/qdrant`,
+  `HF_HOME=/data/hf`). Compose mounts the `termina_data` named volume, so a
+  rebuilt image keeps knowledge and saved games. The first run that touches the
+  wiki downloads the embedding model into that volume.
+- the non-root user `app` (uid 10001) must be able to write the mounted
+  directory; a bind mount created by root needs its ownership fixed.
+
+Compose overrides the OTLP endpoint to `http://phoenix:6006`, so traces of a
+Compose run reach the `phoenix` service even though `.env` names `localhost`.
+Only one app instance may use a given Qdrant directory at a time: embedded
+Qdrant holds an exclusive lock on it.
+
+CI builds the image on every push and pull request and publishes it on `main`
+and on `v*` tags as `ghcr.io/<owner>/termina-companion:latest`, `:sha-<commit>`
+and the release tag, so a run can pull it instead of building:
+
+```sh
+docker run --rm -p 8501:8501 --env-file .env \
+  ghcr.io/<owner>/termina-companion:latest
+```
+
 ## Temporal reachability and the Song of Time
 
 The three days are one finite timeline. An objective's window is a dated
@@ -592,6 +645,10 @@ three LLM repeats.
 | Qdrant lock or timeout while another run is active | Embedded Qdrant holds an exclusive lock on its path | Close the UI or point `RAG_QDRANT_PATH` at an isolated copy. |
 | `wiki_miss` with a `wiki_unreachable` warning | Wiki throttled or unreachable | The run continues on structured MCP data; retry later or raise `RAG_WIKI_BUDGET_SECONDS`. |
 | Phoenix UI empty after a run | Wrong endpoint or port | Export to `http://localhost:6006`; `:4318` belongs to a generic OTel Collector, not Phoenix. |
+| Container cannot reach the LLM | `localhost` inside the container is the container itself | Use `http://host.docker.internal:<port>/v1`; Compose maps the host gateway, a plain `docker run` needs `--add-host host.docker.internal:host-gateway`. |
+| `Permission denied` writing `/data` | Bind mount owned by root | Use the named `termina_data` volume, or `chown` the directory to uid 10001. |
+| Healthcheck fails right after start | Streamlit still booting | Wait for the 20s start period; check `docker logs termina-app`. |
+| GHCR push denied in CI | Missing `packages: write` or fork PR | The workflow sets `packages: write`; images are pushed only on `main` and `v*` tags, never from pull requests. |
 | Demo fails without credentials | LLM path is the default | Add `--deterministic --no-rag`. |
 
 ## Architecture
@@ -643,7 +700,8 @@ an infeasibility.
 | `app/evaluation/` | Plan-evaluation scenarios, deterministic evaluator, shared sweep runner and report storage. |
 | `scripts/evaluate_plans.py` | CLI harness for the evaluation sweep. |
 | `app/trace.py` | OpenTelemetry tracing seam: run spans, LLM prompt capture and the no-op/OTLP setup. |
-| `docker-compose.yml` | Local Arize Phoenix observability container. |
+| `docker-compose.yml` | Local stack: the Arize Phoenix tracing container, plus TaIA itself under the `app` profile. |
+| `Dockerfile` | Multi-stage uv build of the Streamlit image, non-root runtime and healthcheck. |
 | `app/__main__.py` | Headless pipeline demo. |
 | `tests/` | Domain, validation, graph, RAG persistence, tracing, evaluation and integration tests. |
 

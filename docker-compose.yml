@@ -1,20 +1,53 @@
-# Local observability stack.
+# Local stack: the TaIA Streamlit app plus the Arize Phoenix tracing backend.
 #
-# The Streamlit app runs on the host (`uv run streamlit run main.py`); this
-# file only provides the tracing backend. Start it with:
+# Observability only (the previous behaviour, unchanged):
 #
 #   docker compose up -d
+#   # then set OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006 in .env
 #
-# then set in .env:
+# The app and Phoenix together:
 #
-#   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006
+#   docker compose --profile app up -d --build
+#   # open http://localhost:8501 for TaIA, http://localhost:6006 for Phoenix
 #
-# Open http://localhost:6006 to browse the traces of each planning run. Note:
-# Phoenix serves BOTH the web UI and the OTLP/HTTP receiver on :6006 (it has
-# no :4318 listener — that port belongs to the generic OTel Collector).
-# The app stays fully functional (no-op tracing) when this is not running.
+# The app service reads .env (LLM provider, keys, RAG settings). Two values are
+# overridden for the container network: the OTLP endpoint points at the Phoenix
+# service instead of localhost, and the state directory lives on the
+# termina_data volume. An Ollama/LM Studio server on the host is reachable at
+# http://host.docker.internal:11434/v1 (set LLM_BASE_URL accordingly).
+#
+# Note: Phoenix serves BOTH the web UI and the OTLP/HTTP receiver on :6006 (it
+# has no :4318 listener — that port belongs to the generic OTel Collector).
+# The app stays fully functional (no-op tracing) when Phoenix is not running.
 
 services:
+  app:
+    profiles: ["app"]
+    build:
+      context: .
+    image: termina-companion:local
+    container_name: termina-app
+    env_file:
+      # A fresh clone without .env still boots; planning then fails explicitly
+      # until a provider is configured.
+      - path: .env
+        required: false
+    environment:
+      RAG_QDRANT_PATH: /data/qdrant
+      HF_HOME: /data/hf
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://phoenix:6006
+      PHOENIX_BASE_URL: ""
+    ports:
+      - "${TERMINA_PORT:-8501}:8501"
+    volumes:
+      - termina_data:/data
+    extra_hosts:
+      # Lets the container reach an LLM server running on the host.
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - phoenix
+    restart: unless-stopped
+
   phoenix:
     image: arizephoenix/phoenix:latest
     container_name: termina-phoenix
@@ -25,4 +58,5 @@ services:
     restart: unless-stopped
 
 volumes:
+  termina_data:
   phoenix_data:
