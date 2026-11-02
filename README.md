@@ -103,16 +103,19 @@ to stderr, so the container logs are the error stream.
 
 `.env` carries the app configuration (`cp .env.example .env`; optional, since a
 clone without it still boots and fails explicitly when planning). The
-`environment` block only pins container paths and the in-network Phoenix URL,
-and overrides `.env`.
+`environment` block only pins container paths, the in-network Phoenix URL and
+the four LLM values; it overrides `.env`. The container reads the LLM base URL
+from `LLM_BASE_URL_DOCKER`, so the local `LLM_BASE_URL=localhost` keeps working
+for `uv run`.
 
 What the container needs:
 
 - a provider in `.env`; without one the UI still starts, but planning fails
   explicitly. To reach Ollama or LM Studio running on the host, set
-  `LLM_BASE_URL=http://host.docker.internal:11434/v1` (Compose maps the host
-  gateway; a plain `docker run` needs
-  `--add-host host.docker.internal:host-gateway`).
+  `LLM_BASE_URL_DOCKER=http://host.docker.internal:11434/v1` (Compose maps the
+  host gateway; a plain `docker run` needs
+  `-e LLM_BASE_URL=http://host.docker.internal:11434/v1 --add-host
+  host.docker.internal:host-gateway`).
 - a writable `/data` volume. The embedded Qdrant store, the save files and the
   FastEmbed model cache all live there (`RAG_QDRANT_PATH=/data/qdrant`,
   `FASTEMBED_CACHE_PATH=/data/fastembed`; FastEmbed does not honour
@@ -126,6 +129,26 @@ Compose overrides the OTLP endpoint to `http://phoenix:6006`, so traces of a
 Compose run reach the `phoenix` service even though `.env` names `localhost`.
 Only one app instance may use a given Qdrant directory at a time: embedded
 Qdrant holds an exclusive lock on it.
+
+### Ollama in the stack
+
+To run Ollama as a container instead of installing it on the host, add the
+override file. It only adds the service and points TaIA at it over the Compose
+network (service DNS, no host gateway):
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.ollama.yml \
+  --profile app up -d --build
+docker compose -f docker-compose.yml -f docker-compose.ollama.yml \
+  exec ollama ollama pull llama3.2
+```
+
+The pull is needed once; the `ollama_data` volume keeps the model. The
+`LLM_PROVIDER`, `LLM_API_KEY` and `LLM_BASE_URL` values of the override win over
+`.env`, while `LLM_MODEL` still comes from `.env` (default `llama3.2`). CPU
+inference works but is slow; for Nvidia GPUs on Linux uncomment the `deploy`
+block (requires the NVIDIA Container Toolkit). Budget roughly 4 GB between the
+image and the model. A host Ollama keeps using `docker-compose.yml` alone.
 
 CI builds the image on every push and pull request and publishes it on `main`
 and on `v*` tags as `ghcr.io/<owner>/termina-companion:latest`, `:sha-<commit>`

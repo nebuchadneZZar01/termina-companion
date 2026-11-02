@@ -514,9 +514,17 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   `:6006`; Phoenix has no `:4318` listener — that port belongs to the generic
   OTel Collector). The `app` profile
   (`docker compose --profile app up -d --build`) adds TaIA itself, reading
-  `.env`, persisting `/data` on the `termina_data` volume and overriding the
-  OTLP endpoint to `http://phoenix:6006`. The app is fully functional
-  (no-op tracing) when Phoenix is not running.
+  `.env`, persisting `/data` on the `termina_data` volume, pinning the LLM
+  values explicitly and taking the container base URL from
+  `LLM_BASE_URL_DOCKER` (`.env`'s localhost stays valid for local runs), and
+  overriding the OTLP endpoint to `http://phoenix:6006`. The app is fully
+  functional (no-op tracing) when Phoenix is not running.
+* `docker-compose.ollama.yml` — optional override adding a containerized Ollama
+  (`ollama_data` volume, `ollama list` healthcheck) and pointing `app` at it via
+  service DNS (`http://ollama:11434/v1`), included with
+  `-f docker-compose.yml -f docker-compose.ollama.yml`; the model is pulled once
+  with `docker compose ... exec ollama ollama pull llama3.2`. A host Ollama
+  keeps using the base file alone.
 * `Dockerfile` — multi-stage uv build of the Streamlit image: the frozen lock
   file is resolved into a venv in the builder stage, the runtime stage is a
   slim Python with `libgomp1`, the non-root user `app` (uid 10001), `/data` for
