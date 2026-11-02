@@ -1,0 +1,45 @@
+# Optional override: TaIA against a containerized Ollama.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.ollama.yml \
+#     --profile app up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.ollama.yml \
+#     exec ollama ollama pull llama3.2
+#
+# Do not edit docker-compose.yml for this: the override adds the service and
+# points the app at it over the Compose network (service DNS). A host Ollama
+# keeps using docker-compose.yml alone.
+
+services:
+  app:
+    environment:
+      LLM_PROVIDER: ollama
+      LLM_API_KEY: ollama
+      LLM_MODEL: ${LLM_MODEL:-llama3.2}
+      LLM_BASE_URL: http://ollama:11434/v1
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: termina-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    # GPU (Linux + nvidia-container-toolkit only):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  ollama_data:

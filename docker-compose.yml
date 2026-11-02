@@ -1,20 +1,60 @@
-# Local observability stack.
+# Local stack: TaIA (Streamlit) plus the Arize Phoenix tracing backend.
 #
-# The Streamlit app runs on the host (`uv run streamlit run main.py`); this
-# file only provides the tracing backend. Start it with:
-#
+# Phoenix only:
 #   docker compose up -d
 #
-# then set in .env:
+# TaIA + Phoenix:
+#   docker compose --profile app up -d --build
+#   # TaIA: http://localhost:8501 - Phoenix: http://localhost:6006
 #
-#   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006
+# Containerized Ollama: add -f docker-compose.ollama.yml (see that file).
 #
-# Open http://localhost:6006 to browse the traces of each planning run. Note:
-# Phoenix serves BOTH the web UI and the OTLP/HTTP receiver on :6006 (it has
-# no :4318 listener — that port belongs to the generic OTel Collector).
-# The app stays fully functional (no-op tracing) when this is not running.
+# Phoenix serves BOTH the web UI and the OTLP/HTTP receiver on :6006; :4318
+# belongs to a generic OTel Collector. TaIA works without Phoenix (no-op
+# tracing).
 
 services:
+  app:
+    profiles: ["app"]
+    build:
+      context: .
+    image: termina-companion:local
+    container_name: termina-app
+
+    env_file:
+      # Everything else the app reads (LOG_LEVEL, PLANNER, RAG_*), same contract
+      # as app/settings.py. Optional: a clone without .env still boots and
+      # planning fails explicitly until a provider is set.
+      - path: .env
+        required: false
+
+    # Container values; these win over env_file. The LLM block is listed
+    # explicitly so `docker compose config` shows what the container uses.
+    environment:
+      # Interpolated from .env. LLM_BASE_URL_DOCKER is container-only: .env's
+      # localhost would point at the container itself. Empty = provider default.
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL_DOCKER:-}
+      # State on the termina_data volume.
+      RAG_QDRANT_PATH: /data/qdrant
+      FASTEMBED_CACHE_PATH: /data/fastembed
+      # Traces go to the Phoenix service, not to the host.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://phoenix:6006
+      PHOENIX_BASE_URL: ""
+
+    ports:
+      - "${TERMINA_PORT:-8501}:8501"
+    volumes:
+      - termina_data:/data
+    extra_hosts:
+      # Reaches an LLM server running on the host via LLM_BASE_URL_DOCKER.
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - phoenix
+    restart: unless-stopped
+
   phoenix:
     image: arizephoenix/phoenix:latest
     container_name: termina-phoenix
@@ -25,4 +65,5 @@ services:
     restart: unless-stopped
 
 volumes:
+  termina_data:
   phoenix_data:
