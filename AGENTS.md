@@ -520,7 +520,8 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
 * `Dockerfile` — multi-stage uv build of the Streamlit image: the frozen lock
   file is resolved into a venv in the builder stage, the runtime stage is a
   slim Python with `libgomp1`, the non-root user `app` (uid 10001), `/data` for
-  the Qdrant store, saves and FastEmbed cache, a `/_stcore/health` Docker
+  the Qdrant store, saves and the FastEmbed cache
+  (`RAG_QDRANT_PATH`/`FASTEMBED_CACHE_PATH`), a `/_stcore/health` Docker
   healthcheck and Streamlit headless on `:8501`. `.dockerignore` keeps the
   context to sources, lock file and `.streamlit` config. CI builds the image,
   smoke-tests it offline (`PLANNER=deterministic`, `RAG_ENABLED=0`), and pushes

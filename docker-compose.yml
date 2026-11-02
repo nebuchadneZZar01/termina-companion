@@ -10,11 +10,11 @@
 #   docker compose --profile app up -d --build
 #   # open http://localhost:8501 for TaIA, http://localhost:6006 for Phoenix
 #
-# The app service reads .env (LLM provider, keys, RAG settings). Two values are
-# overridden for the container network: the OTLP endpoint points at the Phoenix
-# service instead of localhost, and the state directory lives on the
-# termina_data volume. An Ollama/LM Studio server on the host is reachable at
-# http://host.docker.internal:11434/v1 (set LLM_BASE_URL accordingly).
+# The app service reads .env (LLM provider, keys, RAG settings). Container-only
+# values are overridden: the OTLP endpoint points at the Phoenix service instead
+# of localhost, and the state directories plus the embedding model cache live on
+# the termina_data volume. An Ollama/LM Studio server on the host is reachable
+# at http://host.docker.internal:11434/v1 (set LLM_BASE_URL accordingly).
 #
 # Note: Phoenix serves BOTH the web UI and the OTLP/HTTP receiver on :6006 (it
 # has no :4318 listener — that port belongs to the generic OTel Collector).
@@ -28,13 +28,15 @@ services:
     image: termina-companion:local
     container_name: termina-app
     env_file:
-      # A fresh clone without .env still boots; planning then fails explicitly
-      # until a provider is configured.
+      # App configuration (LLM_*, LOG_LEVEL, PLANNER, RAG_*): same contract as
+      # app/settings.py. Optional, so a fresh clone still boots; see
+      # .env.example.
       - path: .env
         required: false
+    # Container overrides; Compose gives these precedence over env_file.
     environment:
-      RAG_QDRANT_PATH: /data/qdrant
-      HF_HOME: /data/hf
+      RAG_QDRANT_PATH: /data/qdrant # Qdrant store + saves (named volume)
+      FASTEMBED_CACHE_PATH: /data/fastembed # embedding model cache
       OTEL_EXPORTER_OTLP_ENDPOINT: http://phoenix:6006
       PHOENIX_BASE_URL: ""
     ports:

@@ -7,7 +7,7 @@
 #
 # The app lives on the host only through the published port; its embedded
 # Qdrant store, the saved games and the FastEmbed model cache persist in the
-# /data volume (RAG_QDRANT_PATH and HF_HOME point there).
+# /data volume (RAG_QDRANT_PATH and FASTEMBED_CACHE_PATH point there).
 
 # --- build stage: resolve the frozen lock file into a self-contained venv ---
 FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS builder
@@ -35,7 +35,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH" \
     HOME=/home/app \
-    HF_HOME=/data/hf \
+    FASTEMBED_CACHE_PATH=/data/fastembed \
     RAG_QDRANT_PATH=/data/qdrant \
     STREAMLIT_SERVER_HEADLESS=true \
     STREAMLIT_SERVER_ADDRESS=0.0.0.0 \

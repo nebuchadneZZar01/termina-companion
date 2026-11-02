@@ -101,6 +101,11 @@ restarts unless stopped. For real alerting, point an external monitor or
 webhook at that endpoint (`curl -fsS ... || your-notify-command`): app errors go
 to stderr, so the container logs are the error stream.
 
+`.env` carries the app configuration (`cp .env.example .env`; optional, since a
+clone without it still boots and fails explicitly when planning). The
+`environment` block only pins container paths and the in-network Phoenix URL,
+and overrides `.env`.
+
 What the container needs:
 
 - a provider in `.env`; without one the UI still starts, but planning fails
@@ -110,9 +115,10 @@ What the container needs:
   `--add-host host.docker.internal:host-gateway`).
 - a writable `/data` volume. The embedded Qdrant store, the save files and the
   FastEmbed model cache all live there (`RAG_QDRANT_PATH=/data/qdrant`,
-  `HF_HOME=/data/hf`). Compose mounts the `termina_data` named volume, so a
-  rebuilt image keeps knowledge and saved games. The first run that touches the
-  wiki downloads the embedding model into that volume.
+  `FASTEMBED_CACHE_PATH=/data/fastembed`; FastEmbed does not honour
+  `HF_HOME`). Compose mounts the `termina_data` named volume, so a rebuilt
+  image keeps knowledge, saved games and the model. The first run that touches
+  the wiki downloads the embedding model into that volume.
 - the non-root user `app` (uid 10001) must be able to write the mounted
   directory; a bind mount created by root needs its ownership fixed.
 
