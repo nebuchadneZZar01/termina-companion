@@ -295,7 +295,8 @@ def _fairy_html(day: int, value: datetime.time, text: str | None = None) -> str:
         '<span class="tc-fairy-orb"></span>'
         "</div>"
         '<div class="tc-fairy-bubble">'
-        '<div class="tc-fairy-name">TaIA</div>'
+        '<div class="tc-fairy-name">TaIA'
+        f'<span class="tc-fairy-badge">{html.escape(t("ai_assistant_badge"))}</span></div>'
         f'<div class="tc-fairy-text">{html.escape(message)}</div>'
         "</div></section>"
     )

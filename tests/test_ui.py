@@ -943,6 +943,17 @@ def test_fairy_greeting_accepts_a_custom_message() -> None:
     assert "url(#taiaw-eval)" in evaluation
 
 
+def test_fairy_bubble_labels_taia_as_an_ai_assistant() -> None:
+    """AI Act transparency: the bubble names TaIA as an AI assistant."""
+    import datetime
+
+    markup = formatting._fairy_html(1, datetime.time(6, 0))
+
+    assert 'class="tc-fairy-badge"' in markup
+    assert "AI assistant" in markup
+    assert ".tc-fairy-badge" in theme._THEME_CSS
+
+
 def test_favicon_asset_is_available() -> None:
     assert page._FAVICON_PATH.is_file()
     markup = page._FAVICON_PATH.read_text(encoding="utf-8")

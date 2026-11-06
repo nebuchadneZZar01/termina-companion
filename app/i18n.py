@@ -721,6 +721,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "select_placeholder": "Choose...",
         "goal_label": "What do you want to do?",
         "ask_taia": "Ask TaIA",
+        "ai_assistant_badge": "AI assistant",
         "fairy_greeting": (
             "Hey, Link! Listen: about {hours} hours are left before the Moon falls. "
             "Tell me what you want to do and I will prepare a plan."
@@ -1111,6 +1112,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "select_placeholder": "Scegli...",
         "goal_label": "Cosa vuoi fare?",
         "ask_taia": "Chiedi a TaIA",
+        "ai_assistant_badge": "assistente IA",
         "fairy_greeting": (
             "Ehi, Link! Ascolta: ci restano circa {hours} ore prima che la Luna cada. "
             "Dimmi cosa vuoi fare e ti preparo un piano."
