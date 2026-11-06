@@ -954,6 +954,19 @@ def test_fairy_bubble_labels_taia_as_an_ai_assistant() -> None:
     assert ".tc-fairy-badge" in theme._THEME_CSS
 
 
+def test_fairy_figure_is_animated_and_respects_reduced_motion() -> None:
+    """TaIA floats and flaps; the motion is disabled on request."""
+    css = theme._THEME_CSS
+
+    assert ".tc-fairy-figure { animation: tc-float" in css
+    assert "@keyframes tc-float" in css
+    assert "@keyframes tc-flap-left" in css
+    assert "@keyframes tc-flap-right" in css
+    assert "@keyframes tc-twinkle" in css
+    assert ".tc-fairy-orb { animation: tc-orb-glow" in css
+    assert "prefers-reduced-motion: reduce" in css
+
+
 def test_favicon_asset_is_available() -> None:
     assert page._FAVICON_PATH.is_file()
     markup = page._FAVICON_PATH.read_text(encoding="utf-8")
