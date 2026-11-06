@@ -967,6 +967,51 @@ def test_fairy_figure_is_animated_and_respects_reduced_motion() -> None:
     assert "prefers-reduced-motion: reduce" in css
 
 
+def test_ai_note_html_escapes_text_and_has_a_sidebar_variant() -> None:
+    note = formatting._ai_note_html("Piano <IA>")
+    sidebar = formatting._ai_note_html("Piano <IA>", sidebar=True)
+
+    assert 'class="tc-ai-note"' in note
+    assert 'class="tc-ai-note tc-ai-note-sidebar"' in sidebar
+    assert "Piano &lt;IA&gt;" in note
+    assert "<svg" in note
+    assert ".tc-ai-note" in theme._THEME_CSS
+
+
+def test_plan_view_states_that_the_plan_is_ai_generated(monkeypatch) -> None:
+    """AI Act transparency: a produced plan carries its AI disclaimer."""
+    from app.domain import ClockTime, GameState, ValidationResult
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(plan_view, "st", stub)
+    monkeypatch.setattr(formatting, "st", stub)
+    monkeypatch.setattr(theme, "st", stub)
+    monkeypatch.setattr(plan_view, "t", lambda key, **kwargs: f"{key}|{kwargs.get('model', '')}")
+    monkeypatch.setattr(plan_view, "tr", lambda value: value)
+    _patch_result_renderers(monkeypatch)
+
+    def _result(plan_model: str) -> dict:
+        return {
+            "validation": ValidationResult(valid=True, issues=[]),
+            "replan_attempts": 1,
+            "plan_model": plan_model,
+            "relevant_objectives": [],
+            "game_state": GameState(time=ClockTime(day=1, hour=6), location="Clock Town"),
+        }
+
+    plan_view._render_planning_result(
+        tasks._PlanningTask(status="done", result=_result("llama3.2")), kb=None
+    )
+    plan_view._render_planning_result(
+        tasks._PlanningTask(status="done", result=_result("")), kb=None
+    )
+
+    notes = [value for kind, value in stub.calls if kind == "markdown" and "tc-ai-note" in value]
+    assert len(notes) == 2
+    assert "plan_ai_disclaimer|llama3.2" in notes[0]
+    assert "plan_ai_disclaimer_unknown|" in notes[1]
+
+
 def test_favicon_asset_is_available() -> None:
     assert page._FAVICON_PATH.is_file()
     markup = page._FAVICON_PATH.read_text(encoding="utf-8")

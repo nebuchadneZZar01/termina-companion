@@ -10,10 +10,10 @@ from app.graph import MAX_PLANNING_ATTEMPTS
 from app.i18n import t, tr
 from app.ui import sources_view
 from app.ui.formatting import (
+    _ai_note_html,
     _entities_html,
     _entity_index,
     _entity_span,
-    _fmt_model,
     _highlight_entities,
     _html_clock,
     _section,
@@ -105,7 +105,9 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
 
     plan_model = result.get("plan_model")
     if plan_model:
-        st.caption(t("plan_model_caption", model=_fmt_model(plan_model)))
+        _html_block(_ai_note_html(t("plan_ai_disclaimer", model=plan_model)))
+    else:
+        _html_block(_ai_note_html(t("plan_ai_disclaimer_unknown")))
 
     if validation.valid:
         _render_plan(plan, valid=True, kb=kb)

@@ -128,6 +128,34 @@ def _code_html(value: str) -> str:
     return f"<code>{html.escape(value)}</code>"
 
 
+_AI_NOTE_ICON = (
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+    'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+    'stroke-linejoin="round" aria-hidden="true">'
+    '<circle cx="12" cy="12" r="9"></circle>'
+    '<path d="M12 11v5M12 8v.5"></path>'
+    "</svg>"
+)
+
+
+def _ai_note_html(text: str, sidebar: bool = False) -> str:
+    """Return one AI Act transparency note as a bordered card.
+
+    The note states that the output is AI-generated, so the plan view and the
+    sidebar can share one primitive instead of duplicating markup.
+
+    args:
+        text (str): the already translated note body.
+        sidebar (bool, default False): use the sidebar's compact, borderless
+            variant.
+
+    returns:
+        str: the note markup, safe to pass to ``_html_block``.
+    """
+    variant = " tc-ai-note-sidebar" if sidebar else ""
+    return f'<div class="tc-ai-note{variant}">{_AI_NOTE_ICON}<span>{html.escape(text)}</span></div>'
+
+
 def _section(title: str, caption: str = "") -> None:
     """Draw a section header with optional caption.
 
