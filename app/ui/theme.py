@@ -559,6 +559,7 @@ h1, h2, h3, h4, h5, h6 {
   gap: 10px;
   align-items: flex-start;
   padding: 10px 14px;
+  margin: 6px 0 14px;
   border-radius: 10px;
   border: 1px solid var(--tc-border);
   background: var(--tc-surface);
@@ -568,6 +569,7 @@ h1, h2, h3, h4, h5, h6 {
 .tc-ai-note svg { flex: none; margin-top: 2px; }
 .tc-ai-note-sidebar {
   padding: 12px 14px;
+  margin: 6px 0 0;
   border-radius: 12px;
   background: transparent;
   font-size: 12px;

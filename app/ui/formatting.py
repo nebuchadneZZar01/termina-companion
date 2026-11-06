@@ -138,22 +138,28 @@ _AI_NOTE_ICON = (
 )
 
 
-def _ai_note_html(text: str, sidebar: bool = False) -> str:
+def _ai_note_html(text: str, sidebar: bool = False, model: str | None = None) -> str:
     """Return one AI Act transparency note as a bordered card.
 
     The note states that the output is AI-generated, so the plan view and the
     sidebar can share one primitive instead of duplicating markup.
 
     args:
-        text (str): the already translated note body.
+        text (str): the already translated note body. A ``{model}`` token is
+            left untouched by :func:`app.i18n.t` when no keyword is passed.
         sidebar (bool, default False): use the sidebar's compact, borderless
             variant.
+        model (str | None, default None): the model name inserted as a code
+            span where ``{model}`` appears.
 
     returns:
         str: the note markup, safe to pass to ``_html_block``.
     """
+    body = html.escape(text)
+    if model:
+        body = body.replace("{model}", _code_html(model))
     variant = " tc-ai-note-sidebar" if sidebar else ""
-    return f'<div class="tc-ai-note{variant}">{_AI_NOTE_ICON}<span>{html.escape(text)}</span></div>'
+    return f'<div class="tc-ai-note{variant}">{_AI_NOTE_ICON}<span>{body}</span></div>'
 
 
 def _section(title: str, caption: str = "") -> None:

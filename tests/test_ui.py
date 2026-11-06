@@ -970,12 +970,16 @@ def test_fairy_figure_is_animated_and_respects_reduced_motion() -> None:
 def test_ai_note_html_escapes_text_and_has_a_sidebar_variant() -> None:
     note = formatting._ai_note_html("Piano <IA>")
     sidebar = formatting._ai_note_html("Piano <IA>", sidebar=True)
+    with_model = formatting._ai_note_html("Generato da {model}.", model="<llama3.2>")
 
     assert 'class="tc-ai-note"' in note
     assert 'class="tc-ai-note tc-ai-note-sidebar"' in sidebar
     assert "Piano &lt;IA&gt;" in note
     assert "<svg" in note
     assert ".tc-ai-note" in theme._THEME_CSS
+    assert "margin: 6px 0 14px" in theme._THEME_CSS
+    assert "<code>&lt;llama3.2&gt;</code>" in with_model
+    assert "{model}" not in with_model
 
 
 def test_plan_view_states_that_the_plan_is_ai_generated(monkeypatch) -> None:
@@ -986,7 +990,14 @@ def test_plan_view_states_that_the_plan_is_ai_generated(monkeypatch) -> None:
     monkeypatch.setattr(plan_view, "st", stub)
     monkeypatch.setattr(formatting, "st", stub)
     monkeypatch.setattr(theme, "st", stub)
-    monkeypatch.setattr(plan_view, "t", lambda key, **kwargs: f"{key}|{kwargs.get('model', '')}")
+    monkeypatch.setattr(
+        plan_view,
+        "t",
+        lambda key, **kwargs: {
+            "plan_ai_disclaimer": "AI ({model})",
+            "plan_ai_disclaimer_unknown": "AI",
+        }.get(key, key),
+    )
     monkeypatch.setattr(plan_view, "tr", lambda value: value)
     _patch_result_renderers(monkeypatch)
 
@@ -1008,8 +1019,9 @@ def test_plan_view_states_that_the_plan_is_ai_generated(monkeypatch) -> None:
 
     notes = [value for kind, value in stub.calls if kind == "markdown" and "tc-ai-note" in value]
     assert len(notes) == 2
-    assert "plan_ai_disclaimer|llama3.2" in notes[0]
-    assert "plan_ai_disclaimer_unknown|" in notes[1]
+    assert "<code>llama3.2</code>" in notes[0]
+    assert "{model}" not in notes[0]
+    assert "<code>" not in notes[1]
 
 
 def test_favicon_asset_is_available() -> None:

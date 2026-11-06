@@ -105,7 +105,7 @@ def _render_planning_result(task: _PlanningTask, kb) -> None:
 
     plan_model = result.get("plan_model")
     if plan_model:
-        _html_block(_ai_note_html(t("plan_ai_disclaimer", model=plan_model)))
+        _html_block(_ai_note_html(t("plan_ai_disclaimer"), model=plan_model))
     else:
         _html_block(_ai_note_html(t("plan_ai_disclaimer_unknown")))
 
