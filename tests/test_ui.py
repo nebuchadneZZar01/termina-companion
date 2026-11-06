@@ -1081,8 +1081,18 @@ def test_app_renders_headless_without_error() -> None:
     labels = [button.label for button in at.button]
     assert not at.exception
     assert any("TaIA" in block.value for block in at.markdown)
+    assert any("tc-ai-note-sidebar" in block.value for block in at.markdown)
     assert any("Chiedi a TaIA" in label for label in labels)
     assert any(label == "Stop" for label in labels)
+
+
+def test_sidebar_states_that_taia_uses_ai() -> None:
+    """AI Act transparency: the sidebar note is always visible."""
+    from app.i18n import _STRINGS
+
+    assert "artificial intelligence" in _STRINGS["en"]["sidebar_ai_disclaimer"]
+    assert "intelligenza artificiale" in _STRINGS["it"]["sidebar_ai_disclaimer"]
+    assert ".tc-ai-note-sidebar" in theme._THEME_CSS
 
 
 def test_inventory_multiselect_add_custom_item_and_keep_it_selected() -> None:

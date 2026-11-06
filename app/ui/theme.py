@@ -566,6 +566,12 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--tc-muted);
 }
 .tc-ai-note svg { flex: none; margin-top: 2px; }
+.tc-ai-note-sidebar {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: transparent;
+  font-size: 12px;
+}
 
 .tc-panel {
   background: var(--tc-surface);

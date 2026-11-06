@@ -526,6 +526,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "rag_embedding_model": "Embedding model",
         "phoenix_url": "Phoenix",
         "open_phoenix": "Open Phoenix \u2197",
+        "sidebar_ai_disclaimer": (
+            "TaIA uses artificial intelligence. Plans may be inaccurate: "
+            "verify them before playing."
+        ),
         "state_on": "on",
         "state_off": "off",
         "save_load": "Save/Load",
@@ -914,6 +918,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "rag_embedding_model": "Modello di embedding",
         "phoenix_url": "Phoenix",
         "open_phoenix": "Apri Phoenix \u2197",
+        "sidebar_ai_disclaimer": (
+            "TaIA usa l'intelligenza artificiale. I piani possono essere imprecisi: "
+            "verificali prima di giocare."
+        ),
         "state_on": "attivo",
         "state_off": "disattivo",
         "save_load": "Partita",
