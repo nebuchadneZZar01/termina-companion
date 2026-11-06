@@ -5,6 +5,7 @@ Usage:
     uv run python scripts/evaluate_plans.py --scenario anju-kafei --repeat 3
     uv run python scripts/evaluate_plans.py --rag off
     uv run python scripts/evaluate_plans.py --planner deterministic
+    uv run python scripts/evaluate_plans.py --min-scenarios 12
     uv run python scripts/evaluate_plans.py --baseline reports/old.json
     uv run python scripts/evaluate_plans.py --json reports/evaluation.json
     uv run python scripts/evaluate_plans.py --list
@@ -14,7 +15,8 @@ like the rest of the app, unless every selected scenario is out of reach or
 ``--planner deterministic`` is used), evaluates the produced plan against the
 scenario's expectations and prints an explicit PASS/FAIL plus the aggregate
 pass rate. The exit code is 1 when any scenario fails, so the harness can gate
-a run.
+a run. ``--min-scenarios`` also fails a sweep that evaluated fewer scenarios
+than requested, so a shrunk suite cannot pass a gate by omission.
 
 ``--planner deterministic`` runs the ablation baseline: the objective chain is
 built without an LLM call, so a sweep with and without it shows what the model
@@ -107,6 +109,16 @@ def parse_args() -> argparse.Namespace:
         metavar="PATH",
         default="",
         help="Compare against this report instead of the newest stored sweep.",
+    )
+    parser.add_argument(
+        "--min-scenarios",
+        type=int,
+        default=0,
+        metavar="N",
+        help=(
+            "Exit non-zero when the sweep evaluated fewer than N scenarios. "
+            "Guards a gate against a suite that shrank instead of passing."
+        ),
     )
     parser.add_argument("--json", metavar="PATH", default="", help="Write the report as JSON.")
     parser.add_argument("--list", action="store_true", help="List the scenarios and exit.")
@@ -337,7 +349,14 @@ def main() -> int:
         path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
         print(f"Report written to {path}")
 
-    return 0 if report.failed == 0 else 1
+    short_sweep = report.total < max(args.min_scenarios, 0)
+    if short_sweep:
+        print(
+            f"Eval gate: evaluated {report.total} scenario(s), fewer than the "
+            f"{args.min_scenarios} required."
+        )
+
+    return report.gate_exit_code(args.min_scenarios)
 
 
 if __name__ == "__main__":

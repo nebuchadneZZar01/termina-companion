@@ -46,9 +46,21 @@ A clean checkout passes the same lint/test gate as CI, plus the offline pipeline
 uv sync --frozen
 uv run ruff check .
 uv run ruff format --check .
-uv run pytest                       # 692 tests
+uv run pytest                       # 693 tests
+uv run python scripts/evaluate_plans.py --planner deterministic --rag off --min-scenarios 12
 uv run python -m app --deterministic --no-rag
 ```
+
+The evaluation sweep is the release gate: CI runs the same deterministic,
+offline command after the tests and before the image build, so a plan
+regression stops the build instead of reaching GHCR. It runs without an LLM
+provider or wiki access, which is why it can gate every pull request; the
+model's own behaviour is covered by the manual LLM sweep. `--min-scenarios`
+keeps a gate honest when the suite shrinks: a sweep that evaluated fewer
+scenarios than expected fails even when every remaining one passed. The check
+only blocks merges once `eval-gate` is marked as a required check in the
+repository's branch protection rules; without that rule CI reports it but a
+maintainer can still merge past it.
 
 The measured baseline is 91% line coverage, available with
 `uv run pytest --cov=app --cov-report=term-missing`. With a provider
@@ -539,6 +551,7 @@ uv run python scripts/evaluate_plans.py
 uv run python scripts/evaluate_plans.py --scenario anju-kafei --repeat 3
 uv run python scripts/evaluate_plans.py --rag off
 uv run python scripts/evaluate_plans.py --planner deterministic
+uv run python scripts/evaluate_plans.py --min-scenarios 12
 uv run python scripts/evaluate_plans.py --json reports/evaluation.json
 ```
 
@@ -549,7 +562,8 @@ baseline instead: the objective chain is rebuilt without a model call, and the
 late-clock scenario short-circuits before the LLM in both engines, so those
 sweeps run without a provider. The harness prints one `PASS`/`FAIL` line per
 scenario with the failed checks, then the aggregate pass rate, and exits `1`
-when any scenario fails — so it can gate a run:
+when any scenario fails or when `--min-scenarios` requires more scenarios than
+the sweep evaluated — so it can gate a run:
 
 ```
 [1/12] anju-kafei            PASS  (12.4s)

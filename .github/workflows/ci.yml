@@ -29,9 +29,52 @@ jobs:
       - name: Test
         run: uv run pytest
 
+  # Release gate: the deterministic evaluation sweep runs offline (no LLM, no
+  # wiki, no credentials), so it can gate every pull request. It covers game
+  # data, retrieval, chain reconciliation and the Critic — not the model's own
+  # behaviour, which needs the manual LLM sweep.
+  eval-gate:
+    runs-on: ubuntu-latest
+    needs: [ci]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    env:
+      PLANNER: deterministic
+      RAG_ENABLED: "0"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Eval gate (deterministic, offline)
+        env:
+          # Keep the report store and the embedded Qdrant path out of the checkout.
+          RAG_QDRANT_PATH: ${{ runner.temp }}/termina/qdrant
+        run: >-
+          uv run python scripts/evaluate_plans.py
+          --planner deterministic
+          --rag off
+          --min-scenarios 12
+          --json ${{ runner.temp }}/eval-gate.json
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-gate
+          path: ${{ runner.temp }}/eval-gate.json
+          if-no-files-found: warn
+
   image:
     runs-on: ubuntu-latest
-    needs: ci
+    needs: [eval-gate]
     timeout-minutes: 20
     permissions:
       contents: read
