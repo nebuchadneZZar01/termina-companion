@@ -12,14 +12,14 @@ from app.domain import internal_hour as _internal_hour
 from app.i18n import t
 from app.save import load_state, save_state
 from app.ui.evaluation_view import _render_evaluation
-from app.ui.formatting import _section
+from app.ui.formatting import _ai_note_html, _section
 from app.ui.play import _render_play
 from app.ui.sidebar import (
     _apply_pending_load,
     _render_configuration,
     _render_sidebar_editor,
 )
-from app.ui.theme import _inject_styles
+from app.ui.theme import _html_block, _inject_styles
 
 _FAVICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "favicon.svg"
 
@@ -87,6 +87,7 @@ def render() -> None:
         if save_warning:
             st.toast(save_warning, icon="⚠️", duration=8)
         _render_configuration()
+        _html_block(_ai_note_html(t("sidebar_ai_disclaimer"), sidebar=True))
 
     tab_play, tab_evaluation = st.tabs([t("tab_play"), t("tab_evaluation")])
     with tab_play:

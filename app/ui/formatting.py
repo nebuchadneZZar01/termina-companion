@@ -128,6 +128,40 @@ def _code_html(value: str) -> str:
     return f"<code>{html.escape(value)}</code>"
 
 
+_AI_NOTE_ICON = (
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+    'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+    'stroke-linejoin="round" aria-hidden="true">'
+    '<circle cx="12" cy="12" r="9"></circle>'
+    '<path d="M12 11v5M12 8v.5"></path>'
+    "</svg>"
+)
+
+
+def _ai_note_html(text: str, sidebar: bool = False, model: str | None = None) -> str:
+    """Return one AI Act transparency note as a bordered card.
+
+    The note states that the output is AI-generated, so the plan view and the
+    sidebar can share one primitive instead of duplicating markup.
+
+    args:
+        text (str): the already translated note body. A ``{model}`` token is
+            left untouched by :func:`app.i18n.t` when no keyword is passed.
+        sidebar (bool, default False): use the sidebar's compact, borderless
+            variant.
+        model (str | None, default None): the model name inserted as a code
+            span where ``{model}`` appears.
+
+    returns:
+        str: the note markup, safe to pass to ``_html_block``.
+    """
+    body = html.escape(text)
+    if model:
+        body = body.replace("{model}", _code_html(model))
+    variant = " tc-ai-note-sidebar" if sidebar else ""
+    return f'<div class="tc-ai-note{variant}">{_AI_NOTE_ICON}<span>{body}</span></div>'
+
+
 def _section(title: str, caption: str = "") -> None:
     """Draw a section header with optional caption.
 
@@ -295,7 +329,8 @@ def _fairy_html(day: int, value: datetime.time, text: str | None = None) -> str:
         '<span class="tc-fairy-orb"></span>'
         "</div>"
         '<div class="tc-fairy-bubble">'
-        '<div class="tc-fairy-name">TaIA</div>'
+        '<div class="tc-fairy-name">TaIA'
+        f'<span class="tc-fairy-badge">{html.escape(t("ai_assistant_badge"))}</span></div>'
         f'<div class="tc-fairy-text">{html.escape(message)}</div>'
         "</div></section>"
     )

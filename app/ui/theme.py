@@ -492,7 +492,88 @@ h1, h2, h3, h4, h5, h6 {
   font-size: 14px;
   letter-spacing: 0.08em;
 }
+.tc-fairy-badge {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--tc-teal);
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
 .tc-fairy-text { color: var(--tc-text); }
+.tc-fairy-figure { animation: tc-float 3.2s ease-in-out infinite; }
+.tc-fairy-figure svg path,
+.tc-fairy-figure svg circle { transform-box: view-box; }
+.tc-fairy-figure svg path:nth-of-type(1),
+.tc-fairy-figure svg path:nth-of-type(2) {
+  transform-origin: 40px 38px;
+  animation: tc-flap-left 1.1s ease-in-out infinite;
+}
+.tc-fairy-figure svg path:nth-of-type(3),
+.tc-fairy-figure svg path:nth-of-type(4) {
+  transform-origin: 56px 38px;
+  animation: tc-flap-right 1.1s ease-in-out infinite;
+}
+.tc-fairy-figure svg path:nth-of-type(5) {
+  transform-origin: 38px 47px;
+  animation: tc-flap-right 1.1s ease-in-out infinite 0.15s;
+}
+.tc-fairy-figure svg path:nth-of-type(6) {
+  transform-origin: 58px 47px;
+  animation: tc-flap-left 1.1s ease-in-out infinite 0.15s;
+}
+.tc-fairy-figure svg circle { animation: tc-twinkle 2.4s ease-in-out infinite; }
+.tc-fairy-figure svg circle:nth-of-type(2) { animation-delay: 0.6s; }
+.tc-fairy-figure svg circle:nth-of-type(3) { animation-delay: 1.2s; }
+.tc-fairy-orb { animation: tc-orb-glow 2.2s ease-in-out infinite; }
+@keyframes tc-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+@keyframes tc-flap-left {
+  0%, 100% { transform: rotate(0); }
+  50% { transform: rotate(10deg); }
+}
+@keyframes tc-flap-right {
+  0%, 100% { transform: rotate(0); }
+  50% { transform: rotate(-10deg); }
+}
+@keyframes tc-twinkle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+@keyframes tc-orb-glow {
+  0%, 100% { box-shadow: 0 0 22px 8px rgba(245, 209, 66, 0.5); }
+  50% { box-shadow: 0 0 30px 12px rgba(245, 209, 66, 0.7); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tc-fairy-figure,
+  .tc-fairy-figure *,
+  .tc-fairy-orb { animation: none !important; }
+}
+
+.tc-ai-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  margin: 6px 0 14px;
+  border-radius: 10px;
+  border: 1px solid var(--tc-border);
+  background: var(--tc-surface);
+  font-size: 13px;
+  color: var(--tc-muted);
+}
+.tc-ai-note svg { flex: none; margin-top: 2px; }
+.tc-ai-note-sidebar {
+  padding: 12px 14px;
+  margin: 6px 0 0;
+  border-radius: 12px;
+  background: transparent;
+  font-size: 12px;
+}
 
 .tc-panel {
   background: var(--tc-surface);

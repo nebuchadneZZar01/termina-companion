@@ -943,6 +943,87 @@ def test_fairy_greeting_accepts_a_custom_message() -> None:
     assert "url(#taiaw-eval)" in evaluation
 
 
+def test_fairy_bubble_labels_taia_as_an_ai_assistant() -> None:
+    """AI Act transparency: the bubble names TaIA as an AI assistant."""
+    import datetime
+
+    markup = formatting._fairy_html(1, datetime.time(6, 0))
+
+    assert 'class="tc-fairy-badge"' in markup
+    assert "AI assistant" in markup
+    assert ".tc-fairy-badge" in theme._THEME_CSS
+
+
+def test_fairy_figure_is_animated_and_respects_reduced_motion() -> None:
+    """TaIA floats and flaps; the motion is disabled on request."""
+    css = theme._THEME_CSS
+
+    assert ".tc-fairy-figure { animation: tc-float" in css
+    assert "@keyframes tc-float" in css
+    assert "@keyframes tc-flap-left" in css
+    assert "@keyframes tc-flap-right" in css
+    assert "@keyframes tc-twinkle" in css
+    assert ".tc-fairy-orb { animation: tc-orb-glow" in css
+    assert "prefers-reduced-motion: reduce" in css
+
+
+def test_ai_note_html_escapes_text_and_has_a_sidebar_variant() -> None:
+    note = formatting._ai_note_html("Piano <IA>")
+    sidebar = formatting._ai_note_html("Piano <IA>", sidebar=True)
+    with_model = formatting._ai_note_html("Generato da {model}.", model="<llama3.2>")
+
+    assert 'class="tc-ai-note"' in note
+    assert 'class="tc-ai-note tc-ai-note-sidebar"' in sidebar
+    assert "Piano &lt;IA&gt;" in note
+    assert "<svg" in note
+    assert ".tc-ai-note" in theme._THEME_CSS
+    assert "margin: 6px 0 14px" in theme._THEME_CSS
+    assert "<code>&lt;llama3.2&gt;</code>" in with_model
+    assert "{model}" not in with_model
+
+
+def test_plan_view_states_that_the_plan_is_ai_generated(monkeypatch) -> None:
+    """AI Act transparency: a produced plan carries its AI disclaimer."""
+    from app.domain import ClockTime, GameState, ValidationResult
+
+    stub = _StreamlitStub()
+    monkeypatch.setattr(plan_view, "st", stub)
+    monkeypatch.setattr(formatting, "st", stub)
+    monkeypatch.setattr(theme, "st", stub)
+    monkeypatch.setattr(
+        plan_view,
+        "t",
+        lambda key, **kwargs: {
+            "plan_ai_disclaimer": "AI ({model})",
+            "plan_ai_disclaimer_unknown": "AI",
+        }.get(key, key),
+    )
+    monkeypatch.setattr(plan_view, "tr", lambda value: value)
+    _patch_result_renderers(monkeypatch)
+
+    def _result(plan_model: str) -> dict:
+        return {
+            "validation": ValidationResult(valid=True, issues=[]),
+            "replan_attempts": 1,
+            "plan_model": plan_model,
+            "relevant_objectives": [],
+            "game_state": GameState(time=ClockTime(day=1, hour=6), location="Clock Town"),
+        }
+
+    plan_view._render_planning_result(
+        tasks._PlanningTask(status="done", result=_result("llama3.2")), kb=None
+    )
+    plan_view._render_planning_result(
+        tasks._PlanningTask(status="done", result=_result("")), kb=None
+    )
+
+    notes = [value for kind, value in stub.calls if kind == "markdown" and "tc-ai-note" in value]
+    assert len(notes) == 2
+    assert "<code>llama3.2</code>" in notes[0]
+    assert "{model}" not in notes[0]
+    assert "<code>" not in notes[1]
+
+
 def test_favicon_asset_is_available() -> None:
     assert page._FAVICON_PATH.is_file()
     markup = page._FAVICON_PATH.read_text(encoding="utf-8")
@@ -1012,8 +1093,18 @@ def test_app_renders_headless_without_error() -> None:
     labels = [button.label for button in at.button]
     assert not at.exception
     assert any("TaIA" in block.value for block in at.markdown)
+    assert any("tc-ai-note-sidebar" in block.value for block in at.markdown)
     assert any("Chiedi a TaIA" in label for label in labels)
     assert any(label == "Stop" for label in labels)
+
+
+def test_sidebar_states_that_taia_uses_ai() -> None:
+    """AI Act transparency: the sidebar note is always visible."""
+    from app.i18n import _STRINGS
+
+    assert "artificial intelligence" in _STRINGS["en"]["sidebar_ai_disclaimer"]
+    assert "intelligenza artificiale" in _STRINGS["it"]["sidebar_ai_disclaimer"]
+    assert ".tc-ai-note-sidebar" in theme._THEME_CSS
 
 
 def test_inventory_multiselect_add_custom_item_and_keep_it_selected() -> None:
