@@ -383,10 +383,14 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   regression, so a partial sweep cannot look like a quality drop) and carries
   both sides' pass counts and metadata, including the two engines.
   `storage.load_history()` reads the
-  timestamped copies newest first and skips corrupt files.
+  timestamped copies newest first and skips corrupt files. CI runs the
+  deterministic sweep as a required `eval-gate` job before the image build
+  (`PLANNER=deterministic`, `RAG_ENABLED=0`, `--min-scenarios 12`), so a plan
+  regression stops the release; the LLM sweep stays manual because it needs a
+  provider and real model time.
 * `scripts/evaluate_plans.py` — CLI harness for the evaluation sweep:
   `--scenario`, `--repeat`, `--rag on|off`, `--planner llm|deterministic`,
-  `--baseline PATH`, `--json`, `--list`; prints one
+  `--baseline PATH`, `--min-scenarios N`, `--json`, `--list`; prints one
   PASS/FAIL line per scenario plus the aggregate pass rate, then the comparison
   against the newest compatible stored sweep (or `--baseline`), and exits 1
   when any scenario fails. It always writes the shared last report (same store

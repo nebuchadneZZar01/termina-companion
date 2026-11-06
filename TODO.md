@@ -7,10 +7,10 @@
 **Current milestone:** Build a minimal, runnable end-to-end prototype. ✅ Done
 
 **Next up:** Phase 13 is complete: the multi-stage image, the Compose `app`
-profile, the non-root runtime, the healthcheck and the GHCR publication from
-CI are in place, with deployment, alerting and container troubleshooting
-documented. The next work is the backlog item (a new cycle anchored at Day 1
-06:00 with cycle-bound item permanence).
+profile, the non-root runtime, the healthcheck, the deterministic eval gate
+and the GHCR publication from CI are in place, with deployment, alerting and
+container troubleshooting documented. The next work is the backlog item (a new
+cycle anchored at Day 1 06:00 with cycle-bound item permanence).
 
 Status map:
 * Phase 0 — Foundation: complete.
@@ -70,7 +70,8 @@ Status map:
   verification, dependency review, cleanup).
 * Phase 13 — Deployment: complete (multi-stage uv image with a non-root
   runtime, `/_stcore/health` healthcheck and a `/data` volume, the Compose
-  `app` profile next to Phoenix, CI image build/smoke/publish to GHCR, and the
+  `app` profile next to Phoenix, a deterministic evaluation gate before the CI
+  image build, image build/smoke/publish to GHCR, and the
   deployment, alerting and container troubleshooting docs).
 
 ### Target flow
@@ -510,6 +511,8 @@ for now).
 * [x] Add healthcheck for the running app (`/_stcore/health`, declared both in
   the image and by Compose)
 * [x] Add GitHub Actions workflow: run `uv sync`, `ruff check`, `pytest` on every push
+* [x] Gate the image build on the deterministic evaluation sweep (`eval-gate`
+  job: 12 scenarios, no LLM or wiki access, `--min-scenarios 12`)
 * [x] Build and tag the container image in CI (`type=sha` plus `latest` on
   `main`), with an offline smoke test of the built image
 * [x] Publish the image to a container registry (GHCR on `main` and `v*` tags;

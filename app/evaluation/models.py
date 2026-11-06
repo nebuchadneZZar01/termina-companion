@@ -256,6 +256,23 @@ class EvaluationReport(BaseModel):
         """
         return self.passed / self.total if self.total else 0.0
 
+    def gate_exit_code(self, min_scenarios: int = 0) -> int:
+        """Return the release-gate exit code for this sweep.
+
+        A gate fails when any scenario failed, and also when the sweep
+        evaluated fewer scenarios than required: a suite that shrank must not
+        pass by omission.
+
+        args:
+            min_scenarios (int, default 0): the minimum number of evaluated
+                scenarios; 0 disables the check.
+
+        returns:
+            int: 0 when the sweep passes the gate, 1 otherwise.
+        """
+        short = self.total < max(min_scenarios, 0)
+        return 0 if self.failed == 0 and not short else 1
+
     @computed_field
     @property
     def failures_by_kind(self) -> dict[str, int]:

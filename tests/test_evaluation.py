@@ -711,6 +711,20 @@ def test_run_errors_are_counted_as_failures():
     assert crashed.error_count == 1
 
 
+def test_gate_exit_code_requires_every_scenario_and_a_full_sweep():
+    """The release gate fails on a failing scenario or on a shrunk suite."""
+    passed = ScenarioResult(scenario_id="a", passed=True)
+    failed = ScenarioResult(scenario_id="b", passed=False)
+
+    assert EvaluationReport(results=[passed, passed]).gate_exit_code() == 0
+    assert EvaluationReport(results=[passed, passed]).gate_exit_code(2) == 0
+    assert EvaluationReport(results=[passed, passed]).gate_exit_code(3) == 1
+    assert EvaluationReport(results=[passed, failed]).gate_exit_code() == 1
+    assert EvaluationReport(results=[passed, failed]).gate_exit_code(2) == 1
+    assert EvaluationReport().gate_exit_code() == 0
+    assert EvaluationReport().gate_exit_code(-1) == 0
+
+
 def test_report_exposes_the_models_that_produced_the_plans():
     """The report names its producing models, once, even across repeats."""
     scenario = SCENARIOS_BY_ID["anju-kafei"]
