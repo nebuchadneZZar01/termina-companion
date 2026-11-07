@@ -3,8 +3,8 @@
 #
 # Requires Node.js (for npx) and a local Chrome/Chromium. The first run
 # downloads @marp-team/marp-cli and @mermaid-js/mermaid-cli; nothing is added to
-# the repository. Mermaid fences are rendered to inline SVG in a staged copy of
-# the deck, because Marp has no Mermaid engine.
+# the repository. A staged copy of the deck gets the Mermaid SVGs inlined and
+# the titled code fences expanded, because Marp has neither engine.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -24,7 +24,7 @@ export PUPPETEER_SKIP_DOWNLOAD="${PUPPETEER_SKIP_DOWNLOAD:-1}"
 staged=docs/.slides.build.md
 trap 'rm -f "$staged"' EXIT
 
-python3 scripts/render_mermaid.py docs/slides.md "$staged"
+python3 scripts/stage_slides.py docs/slides.md "$staged"
 
 npx --yes @marp-team/marp-cli@latest "$staged" \
   --theme-set docs/marp-theme.css \

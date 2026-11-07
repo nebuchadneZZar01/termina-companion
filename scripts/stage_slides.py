@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
-"""Inline the deck's Mermaid diagrams before Marp renders it.
+"""Stage the Markdown deck before Marp renders it.
 
-Marp has no Mermaid engine, so this script extracts every ```mermaid fence from
-the deck, renders it to SVG with @mermaid-js/mermaid-cli and writes a staged
-copy of the deck where each fence is replaced by an inline SVG inside a
-``div.diagram``. The source stays plain Mermaid, and inlining (rather than using
-an <img>) keeps the page's Inter webfont available to the SVG labels.
+The deck stays plain Markdown, but two constructs need a build step:
+
+* Marp has no Mermaid engine, so every ```mermaid fence is rendered to SVG
+  with @mermaid-js/mermaid-cli and replaced by an inline SVG inside a
+  ``div.diagram``. Inlining (rather than using an <img>) keeps the page's
+  Inter webfont available to the SVG labels.
+* A fenced code block can name its file with ``title="..."``. Marp has no
+  title bar or line numbers, so those fences become the ``div.code`` panel the
+  theme draws, with one numbered span per source line.
+
+The output is a staged copy; the source deck itself is never rewritten.
 """
 
 from __future__ import annotations
 
+import html
 import os
 import re
 import shutil
@@ -20,8 +27,12 @@ from pathlib import Path
 
 MERMAID_CLI = "@mermaid-js/mermaid-cli@11"
 DIAGRAM_WIDTH = 1584
-FENCE = re.compile(r"^```mermaid\n(.*?)^```$", re.MULTILINE | re.DOTALL)
 FONT_DIR = Path(__file__).resolve().parent.parent / "docs" / "assets" / "fonts"
+MERMAID_FENCE = re.compile(r"^```mermaid\n(.*?)^```$", re.MULTILINE | re.DOTALL)
+CODE_FENCE = re.compile(
+    r'^```(?P<lang>[\w+-]+)[ \t]+title="(?P<title>[^"]+)"[ \t]*\n(?P<code>.*?)^```$',
+    re.MULTILINE | re.DOTALL,
+)
 
 
 def fontconfig(workdir: Path) -> Path | None:
@@ -68,9 +79,27 @@ def render(code: str, workdir: Path, index: int) -> str:
     return f'<div class="diagram">{svg}</div>'
 
 
+def code_panel(match: re.Match[str]) -> str:
+    """Turn a titled fence into the code panel with one number per line."""
+    lines = match.group("code").splitlines()
+    numbered = "\n".join(
+        f'<span class="ln">{number}</span>{html.escape(line)}'
+        for number, line in enumerate(lines, start=1)
+    )
+    title = html.escape(match.group("title"))
+    return (
+        '<div class="code">\n'
+        '<div class="code-title">'
+        '<i class="r"></i><i class="y"></i><i class="g"></i>'
+        f"<span>{title}</span></div>\n"
+        f"<pre>{numbered}</pre>\n"
+        "</div>"
+    )
+
+
 def main() -> int:
     if len(sys.argv) != 3:
-        print("usage: render_mermaid.py <input.md> <output.md>", file=sys.stderr)
+        print("usage: stage_slides.py <input.md> <output.md>", file=sys.stderr)
         return 2
 
     source_path, output_path = (Path(arg) for arg in sys.argv[1:3])
@@ -97,8 +126,9 @@ def main() -> int:
             counter += 1
             return render(match.group(1), workdir, counter)
 
-        staged = FENCE.sub(replace, deck)
+        staged = MERMAID_FENCE.sub(replace, deck)
 
+    staged = CODE_FENCE.sub(code_panel, staged)
     output_path.write_text(staged, encoding="utf-8")
     print(f"{source_path} => {output_path} ({counter} Mermaid diagram(s))")
     return 0

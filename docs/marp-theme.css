@@ -17,6 +17,11 @@
  *
  * The mockup canvas is 1920x1080; Marp renders 1280x720, so every size here is
  * the mockup value scaled by 2/3. Colours are sampled from the mockup.
+ *
+ * Slides are authored as plain Markdown: the section class picks the layout
+ * (cover, gold section divider, light content, dark quote, closing) and the
+ * theme draws every piece of chrome (mask, dots, progress bar, rules, bars)
+ * from the section and its pseudo-elements.
  */
 
 section {
@@ -51,217 +56,86 @@ section {
   letter-spacing: normal;
 }
 
+section h1,
+section h2 {
+  margin: 0;
+  font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
+  /* The mockup loads the static Fraunces instance: no optical-size axis. */
+  font-optical-sizing: none;
+  font-weight: 600;
+  color: inherit;
+}
+
+section h3,
+section p,
+section ul,
+section li,
+section blockquote,
+section table,
+section pre,
+section hr {
+  margin: 0;
+  padding: 0;
+}
+
+section ul {
+  list-style: none;
+}
+
+section a {
+  color: inherit;
+  text-decoration: none;
+}
+
+section strong {
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------- layouts -- */
+
 section.light {
+  padding: 85px 85px 107px;
   background: var(--paper);
   color: var(--ink);
   --page-color: var(--muted);
   --rupee-image: url("assets/rupia.svg");
+  --bar-on: var(--purple);
+  --bar-off: var(--cream-2);
 }
 
-/* Section divider slides share the mockup's gold canvas. */
 section.gold {
-  background: var(--gold);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 85px 85px 107px;
+  background-color: var(--gold);
+  background-image: url("assets/triforce.svg");
+  background-position: 767px 87px;
+  background-size: 427px 384px;
+  background-repeat: no-repeat;
   color: var(--ink);
   --page-color: var(--navy);
   --rupee-image: url("assets/rupia-navy.svg");
+  --bar-on: var(--navy);
+  --bar-off: var(--gold-2);
 }
 
-/* Pagination: page number plus the rupee marker, bottom right. */
-section::after {
-  content: attr(data-marpit-pagination) " / 11";
-  position: absolute;
-  left: 1103px;
-  bottom: 39px;
-  padding-left: 25px;
-  font-family: "Inter", Arial, sans-serif;
-  font-size: 16px;
-  font-weight: 400;
-  line-height: 32px;
-  color: var(--page-color, var(--lavender));
-  background: var(--rupee-image, url("assets/rupia-lightgreen.svg")) left center / 16px 32px
-    no-repeat;
+section.dark {
+  --bar-on: var(--gold);
+  --bar-off: var(--deep);
 }
 
-/* ---------------------------------------------------------------- layout -- */
-
-.wrap {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-  padding: 85px 85px 107px;
+/* The cover and the closing share the mask, the scattered dots and the dark
+   canvas; only their content differs. */
+section.cover,
+section.closing {
+  background-image: url("assets/majora-mask.png");
+  background-position: 739px 17px;
+  background-size: 507px 457px;
+  background-repeat: no-repeat;
 }
 
-.wrap.center {
-  justify-content: center;
-}
-
-.wrap.between {
-  justify-content: space-between;
-}
-
-.wrap.end {
-  justify-content: flex-end;
-  /* The mockup closes on a 45px bottom margin instead of the 160px of the other
-     layouts, and the title needs more room because "Thank you" has a descender
-     where the mockup's "Grazie" does not. */
-  gap: 0;
-  padding-bottom: 30px;
-}
-
-.wrap.end .closing-title {
-  margin-bottom: 45px;
-}
-
-.wrap.end .rule {
-  margin-bottom: 18px;
-}
-
-.wrap.end .closing-sub {
-  margin-bottom: 20px;
-}
-
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: 37px;
-}
-
-.head {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-}
-
-/* ------------------------------------------------------------ typography -- */
-
-.eyebrow {
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 4px;
-  color: var(--purple);
-}
-
-.h {
-  font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
-  /* The mockup loads the static Fraunces instance: no optical-size axis. */
-  font-optical-sizing: none;
-  font-size: 48px;
-  font-weight: 600;
-  line-height: 1.1;
-  color: var(--ink);
-}
-
-.h.section-title {
-  font-size: 69px;
-}
-
-h1.h,
-h2.h {
-  margin: 0;
-}
-
-.lead {
-  font-size: 27px;
-  line-height: 1.4;
-}
-
-.dark .lead,
-section:not(.light):not(.gold) .lead {
-  color: var(--lavender);
-}
-
-section.gold .h,
-section.gold .lead,
-section.gold .section-number {
-  color: var(--ink);
-}
-
-/* -------------------------------------------------------------- divider -- */
-
-.rule {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-}
-
-.rule span {
-  flex: 1;
-  height: 2px;
-  background: var(--purple);
-}
-
-/* Dark slides hide the lines, leaving only the triforce, like the mockup.
-   The closing slide opts back in with gold lines. */
-section:not(.light):not(.gold) .rule:not(.gold) span {
-  background: var(--navy);
-}
-
-section.gold .rule span {
-  background: var(--ink);
-}
-
-.rule.gold span {
-  background: var(--gold);
-}
-
-.rule img {
-  width: 27px;
-  height: 24px;
-  display: block;
-}
-
-/* ------------------------------------------------------------------ bar -- */
-
-.bar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: flex-end;
-  gap: 2.67px;
-  padding-right: 4.67px;
-  height: 9px;
-  --on: var(--purple);
-  --off: var(--cream-2);
-}
-
-.bar i {
-  display: block;
-  flex: 1;
-  height: 5px;
-  background: var(--off);
-}
-
-.bar.t1 i:nth-child(-n + 1),
-.bar.t2 i:nth-child(-n + 2),
-.bar.t3 i:nth-child(-n + 3),
-.bar.t4 i:nth-child(-n + 4),
-.bar.t5 i:nth-child(-n + 5),
-.bar.t6 i:nth-child(-n + 6),
-.bar.t7 i:nth-child(-n + 7),
-.bar.t8 i:nth-child(-n + 8),
-.bar.t9 i:nth-child(-n + 9) {
-  background: var(--on);
-}
-
-.bar.t1 i:nth-child(1),
-.bar.t2 i:nth-child(2),
-.bar.t3 i:nth-child(3),
-.bar.t4 i:nth-child(4),
-.bar.t5 i:nth-child(5),
-.bar.t6 i:nth-child(6),
-.bar.t7 i:nth-child(7),
-.bar.t8 i:nth-child(8),
-.bar.t9 i:nth-child(9) {
-  height: 9px;
-}
-
-/* ---------------------------------------------------------------- cover -- */
-
-.cover-event {
+section.cover > header {
   position: absolute;
   left: 85px;
   right: 85px;
@@ -271,15 +145,22 @@ section.gold .rule span {
   color: var(--gold);
 }
 
-.cover-logo {
+section.cover > p {
   position: absolute;
+}
+
+section.cover > p:has(> img) {
   left: 79px;
   top: 269px;
   width: 526px;
 }
 
-.cover-sub {
-  position: absolute;
+section.cover img {
+  display: block;
+  width: 100%;
+}
+
+section.cover > p:nth-of-type(2) {
   left: 85px;
   top: 529px;
   width: 734px;
@@ -287,135 +168,276 @@ section.gold .rule span {
   color: var(--lavender);
 }
 
-.cover-author {
-  position: absolute;
+section.cover > p:nth-of-type(3) {
   left: 85px;
   top: 587px;
   font-size: 19px;
   color: var(--lavender);
 }
 
-.dots i {
+/* Six dots, one pseudo-element: each shadow offsets the base dot to a mockup
+   position and shrinks it with a negative spread. */
+section.cover::before,
+section.closing::before {
+  content: "";
   position: absolute;
-  display: block;
-  border-radius: 50%;
-}
-
-.dots i:nth-child(1) {
   left: 107px;
   top: 107px;
   width: 7px;
   height: 7px;
+  border-radius: 50%;
   background: var(--blue);
+  box-shadow:
+    238.5px -48.5px 0 -1.5px var(--green),
+    492px 25px 0 -1px var(--lavender),
+    558.5px -48.5px 0 -1.5px var(--blue),
+    91.5px 111.5px 0 -1.5px var(--green),
+    400px 173px 0 0 var(--lavender);
 }
 
-.dots i:nth-child(2) {
-  left: 347px;
-  top: 60px;
-  width: 4px;
-  height: 4px;
-  background: var(--green);
-}
+/* ---------------------------------------------------------------- titles -- */
 
-.dots i:nth-child(3) {
-  left: 600px;
-  top: 133px;
-  width: 5px;
-  height: 5px;
-  background: var(--lavender);
-}
-
-.dots i:nth-child(4) {
-  left: 667px;
-  top: 60px;
-  width: 4px;
-  height: 4px;
-  background: var(--blue);
-}
-
-.dots i:nth-child(5) {
-  left: 200px;
-  top: 220px;
-  width: 4px;
-  height: 4px;
-  background: var(--green);
-}
-
-.dots i:nth-child(6) {
-  left: 507px;
-  top: 280px;
-  width: 7px;
-  height: 7px;
-  background: var(--lavender);
-}
-
-.mask {
-  position: absolute;
-  left: 739px;
-  top: 17px;
-  width: 507px;
-  height: 457px;
-  object-fit: contain;
-}
-
-/* ----------------------------------------------------------- section one -- */
-
-.section-number {
-  font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
-  font-optical-sizing: none;
-  font-size: 160px;
+section.light > header {
+  margin-bottom: 9px;
+  font-size: 17px;
   font-weight: 600;
+  letter-spacing: 4px;
+  color: var(--purple);
+}
+
+section.light > h2 {
+  margin-bottom: 37px;
+  font-size: 48px;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+section.gold > h1 {
+  margin-bottom: auto;
+  font-size: 160px;
+  line-height: 1;
+  color: var(--ink);
+}
+
+section.gold > h2 {
+  font-size: 69px;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+section.gold > p {
+  font-size: 27px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+section.dark:not(.closing) {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
+  padding: 85px 85px 107px;
+  background-image: url("assets/clock.svg");
+  background-position: 787px 140px;
+  background-size: 400px 400px;
+  background-repeat: no-repeat;
+}
+
+section.dark:not(.closing) > * {
+  max-width: 760px;
+}
+
+section.dark:not(.closing) > h2 {
+  font-size: 200px;
   line-height: 1;
   color: var(--cream);
 }
 
-.section-triforce {
+section.dark:not(.closing) > p:first-of-type {
+  font-size: 35px;
+  color: var(--cream);
+}
+
+section.dark:not(.closing) > p:last-of-type {
+  font-size: 19px;
+  color: var(--lavender);
+}
+
+/* ---------------------------------------------------------------- rules --- */
+
+/* One <hr> draws the whole divider: violet lines on light slides, navy on the
+   gold section, gold on the closing, with the matching triforce in the middle. */
+section hr {
+  --rule-icon: url("assets/separator.svg");
+  --rule-color: var(--purple);
+
+  display: flex;
+  align-items: center;
+  gap: 53px;
+  height: 24px;
+  margin-bottom: 37px;
+  border: 0;
+  background: var(--rule-icon) center / 27px 24px no-repeat;
+}
+
+section hr::before,
+section hr::after {
+  content: "";
+  flex: 1;
+  height: 2px;
+  background: var(--rule-color);
+}
+
+section.gold hr {
+  --rule-icon: url("assets/separator-navy.svg");
+  --rule-color: var(--navy);
+
+  margin-bottom: 0;
+}
+
+section.closing hr {
+  --rule-icon: url("assets/separator-gold.svg");
+  --rule-color: var(--gold);
+
+  margin-bottom: 18px;
+}
+
+/* ----------------------------------------------------------------- bars --- */
+
+/* The mockup marks progress with nine segments across the bottom edge and
+   makes the segment reached by this slide taller. One pseudo-element draws all
+   of it: a background gradient splits the active run from the rest, a mask
+   punches the gaps, and a taller layer highlights the reached segment. */
+section.t1 {
+  --n: 1;
+}
+
+section.t2 {
+  --n: 2;
+}
+
+section.t3 {
+  --n: 3;
+}
+
+section.t4 {
+  --n: 4;
+}
+
+section.t5 {
+  --n: 5;
+}
+
+section.t6 {
+  --n: 6;
+}
+
+section.t7 {
+  --n: 7;
+}
+
+section.t8 {
+  --n: 8;
+}
+
+section.t9 {
+  --n: 9;
+}
+
+section.t1::before,
+section.t2::before,
+section.t3::before,
+section.t4::before,
+section.t5::before,
+section.t6::before,
+section.t7::before,
+section.t8::before,
+section.t9::before {
+  --segment: 139.33px;
+  --gap: 2.67px;
+  --pitch: 142px;
+  --fill: calc(var(--segment) * var(--n) + var(--gap) * (var(--n) - 1));
+
+  content: "";
   position: absolute;
-  left: 767px;
-  top: 87px;
-  width: 427px;
-  height: 384px;
+  left: 0;
+  bottom: 0;
+  width: 1275.33px;
+  height: 9px;
+  background:
+    linear-gradient(var(--bar-on), var(--bar-on)) calc((var(--n) - 1) * var(--pitch)) bottom /
+      var(--segment) 9px no-repeat,
+    linear-gradient(90deg, var(--bar-on) 0 var(--fill), var(--bar-off) var(--fill) 100%) bottom /
+      100% 5px no-repeat;
+  -webkit-mask-image: repeating-linear-gradient(
+    90deg,
+    #000 0 var(--segment),
+    transparent var(--segment) var(--pitch)
+  );
+  mask-image: repeating-linear-gradient(
+    90deg,
+    #000 0 var(--segment),
+    transparent var(--segment) var(--pitch)
+  );
 }
 
-section.gold .stack {
-  gap: 16px;
+/* ----------------------------------------------------------- pagination --- */
+
+/* Page number plus the rupee marker, bottom right. Marp's own stylesheet hides
+   this on sections it does not paginate. */
+section::after {
+  content: attr(data-marpit-pagination) " / " attr(data-marpit-pagination-total);
+  position: absolute;
+  left: 1103px;
+  right: auto;
+  bottom: 39px;
+  /* Marp's base stylesheet makes the pseudo-element inherit the section
+     padding; reset it so the marker sits on the mockup's baseline. */
+  padding: 0 0 0 25px;
+  font-family: "Inter", Arial, sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 32px;
+  color: var(--page-color, var(--lavender));
+  background: var(--rupee-image, url("assets/rupia-lightgreen.svg")) left center / 16px 32px
+    no-repeat;
 }
 
-/* -------------------------------------------------------------- bullets -- */
+/* ----------------------------------------------------------------- lists -- */
 
-.points {
+/* Plain lists are the bullet slides: no markers, one line of text per item. */
+section.light > ul {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.points p {
-  margin: 0;
+section.light > ul > li {
   font-size: 29px;
   line-height: 1.45;
 }
 
-.points strong {
-  font-weight: 600;
-}
-
-/* ---------------------------------------------------------------- cards -- */
-
-.cards {
-  display: flex;
+/* A list whose items open with a heading is the card row. */
+section.light > ul:has(h3) {
+  flex-direction: row;
   gap: 21px;
+  counter-reset: card;
 }
 
-.card {
+section.light > ul:has(h3) > li {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 13px;
   padding: 32px;
   background: #fff;
+  font-size: 20px;
+  line-height: 1.4;
 }
 
-.card .num {
+section.light > ul:has(h3) > li::before {
+  counter-increment: card;
+  content: counter(card);
   font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
   font-optical-sizing: none;
   font-size: 43px;
@@ -424,70 +446,33 @@ section.gold .stack {
   color: var(--ink);
 }
 
-.card h3 {
-  margin: 0;
+section.light > ul:has(h3) h3 {
   font-size: 27px;
   font-weight: 600;
   color: var(--ink);
 }
 
-.card p {
-  margin: 0;
+section.light > ul:has(h3) p {
   font-size: 20px;
   color: #4a4560;
 }
 
-/* ---------------------------------------------------------------- quote -- */
+/* ------------------------------------------------------------- blockquote -- */
 
-.quote {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  max-width: 760px;
-}
-
-.big-number {
-  font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
-  font-optical-sizing: none;
-  font-size: 200px;
-  font-weight: 600;
-  line-height: 1;
-  color: var(--cream);
-}
-
-.quote-text {
-  font-size: 35px;
-  color: var(--cream);
-}
-
-.quote-source {
-  font-size: 19px;
-  color: var(--lavender);
-}
-
-.clock {
-  position: absolute;
-  left: 787px;
-  top: 140px;
-  width: 400px;
-  height: 400px;
-}
-
-/* ----------------------------------------------------------------- split -- */
-
-.split {
-  display: flex;
+/* A single blockquote is the text/image split: its two paragraphs are the two
+   columns. Three blockquotes make the callout stack. */
+section.light > blockquote:only-of-type {
+  display: grid;
+  grid-template-columns: 40% 1fr;
   align-items: center;
   gap: 48px;
 }
 
-.split .text {
-  flex: 0 0 40%;
+section.light > blockquote:only-of-type > p:first-child {
   font-size: 25px;
 }
 
-.split .media {
-  flex: 1 1 60%;
+section.light > blockquote:only-of-type > p:last-child {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -497,60 +482,59 @@ section.gold .stack {
   color: #4a4560;
 }
 
-/* -------------------------------------------------------------- callouts -- */
-
-.callouts {
-  display: flex;
-  flex-direction: column;
-  gap: 19px;
-}
-
-.callout {
+section.light > blockquote:not(:only-of-type) {
   display: flex;
   flex-direction: column;
   gap: 4px;
   padding: 16px 27px;
 }
 
-.callout .label {
+section.light > blockquote:not(:only-of-type) + blockquote {
+  margin-top: 19px;
+}
+
+section.light > blockquote:not(:only-of-type) > p:first-child {
   font-size: 16px;
-  font-weight: 600;
+  line-height: 1.4;
+}
+
+section.light > blockquote:not(:only-of-type) > p:first-child strong {
+  font-size: 16px;
   letter-spacing: 1px;
 }
 
-.callout p {
-  margin: 0;
+section.light > blockquote:not(:only-of-type) > p:last-child {
   font-size: 23px;
   color: var(--ink);
 }
 
-.callout.info {
+section.light > blockquote:not(:only-of-type):nth-of-type(1) {
   background: #e3eef7;
 }
 
-.callout.info .label {
+section.light > blockquote:not(:only-of-type):nth-of-type(1) strong {
   color: #2f7fbf;
 }
 
-.callout.success {
+section.light > blockquote:not(:only-of-type):nth-of-type(2) {
   background: #e1f1e8;
 }
 
-.callout.success .label {
+section.light > blockquote:not(:only-of-type):nth-of-type(2) strong {
   color: #2f9e5f;
 }
 
-.callout.warning {
+section.light > blockquote:not(:only-of-type):nth-of-type(3) {
   background: #f6ead2;
 }
 
-.callout.warning .label {
+section.light > blockquote:not(:only-of-type):nth-of-type(3) strong {
   color: #b9770e;
 }
 
 /* ----------------------------------------------------------------- table -- */
 
-.table {
+section.light > table {
   width: 100%;
   border-collapse: collapse;
   font-size: 21px;
@@ -559,41 +543,44 @@ section.gold .stack {
   border-left: 2px solid rgba(20, 20, 19, 0.22);
 }
 
-.table th,
-.table td {
+section.light > table th,
+section.light > table td {
   padding: 13px 19px;
   text-align: left;
   border-right: 2px solid rgba(20, 20, 19, 0.22);
   border-bottom: 2px solid rgba(20, 20, 19, 0.22);
 }
 
-.table th {
+section.light > table th {
   background: var(--navy);
   color: var(--cream);
   font-weight: 600;
 }
 
-.table .tie {
+/* The status column keeps the mockup colours. */
+section.light > table tbody tr:nth-child(1) td:last-child,
+section.light > table tbody tr:nth-child(3) td:last-child {
   color: #2f7fbf;
 }
 
-.table .improves {
+section.light > table tbody tr:nth-child(2) td:last-child {
   color: #2f9e5f;
 }
 
-.table .worsens {
+section.light > table tbody tr:nth-child(4) td:last-child {
   color: #b9770e;
 }
 
 /* ------------------------------------------------------------------ code -- */
 
+/* The deck build turns a fenced block with a title into this panel. */
 .code {
-  background: var(--navy);
-  border-radius: 11px;
-  padding: 24px 29px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 24px 29px;
+  background: var(--navy);
+  border-radius: 11px;
 }
 
 .code-title {
@@ -629,7 +616,6 @@ section.gold .stack {
 }
 
 .code pre {
-  margin: 0;
   font-family: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
   font-size: 20px;
   line-height: 1.5;
@@ -650,20 +636,20 @@ section.gold .stack {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 27px;
   background: var(--navy);
   border-radius: 11px;
-  padding: 27px;
 }
 
 .diagram img {
-  width: 100%;
   display: block;
+  width: 100%;
 }
 
 .diagram svg {
+  display: block;
   width: 100%;
   height: auto;
-  display: block;
 }
 
 /* Mermaid renders edge labels as half-transparent rectangles; the mockup uses
@@ -688,27 +674,33 @@ section.gold .stack {
 
 /* --------------------------------------------------------------- closing -- */
 
-.closing-title {
-  font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
-  font-optical-sizing: none;
+section.closing {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 85px 85px 30px;
+}
+
+section.closing > h1 {
+  margin-bottom: 45px;
   font-size: 107px;
-  font-weight: 600;
   line-height: 1;
   color: var(--cream);
 }
 
-.closing-sub {
+section.closing > p:first-of-type {
+  margin-bottom: 20px;
   font-size: 29px;
   color: var(--lavender);
 }
 
-.contacts {
+section.closing > p:last-of-type {
   display: flex;
   align-items: center;
   gap: 43px;
 }
 
-.contacts span {
+section.closing a {
   display: flex;
   align-items: center;
   gap: 11px;
@@ -716,8 +708,20 @@ section.gold .stack {
   color: var(--blue);
 }
 
-.contacts img {
+section.closing a::before {
+  content: "";
+  display: block;
   width: 27px;
   height: 27px;
-  display: block;
+  background-position: center;
+  background-size: contain;
+  background-repeat: no-repeat;
+}
+
+section.closing a[href^="mailto:"]::before {
+  background-image: url("assets/email.svg");
+}
+
+section.closing a[href*="github"]::before {
+  background-image: url("assets/github.svg");
 }
