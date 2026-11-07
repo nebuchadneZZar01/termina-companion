@@ -1,0 +1,140 @@
+/*
+ * Style of every Mermaid diagram in the deck.
+ *
+ * scripts/stage_slides.py appends this file to docs/mermaid.json as mermaid-cli's
+ * `themeCSS`, so it is compiled inside each generated SVG and travels with the
+ * diagram when it is inlined in the slide. Mermaid prefixes every selector with
+ * the diagram id, so plain selectors are enough.
+ *
+ * The deck only says *what* a thing is: `class gs start;` gives a node a role,
+ * and an edge id like `e_acc1@-->` (the trailing digit only keeps the ids
+ * unique) marks an edge with a role. Every colour lives here, so all diagrams
+ * in the deck share one look.
+ */
+
+/* ------------------------------------------------------------------ nodes -- */
+
+/* Inter is self-hosted and must reach the labels through every fallback. */
+.nodeLabel,
+.edgeLabel {
+  font-family: Inter, Arial, sans-serif !important;
+}
+
+/* One rule per role and shape, mirroring the classDefs Mermaid would generate;
+   !important is what outranks Mermaid's own theme. */
+.start rect,
+.start polygon,
+.start ellipse,
+.start circle,
+.start path {
+  fill: #2b2352 !important;
+  stroke: #6fb7e8 !important;
+  stroke-width: 2px !important;
+  color: #f3ecdd !important;
+}
+
+.start tspan {
+  fill: #f3ecdd !important;
+}
+
+.agent rect,
+.agent polygon,
+.agent ellipse,
+.agent circle,
+.agent path {
+  fill: #2b2352 !important;
+  stroke: #8b7bd8 !important;
+  stroke-width: 2px !important;
+  color: #f3ecdd !important;
+}
+
+.agent tspan {
+  fill: #f3ecdd !important;
+}
+
+.decision rect,
+.decision polygon,
+.decision ellipse,
+.decision circle,
+.decision path {
+  fill: #f0b24a !important;
+  stroke: #f0b24a !important;
+  color: #1a1530 !important;
+  font-weight: 600 !important;
+}
+
+.decision tspan {
+  fill: #1a1530 !important;
+}
+
+/* Mermaid 11 draws node labels in a foreignObject, so the shape rules above
+   cannot style the text. `> .label` is the node's own label group: edge labels
+   also carry `.nodeLabel` and some of them are nested inside the node. */
+.decision > .label .nodeLabel {
+  color: #1a1530 !important;
+  font-weight: 600 !important;
+}
+
+.plan rect,
+.plan polygon,
+.plan ellipse,
+.plan circle,
+.plan path {
+  fill: #2b2352 !important;
+  stroke: #5fd08a !important;
+  stroke-width: 2px !important;
+  color: #f3ecdd !important;
+}
+
+.plan tspan {
+  fill: #f3ecdd !important;
+}
+
+.label rect,
+.label polygon,
+.label ellipse,
+.label circle,
+.label path {
+  fill: #3a3160 !important;
+  stroke: #3a3160 !important;
+  color: #f3ecdd !important;
+}
+
+.label tspan {
+  fill: #f3ecdd !important;
+}
+
+/* ------------------------------------------------------------------ edges -- */
+
+.flowchart-link {
+  stroke-width: 3px;
+}
+
+/* The re-plan branch: the decision's "No" exit and the edge looping back. */
+path[data-edge-role="acc"] {
+  stroke: #b79ae8 !important;
+}
+
+/* Mermaid draws edge labels as half-transparent rectangles; the mockup uses
+   opaque pills. */
+.edgeLabel rect {
+  fill: #3a3160;
+  opacity: 1;
+  stroke: none;
+  rx: 19px;
+  ry: 19px;
+}
+
+.edgeLabel .nodeLabel,
+.edgeLabel .nodeLabel p,
+.edgeLabel text {
+  color: #f3ecdd;
+  fill: #f3ecdd;
+}
+
+/* The mockup uses 14px corners on the boxy nodes; the stadium shapes are
+   drawn as paths and keep their own radius. */
+.node rect.label-container {
+  rx: 14px;
+  ry: 14px;
+}

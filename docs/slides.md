@@ -161,24 +161,16 @@ graph.add_edge("state", "knowledge")
 <hr>
 
 ```mermaid
-%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"26px","primaryColor":"#2b2352","primaryTextColor":"#f3ecdd","primaryBorderColor":"#8b7bd8","lineColor":"#f0b24a","tertiaryColor":"#3a3160","edgeLabelBackground":"#3a3160","mainBkg":"#2b2352","nodeBorder":"#8b7bd8","textColor":"#f3ecdd"},"flowchart":{"curve":"linear","htmlLabels":false,"nodeSpacing":50,"rankSpacing":80,"padding":10,"wrappingWidth":400},"themeCSS":".nodeLabel, .edgeLabel { font-family: Inter, Arial, sans-serif !important; }"}}%%
 flowchart LR
   gs([Game State]) --> sa[State Agent] --> ka[Knowledge Agent] --> pa[Planning Agent] --> d{Valid?}
   d -->|Yes| plan([Plan])
-  d -->|No| rp([re-plan])
-  rp --> pa
-  classDef start fill:#2b2352,stroke:#6fb7e8,stroke-width:2px,color:#f3ecdd;
-  classDef agent fill:#2b2352,stroke:#8b7bd8,stroke-width:2px,color:#f3ecdd;
-  classDef decision fill:#f0b24a,stroke:#f0b24a,color:#1a1530,font-weight:600;
-  classDef plan fill:#2b2352,stroke:#5fd08a,stroke-width:2px,color:#f3ecdd;
-  classDef label fill:#3a3160,stroke:#3a3160,color:#f3ecdd;
+  d e_acc1@-->|No| rp([re-plan])
+  rp e_acc2@--> pa
   class gs start;
   class sa,ka,pa agent;
   class d decision;
   class plan plan;
   class rp label;
-  linkStyle default stroke:#f0b24a,stroke-width:3px;
-  linkStyle 5,6 stroke:#b79ae8,stroke-width:3px;
 ```
 
 ---

@@ -632,6 +632,8 @@ section.light > table tbody tr:nth-child(4) td:last-child {
 
 /* --------------------------------------------------------------- diagram -- */
 
+/* The diagram's own look comes from docs/mermaid.css, which the build injects
+   into the SVG; the slide only draws the card around it. */
 .diagram {
   display: flex;
   align-items: center;
@@ -650,26 +652,6 @@ section.light > table tbody tr:nth-child(4) td:last-child {
   display: block;
   width: 100%;
   height: auto;
-}
-
-/* Mermaid renders edge labels as half-transparent rectangles; the mockup uses
-   opaque pills. The #my-svg id is needed to outrank Mermaid's inline styles. */
-.diagram #my-svg .edgeLabel rect {
-  fill: var(--deep);
-  opacity: 1;
-  stroke: none;
-  rx: 19px;
-  ry: 19px;
-}
-
-.diagram #my-svg .edgeLabel text {
-  fill: var(--cream);
-}
-
-/* The mockup uses 14px corners on agent nodes and pills for start/goal. */
-.diagram #my-svg .node rect.label-container {
-  rx: 14px;
-  ry: 14px;
 }
 
 /* --------------------------------------------------------------- closing -- */
