@@ -41,6 +41,11 @@ section {
   --muted: #6a6580;
   --ink: #1a1530;
 
+  /* Inline code defaults to the dark canvases; the light and gold layouts
+     override them right below. */
+  --code-fg: var(--lavender);
+  --code-bg: rgba(207, 198, 230, 0.14);
+
   width: 1280px;
   height: 720px;
   padding: 0;
@@ -101,6 +106,8 @@ section.light {
   --rupee-image: url("assets/rupia.svg");
   --bar-on: var(--purple);
   --bar-off: var(--cream-2);
+  --code-fg: var(--purple);
+  --code-bg: rgba(91, 75, 181, 0.1);
 }
 
 section.gold {
@@ -118,6 +125,8 @@ section.gold {
   --rupee-image: url("assets/rupia-navy.svg");
   --bar-on: var(--navy);
   --bar-off: var(--gold-2);
+  --code-fg: var(--navy);
+  --code-bg: rgba(26, 21, 48, 0.12);
 }
 
 section.dark {
@@ -650,6 +659,29 @@ section.light > table tbody tr:nth-child(4) td:last-child {
 }
 
 /* ------------------------------------------------------------------ code -- */
+
+/* Inline code is a tinted pill: the accent colour on a wash of itself, so a
+   technical word reads as one unit without competing with the .code panel.
+   The pill colours are per layout, because the same purple is unreadable on the
+   navy canvas and wrong on the gold one. */
+section code {
+  font-family: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  /* Never break a term such as anju-kafei across two lines. */
+  white-space: nowrap;
+}
+
+/* A fenced block is already a panel: its code must not get the pill too. */
+.code pre code {
+  padding: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+}
 
 /* The deck build turns a fenced block with a title into this panel. */
 .code {

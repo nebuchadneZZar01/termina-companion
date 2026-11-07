@@ -38,11 +38,8 @@ One sentence introducing the topic that follows
 
 <hr>
 
-- First point,\
-  brief\
-  and concrete
-- Second point,\
-  one idea only
+- First point, brief and concrete
+- Second point, one idea only
 - Third point with **key word** highlighted
 
 ---
@@ -125,7 +122,7 @@ The most important figure or quote, in one sentence
 
 | Scenario      | RAG on | RAG off | Result   |
 | ------------- | ------ | ------- | -------- |
-| anju-kafei    | 3 / 3  | 3 / 3   | Tie      |
+| `anju-kafei`    | 3 / 3  | 3 / 3   | Tie      |
 | darmani-ghost | 3 / 3  | 2 / 3   | Improves |
 | mikau-eggs    | 3 / 3  | 3 / 3   | Tie      |
 | deed-chain    | 2 / 3  | 3 / 3   | Worsens  |
