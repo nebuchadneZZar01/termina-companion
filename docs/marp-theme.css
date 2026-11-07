@@ -492,14 +492,16 @@ section::after {
 section.light > ul {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  /* The mockup spaces the items with the 1.35 line-height alone: no extra gap,
+     or the list drifts a whole line off it by the third bullet. */
+  gap: 0;
   padding-left: 26.67px;
   list-style: disc;
 }
 
 section.light > ul > li {
   font-size: 29px;
-  line-height: 1.45;
+  line-height: 1.35;
 }
 
 /* A list whose items open with a heading is the card row. */
