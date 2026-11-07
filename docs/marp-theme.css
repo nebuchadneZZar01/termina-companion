@@ -1,0 +1,632 @@
+/* @theme taia-slides */
+
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600;700&family=Source+Code+Pro:wght@400;600&display=swap");
+
+/*
+ * Marp theme for the TaIA deck.
+ *
+ * The mockup canvas is 1920x1080; Marp renders 1280x720, so every size here is
+ * the mockup value scaled by 2/3. Colours are sampled from the mockup.
+ */
+
+section {
+  --navy: #1a1530;
+  --navy-2: #2b2352;
+  --deep: #3a3160;
+  --purple: #5b4bb5;
+  --cream: #f3ecdd;
+  --cream-2: #ddd3bf;
+  --paper: #f4efe6;
+  --lavender: #cfc6e6;
+  --gold: #f0b24a;
+  --gold-2: #d99a2e;
+  --blue: #6fb7e8;
+  --green: #5fd08a;
+  --red: #e0533f;
+  --muted: #6a6580;
+  --ink: #1a1530;
+
+  width: 1280px;
+  height: 720px;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+  background: var(--navy);
+  color: var(--lavender);
+  font-family: "Inter", Arial, ui-sans-serif, system-ui, sans-serif;
+  font-size: 20px;
+  line-height: 1.4;
+  letter-spacing: normal;
+}
+
+section.light {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/* Pagination: page number plus the rupee marker, bottom right. */
+section::after {
+  content: attr(data-marpit-pagination) " / 11";
+  position: absolute;
+  right: 66px;
+  bottom: 30px;
+  padding-left: 23px;
+  font-family: "Inter", Arial, sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 32px;
+  color: var(--muted);
+  background: url("assets/rupia.svg") left center / 16px 32px no-repeat;
+}
+
+/* ---------------------------------------------------------------- layout -- */
+
+.wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 85px 85px 107px;
+}
+
+.wrap.center {
+  justify-content: center;
+}
+
+.wrap.between {
+  justify-content: space-between;
+}
+
+.wrap.end {
+  justify-content: flex-end;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 37px;
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* ------------------------------------------------------------ typography -- */
+
+.eyebrow {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 4px;
+  color: var(--purple);
+}
+
+.h {
+  font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
+  font-size: 48px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.h.section-title {
+  font-size: 69px;
+}
+
+h1.h,
+h2.h {
+  margin: 0;
+}
+
+.lead {
+  font-size: 27px;
+  line-height: 1.4;
+}
+
+.dark .lead,
+section:not(.light) .lead {
+  color: var(--lavender);
+}
+
+/* -------------------------------------------------------------- divider -- */
+
+.rule {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.rule span {
+  flex: 1;
+  height: 2px;
+  background: var(--purple);
+}
+
+/* Dark slides hide the lines, leaving only the triforce, like the mockup.
+   The closing slide opts back in with gold lines. */
+section:not(.light) .rule span {
+  background: var(--navy);
+}
+
+.rule.gold span {
+  background: var(--gold);
+}
+
+.rule img {
+  width: 27px;
+  height: 24px;
+  display: block;
+}
+
+/* ------------------------------------------------------------------ bar -- */
+
+.bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 2.67px;
+  padding-right: 4.67px;
+  height: 9px;
+  --on: var(--purple);
+  --off: var(--cream-2);
+}
+
+.bar i {
+  display: block;
+  flex: 1;
+  height: 5px;
+  background: var(--off);
+}
+
+.bar.t1 i:nth-child(-n + 1),
+.bar.t2 i:nth-child(-n + 2),
+.bar.t3 i:nth-child(-n + 3),
+.bar.t4 i:nth-child(-n + 4),
+.bar.t5 i:nth-child(-n + 5),
+.bar.t6 i:nth-child(-n + 6),
+.bar.t7 i:nth-child(-n + 7),
+.bar.t8 i:nth-child(-n + 8),
+.bar.t9 i:nth-child(-n + 9) {
+  background: var(--on);
+}
+
+.bar.t1 i:nth-child(1),
+.bar.t2 i:nth-child(2),
+.bar.t3 i:nth-child(3),
+.bar.t4 i:nth-child(4),
+.bar.t5 i:nth-child(5),
+.bar.t6 i:nth-child(6),
+.bar.t7 i:nth-child(7),
+.bar.t8 i:nth-child(8),
+.bar.t9 i:nth-child(9) {
+  height: 9px;
+}
+
+/* ---------------------------------------------------------------- cover -- */
+
+.cover-event {
+  position: absolute;
+  left: 85px;
+  right: 85px;
+  top: 292px;
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--gold);
+}
+
+.cover-logo {
+  position: absolute;
+  left: 50%;
+  top: 269px;
+  width: 526px;
+  transform: translateX(-50%);
+}
+
+.cover-sub {
+  position: absolute;
+  left: 85px;
+  top: 529px;
+  width: 734px;
+  font-size: 27px;
+  color: var(--lavender);
+}
+
+.cover-author {
+  position: absolute;
+  left: 85px;
+  top: 587px;
+  font-size: 19px;
+  color: var(--lavender);
+}
+
+.dots i {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+}
+
+.dots i:nth-child(1) {
+  left: 107px;
+  top: 107px;
+  width: 7px;
+  height: 7px;
+  background: var(--blue);
+}
+
+.dots i:nth-child(2) {
+  left: 347px;
+  top: 60px;
+  width: 4px;
+  height: 4px;
+  background: var(--green);
+}
+
+.dots i:nth-child(3) {
+  left: 600px;
+  top: 133px;
+  width: 5px;
+  height: 5px;
+  background: var(--lavender);
+}
+
+.dots i:nth-child(4) {
+  left: 667px;
+  top: 60px;
+  width: 4px;
+  height: 4px;
+  background: var(--blue);
+}
+
+.dots i:nth-child(5) {
+  left: 200px;
+  top: 220px;
+  width: 4px;
+  height: 4px;
+  background: var(--green);
+}
+
+.dots i:nth-child(6) {
+  left: 507px;
+  top: 280px;
+  width: 7px;
+  height: 7px;
+  background: var(--lavender);
+}
+
+.mask {
+  position: absolute;
+  left: 739px;
+  top: 17px;
+  width: 507px;
+  height: 457px;
+  object-fit: contain;
+}
+
+/* ----------------------------------------------------------- section one -- */
+
+.section-number {
+  font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
+  font-size: 160px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--cream);
+}
+
+/* -------------------------------------------------------------- bullets -- */
+
+.points {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.points p {
+  margin: 0;
+  font-size: 29px;
+  line-height: 1.45;
+}
+
+.points strong {
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- cards -- */
+
+.cards {
+  display: flex;
+  gap: 21px;
+}
+
+.card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  padding: 32px;
+  background: #fff;
+}
+
+.card .num {
+  font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
+  font-size: 43px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.card h3 {
+  margin: 0;
+  font-size: 27px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.card p {
+  margin: 0;
+  font-size: 20px;
+  color: #4a4560;
+}
+
+/* ---------------------------------------------------------------- quote -- */
+
+.quote {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 760px;
+}
+
+.big-number {
+  font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
+  font-size: 200px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--cream);
+}
+
+.quote-text {
+  font-size: 35px;
+  color: var(--cream);
+}
+
+.quote-source {
+  font-size: 19px;
+  color: var(--lavender);
+}
+
+.clock {
+  position: absolute;
+  left: 787px;
+  top: 140px;
+  width: 400px;
+  height: 400px;
+}
+
+/* ----------------------------------------------------------------- split -- */
+
+.split {
+  display: flex;
+  align-items: center;
+  gap: 48px;
+}
+
+.split .text {
+  flex: 0 0 40%;
+  font-size: 25px;
+}
+
+.split .media {
+  flex: 1 1 60%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 330px;
+  background: var(--cream-2);
+  font-size: 24px;
+  color: #4a4560;
+}
+
+/* -------------------------------------------------------------- callouts -- */
+
+.callouts {
+  display: flex;
+  flex-direction: column;
+  gap: 19px;
+}
+
+.callout {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 27px;
+}
+
+.callout .label {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+.callout p {
+  margin: 0;
+  font-size: 23px;
+  color: var(--ink);
+}
+
+.callout.info {
+  background: #e3eef7;
+}
+
+.callout.info .label {
+  color: #2f7fbf;
+}
+
+.callout.success {
+  background: #e1f1e8;
+}
+
+.callout.success .label {
+  color: #2f9e5f;
+}
+
+.callout.warning {
+  background: #f6ead2;
+}
+
+.callout.warning .label {
+  color: #b9770e;
+}
+
+/* ----------------------------------------------------------------- table -- */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 21px;
+  color: var(--ink);
+  border-top: 2px solid rgba(20, 20, 19, 0.22);
+  border-left: 2px solid rgba(20, 20, 19, 0.22);
+}
+
+.table th,
+.table td {
+  padding: 13px 19px;
+  text-align: left;
+  border-right: 2px solid rgba(20, 20, 19, 0.22);
+  border-bottom: 2px solid rgba(20, 20, 19, 0.22);
+}
+
+.table th {
+  background: var(--navy);
+  color: var(--cream);
+  font-weight: 600;
+}
+
+.table .tie {
+  color: #2f7fbf;
+}
+
+.table .improves {
+  color: #2f9e5f;
+}
+
+.table .worsens {
+  color: #b9770e;
+}
+
+/* ------------------------------------------------------------------ code -- */
+
+.code {
+  background: var(--navy);
+  border-radius: 11px;
+  padding: 24px 29px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.code-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 16px;
+  color: #8b86a8;
+}
+
+.code-title i {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.code-title .r {
+  background: var(--red);
+}
+
+.code-title .y {
+  background: var(--gold);
+}
+
+.code-title .g {
+  background: var(--green);
+}
+
+.code-title span {
+  margin-left: 3px;
+}
+
+.code pre {
+  margin: 0;
+  font-family: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 20px;
+  line-height: 1.5;
+  color: #e6e1f5;
+  background: none;
+  white-space: pre;
+}
+
+.code .ln {
+  display: inline-block;
+  width: 24px;
+  color: #7a76a0;
+}
+
+/* --------------------------------------------------------------- diagram -- */
+
+.diagram {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--navy);
+  border-radius: 11px;
+  padding: 27px;
+}
+
+.diagram img {
+  width: 100%;
+  display: block;
+}
+
+/* --------------------------------------------------------------- closing -- */
+
+.closing-title {
+  font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
+  font-size: 107px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--cream);
+}
+
+.closing-sub {
+  font-size: 29px;
+  color: var(--lavender);
+}
+
+.contacts {
+  display: flex;
+  align-items: center;
+  gap: 43px;
+}
+
+.contacts span {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-size: 21px;
+  color: var(--blue);
+}
+
+.contacts img {
+  width: 27px;
+  height: 27px;
+  display: block;
+}
