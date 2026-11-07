@@ -18,13 +18,14 @@ html: true
 
 ---
 
-<!-- _class: dark -->
+<!-- _class: gold -->
 
+<img class="section-triforce" src="assets/triforce.svg" alt="">
 <div class="wrap between">
 <div class="section-number">01</div>
 <div class="stack">
 <div class="head"><h2 class="h section-title">Section title</h2></div>
-<div class="rule"><span></span><img src="assets/separator-gold.svg" alt=""><span></span></div>
+<div class="rule"><span></span><img src="assets/separator-navy.svg" alt=""><span></span></div>
 <div class="lead">One sentence introducing the topic that follows</div>
 </div>
 </div>

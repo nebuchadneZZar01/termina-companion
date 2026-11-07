@@ -1,6 +1,16 @@
 /* @theme taia-slides */
 
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600;700&family=Source+Code+Pro:wght@400;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600&family=Source+Code+Pro:wght@400;600&display=swap");
+
+/* Inter is self-hosted so the Mermaid step measures text with the same font the
+   deck renders: node sizes would otherwise be computed with a fallback. */
+@font-face {
+  font-family: "Inter";
+  src: url("assets/fonts/Inter.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: block;
+}
 
 /*
  * Marp theme for the TaIA deck.
@@ -44,21 +54,32 @@ section {
 section.light {
   background: var(--paper);
   color: var(--ink);
+  --page-color: var(--muted);
+  --rupee-image: url("assets/rupia.svg");
+}
+
+/* Section divider slides share the mockup's gold canvas. */
+section.gold {
+  background: var(--gold);
+  color: var(--ink);
+  --page-color: var(--navy);
+  --rupee-image: url("assets/rupia-navy.svg");
 }
 
 /* Pagination: page number plus the rupee marker, bottom right. */
 section::after {
   content: attr(data-marpit-pagination) " / 11";
   position: absolute;
-  right: 66px;
-  bottom: 30px;
-  padding-left: 23px;
+  left: 1103px;
+  bottom: 39px;
+  padding-left: 25px;
   font-family: "Inter", Arial, sans-serif;
   font-size: 16px;
   font-weight: 400;
   line-height: 32px;
-  color: var(--muted);
-  background: url("assets/rupia.svg") left center / 16px 32px no-repeat;
+  color: var(--page-color, var(--lavender));
+  background: var(--rupee-image, url("assets/rupia-lightgreen.svg")) left center / 16px 32px
+    no-repeat;
 }
 
 /* ---------------------------------------------------------------- layout -- */
@@ -82,6 +103,23 @@ section::after {
 
 .wrap.end {
   justify-content: flex-end;
+  /* The mockup closes on a 45px bottom margin instead of the 160px of the other
+     layouts, and the title needs more room because "Thank you" has a descender
+     where the mockup's "Grazie" does not. */
+  gap: 0;
+  padding-bottom: 30px;
+}
+
+.wrap.end .closing-title {
+  margin-bottom: 45px;
+}
+
+.wrap.end .rule {
+  margin-bottom: 18px;
+}
+
+.wrap.end .closing-sub {
+  margin-bottom: 20px;
 }
 
 .stack {
@@ -107,6 +145,8 @@ section::after {
 
 .h {
   font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
+  /* The mockup loads the static Fraunces instance: no optical-size axis. */
+  font-optical-sizing: none;
   font-size: 48px;
   font-weight: 600;
   line-height: 1.1;
@@ -128,8 +168,14 @@ h2.h {
 }
 
 .dark .lead,
-section:not(.light) .lead {
+section:not(.light):not(.gold) .lead {
   color: var(--lavender);
+}
+
+section.gold .h,
+section.gold .lead,
+section.gold .section-number {
+  color: var(--ink);
 }
 
 /* -------------------------------------------------------------- divider -- */
@@ -148,8 +194,12 @@ section:not(.light) .lead {
 
 /* Dark slides hide the lines, leaving only the triforce, like the mockup.
    The closing slide opts back in with gold lines. */
-section:not(.light) .rule span {
+section:not(.light):not(.gold) .rule:not(.gold) span {
   background: var(--navy);
+}
+
+section.gold .rule span {
+  background: var(--ink);
 }
 
 .rule.gold span {
@@ -223,10 +273,9 @@ section:not(.light) .rule span {
 
 .cover-logo {
   position: absolute;
-  left: 50%;
+  left: 79px;
   top: 269px;
   width: 526px;
-  transform: translateX(-50%);
 }
 
 .cover-sub {
@@ -313,10 +362,23 @@ section:not(.light) .rule span {
 
 .section-number {
   font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
+  font-optical-sizing: none;
   font-size: 160px;
   font-weight: 600;
   line-height: 1;
   color: var(--cream);
+}
+
+.section-triforce {
+  position: absolute;
+  left: 767px;
+  top: 87px;
+  width: 427px;
+  height: 384px;
+}
+
+section.gold .stack {
+  gap: 16px;
 }
 
 /* -------------------------------------------------------------- bullets -- */
@@ -355,6 +417,7 @@ section:not(.light) .rule span {
 
 .card .num {
   font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
+  font-optical-sizing: none;
   font-size: 43px;
   font-weight: 600;
   line-height: 1;
@@ -385,6 +448,7 @@ section:not(.light) .rule span {
 
 .big-number {
   font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
+  font-optical-sizing: none;
   font-size: 200px;
   font-weight: 600;
   line-height: 1;
@@ -596,10 +660,37 @@ section:not(.light) .rule span {
   display: block;
 }
 
+.diagram svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Mermaid renders edge labels as half-transparent rectangles; the mockup uses
+   opaque pills. The #my-svg id is needed to outrank Mermaid's inline styles. */
+.diagram #my-svg .edgeLabel rect {
+  fill: var(--deep);
+  opacity: 1;
+  stroke: none;
+  rx: 19px;
+  ry: 19px;
+}
+
+.diagram #my-svg .edgeLabel text {
+  fill: var(--cream);
+}
+
+/* The mockup uses 14px corners on agent nodes and pills for start/goal. */
+.diagram #my-svg .node rect.label-container {
+  rx: 14px;
+  ry: 14px;
+}
+
 /* --------------------------------------------------------------- closing -- */
 
 .closing-title {
   font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
+  font-optical-sizing: none;
   font-size: 107px;
   font-weight: 600;
   line-height: 1;
