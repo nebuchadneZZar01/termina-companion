@@ -7,7 +7,7 @@
 # the titled code fences expanded, because Marp has neither engine.
 set -eu
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 if [ -z "${CHROME_PATH:-}" ]; then
   for candidate in google-chrome-stable google-chrome chromium chromium-browser; do
@@ -24,7 +24,7 @@ export PUPPETEER_SKIP_DOWNLOAD="${PUPPETEER_SKIP_DOWNLOAD:-1}"
 staged=docs/.slides.build.md
 trap 'rm -f "$staged"' EXIT
 
-python3 scripts/stage_slides.py docs/slides.md "$staged"
+python3 scripts/slides/stage.py docs/slides.md "$staged"
 
 npx --yes @marp-team/marp-cli@latest "$staged" \
   --theme-set docs/marp-theme.css \

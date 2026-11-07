@@ -1,7 +1,7 @@
 /*
  * Style of every Mermaid diagram in the deck.
  *
- * scripts/stage_slides.py appends this file to docs/mermaid.json as mermaid-cli's
+ * scripts/slides/stage.py appends this file to docs/mermaid.json as mermaid-cli's
  * `themeCSS`, so it is compiled inside each generated SVG and travels with the
  * diagram when it is inlined in the slide. Mermaid prefixes every selector with
  * the diagram id, so plain selectors are enough.

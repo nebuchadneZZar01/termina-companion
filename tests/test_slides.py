@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
-_STAGER = _ROOT / "scripts" / "stage_slides.py"
+_STAGER = _ROOT / "scripts" / "slides" / "stage.py"
 _DECK = _ROOT / "docs" / "slides.md"
 _CSS = _ROOT / "docs" / "mermaid.css"
 
@@ -24,7 +24,7 @@ _EDGE = re.compile(r"\be_([A-Za-z][\w-]*?)@", re.MULTILINE)
 
 def _stager():
     """Load the build script, which is not an importable package."""
-    spec = importlib.util.spec_from_file_location("stage_slides", _STAGER)
+    spec = importlib.util.spec_from_file_location("stage", _STAGER)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

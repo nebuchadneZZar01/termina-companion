@@ -35,7 +35,7 @@ from pathlib import Path
 
 MERMAID_CLI = "@mermaid-js/mermaid-cli@11"
 DIAGRAM_WIDTH = 1584
-DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
+DOCS_DIR = Path(__file__).resolve().parents[2] / "docs"
 FONT_DIR = DOCS_DIR / "assets" / "fonts"
 MERMAID_CONFIG = DOCS_DIR / "mermaid.json"
 MERMAID_CSS = DOCS_DIR / "mermaid.css"
@@ -253,7 +253,7 @@ def code_panel(match: re.Match[str]) -> str:
 
 def main() -> int:
     if len(sys.argv) != 3:
-        print("usage: stage_slides.py <input.md> <output.md>", file=sys.stderr)
+        print("usage: stage.py <input.md> <output.md>", file=sys.stderr)
         return 2
 
     source_path, output_path = (Path(arg) for arg in sys.argv[1:3])
