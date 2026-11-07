@@ -1,4 +1,13 @@
-# TaIA
+<p align="center">
+  <img src="docs/title.png" alt="TaIA — Majora's Mask Multi-Agent Planner" width="720">
+</p>
+
+<p align="center">
+  <a href="https://github.com/nebuchadneZZar01/termina-companion/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/nebuchadneZZar01/termina-companion/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <img alt="Python 3.13" src="https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white">
+  <img alt="LangGraph" src="https://img.shields.io/badge/LangGraph-1.x-1C3C3C">
+  <img alt="Streamlit" src="https://img.shields.io/badge/Streamlit-1.40%2B-FF4B4B?logo=streamlit&logoColor=white">
+</p>
 
 Multi-agent temporal planner for *The Legend of Zelda: Majora's Mask*, built with
 LangGraph, Pydantic and Streamlit. It turns player state and a goal into a
