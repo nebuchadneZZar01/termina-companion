@@ -305,43 +305,112 @@ section.closing hr {
 /* ----------------------------------------------------------------- bars --- */
 
 /* The mockup marks progress with nine segments across the bottom edge and
-   makes the segment reached by this slide taller. One pseudo-element draws all
-   of it: a background gradient splits the active run from the rest, a mask
-   punches the gaps, and a taller layer highlights the reached segment. */
+   makes the segment reached by this slide taller. Every segment is its own
+   opaque box, so the gaps are real empty space rather than a mask: a mask makes
+   the PDF printer flatten the whole bar into one low-resolution image, and the
+   separations blur away as soon as the page is zoomed.
+   The mockup's 209/4/213px scale to 139.33/2.67/142; whole pixels keep the
+   printed gap at the mockup's 2.67px without the printer's rounding eating a
+   pixel off it. */
+section.t1,
+section.t2,
+section.t3,
+section.t4,
+section.t5,
+section.t6,
+section.t7,
+section.t8,
+section.t9 {
+  --seg-0: var(--bar-off);
+  --seg-1: var(--bar-off);
+  --seg-2: var(--bar-off);
+  --seg-3: var(--bar-off);
+  --seg-4: var(--bar-off);
+  --seg-5: var(--bar-off);
+  --seg-6: var(--bar-off);
+  --seg-7: var(--bar-off);
+  --seg-8: var(--bar-off);
+}
+
 section.t1 {
   --n: 1;
+  --seg-0: var(--bar-on);
 }
 
 section.t2 {
   --n: 2;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
 }
 
 section.t3 {
   --n: 3;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+  --seg-2: var(--bar-on);
 }
 
 section.t4 {
   --n: 4;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+  --seg-2: var(--bar-on);
+  --seg-3: var(--bar-on);
 }
 
 section.t5 {
   --n: 5;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+  --seg-2: var(--bar-on);
+  --seg-3: var(--bar-on);
+  --seg-4: var(--bar-on);
 }
 
 section.t6 {
   --n: 6;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+  --seg-2: var(--bar-on);
+  --seg-3: var(--bar-on);
+  --seg-4: var(--bar-on);
+  --seg-5: var(--bar-on);
 }
 
 section.t7 {
   --n: 7;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+  --seg-2: var(--bar-on);
+  --seg-3: var(--bar-on);
+  --seg-4: var(--bar-on);
+  --seg-5: var(--bar-on);
+  --seg-6: var(--bar-on);
 }
 
 section.t8 {
   --n: 8;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+  --seg-2: var(--bar-on);
+  --seg-3: var(--bar-on);
+  --seg-4: var(--bar-on);
+  --seg-5: var(--bar-on);
+  --seg-6: var(--bar-on);
+  --seg-7: var(--bar-on);
 }
 
 section.t9 {
   --n: 9;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+  --seg-2: var(--bar-on);
+  --seg-3: var(--bar-on);
+  --seg-4: var(--bar-on);
+  --seg-5: var(--bar-on);
+  --seg-6: var(--bar-on);
+  --seg-7: var(--bar-on);
+  --seg-8: var(--bar-on);
 }
 
 section.t1::before,
@@ -353,14 +422,8 @@ section.t6::before,
 section.t7::before,
 section.t8::before,
 section.t9::before {
-  /* Whole pixels on purpose: the mockup's 209/4/213px scale to 139.33/2.67/142,
-     and the PDF printer snaps those fractional mask stops to 140/2, eating a
-     pixel off every gap. 139/3/142 keeps the gap at the mockup's 2.67px once
-     rounded, so the segments really look separated on paper too. */
   --segment: 139px;
-  --gap: 3px;
   --pitch: 142px;
-  --fill: calc(var(--segment) * var(--n) + var(--gap) * (var(--n) - 1));
 
   content: "";
   position: absolute;
@@ -371,18 +434,23 @@ section.t9::before {
   background:
     linear-gradient(var(--bar-on), var(--bar-on)) calc((var(--n) - 1) * var(--pitch)) bottom /
       var(--segment) 9px no-repeat,
-    linear-gradient(90deg, var(--bar-on) 0 var(--fill), var(--bar-off) var(--fill) 100%) bottom /
-      100% 5px no-repeat;
-  -webkit-mask-image: repeating-linear-gradient(
-    90deg,
-    #000 0 var(--segment),
-    transparent var(--segment) var(--pitch)
-  );
-  mask-image: repeating-linear-gradient(
-    90deg,
-    #000 0 var(--segment),
-    transparent var(--segment) var(--pitch)
-  );
+    linear-gradient(var(--seg-0), var(--seg-0)) 0 bottom / var(--segment) 5px no-repeat,
+    linear-gradient(var(--seg-1), var(--seg-1)) calc(1 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat,
+    linear-gradient(var(--seg-2), var(--seg-2)) calc(2 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat,
+    linear-gradient(var(--seg-3), var(--seg-3)) calc(3 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat,
+    linear-gradient(var(--seg-4), var(--seg-4)) calc(4 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat,
+    linear-gradient(var(--seg-5), var(--seg-5)) calc(5 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat,
+    linear-gradient(var(--seg-6), var(--seg-6)) calc(6 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat,
+    linear-gradient(var(--seg-7), var(--seg-7)) calc(7 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat,
+    linear-gradient(var(--seg-8), var(--seg-8)) calc(8 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat;
 }
 
 /* ----------------------------------------------------------- pagination --- */
