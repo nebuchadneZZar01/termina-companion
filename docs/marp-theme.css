@@ -353,8 +353,12 @@ section.t6::before,
 section.t7::before,
 section.t8::before,
 section.t9::before {
-  --segment: 139.33px;
-  --gap: 2.67px;
+  /* Whole pixels on purpose: the mockup's 209/4/213px scale to 139.33/2.67/142,
+     and the PDF printer snaps those fractional mask stops to 140/2, eating a
+     pixel off every gap. 139/3/142 keeps the gap at the mockup's 2.67px once
+     rounded, so the segments really look separated on paper too. */
+  --segment: 139px;
+  --gap: 3px;
   --pitch: 142px;
   --fill: calc(var(--segment) * var(--n) + var(--gap) * (var(--n) - 1));
 
@@ -362,7 +366,7 @@ section.t9::before {
   position: absolute;
   left: 0;
   bottom: 0;
-  width: 1275.33px;
+  width: 1275px;
   height: 9px;
   background:
     linear-gradient(var(--bar-on), var(--bar-on)) calc((var(--n) - 1) * var(--pitch)) bottom /
@@ -405,11 +409,15 @@ section::after {
 
 /* ----------------------------------------------------------------- lists -- */
 
-/* Plain lists are the bullet slides: no markers, one line of text per item. */
+/* Plain lists are the bullet slides. The mockup indents the text block by 40px
+   on its 1920 canvas and leaves the markers in that inset (disc, no list
+   padding), so the marker sits left of the text instead of eating into it. */
 section.light > ul {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding-left: 26.67px;
+  list-style: disc;
 }
 
 section.light > ul > li {
@@ -421,6 +429,8 @@ section.light > ul > li {
 section.light > ul:has(h3) {
   flex-direction: row;
   gap: 21px;
+  padding-left: 0;
+  list-style: none;
   counter-reset: card;
 }
 
