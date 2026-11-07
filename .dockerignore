@@ -21,6 +21,8 @@ reports
 saves
 tests
 scripts
+docs
+mockup
 TODO.md
 AGENTS.md
 docker-compose.yml

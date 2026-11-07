@@ -1,0 +1,847 @@
+/* @theme taia-slides */
+
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600&family=Source+Code+Pro:wght@400;600&display=swap");
+
+/* Inter is self-hosted so the Mermaid step measures text with the same font the
+   deck renders: node sizes would otherwise be computed with a fallback. */
+@font-face {
+  font-family: "Inter";
+  src: url("assets/fonts/Inter.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: block;
+}
+
+/*
+ * Marp theme for the TaIA deck.
+ *
+ * The mockup canvas is 1920x1080; Marp renders 1280x720, so every size here is
+ * the mockup value scaled by 2/3. Colours are sampled from the mockup.
+ *
+ * Slides are authored as plain Markdown: the section class picks the layout
+ * (cover, gold section divider, light content, dark quote, closing) and the
+ * theme draws every piece of chrome (mask, dots, progress bar, rules, bars)
+ * from the section and its pseudo-elements.
+ */
+
+section {
+  --navy: #1a1530;
+  --navy-2: #2b2352;
+  --deep: #3a3160;
+  --purple: #5b4bb5;
+  --cream: #f3ecdd;
+  --cream-2: #ddd3bf;
+  --paper: #f4efe6;
+  --lavender: #cfc6e6;
+  --gold: #f0b24a;
+  --gold-2: #d99a2e;
+  --blue: #6fb7e8;
+  --green: #5fd08a;
+  --red: #e0533f;
+  --muted: #6a6580;
+  --ink: #1a1530;
+
+  /* Inline code defaults to the dark canvases; the light and gold layouts
+     override them right below. */
+  --code-fg: var(--lavender);
+  --code-bg: rgba(207, 198, 230, 0.14);
+
+  width: 1280px;
+  height: 720px;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+  background: var(--navy);
+  color: var(--lavender);
+  font-family: "Inter", Arial, ui-sans-serif, system-ui, sans-serif;
+  font-size: 20px;
+  line-height: 1.4;
+  letter-spacing: normal;
+}
+
+section h1,
+section h2 {
+  margin: 0;
+  font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
+  /* The mockup loads the static Fraunces instance: no optical-size axis. */
+  font-optical-sizing: none;
+  font-weight: 600;
+  color: inherit;
+}
+
+section h3,
+section p,
+section ul,
+section li,
+section blockquote,
+section table,
+section pre,
+section hr {
+  margin: 0;
+  padding: 0;
+}
+
+section ul {
+  list-style: none;
+}
+
+section a {
+  color: inherit;
+  text-decoration: none;
+}
+
+section strong {
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------- layouts -- */
+
+section.light {
+  padding: 85px 85px 107px;
+  background: var(--paper);
+  color: var(--ink);
+  --page-color: var(--muted);
+  --rupee-image: url("assets/rupia.svg");
+  --bar-on: var(--purple);
+  --bar-off: var(--cream-2);
+  --code-fg: var(--purple);
+  --code-bg: rgba(91, 75, 181, 0.1);
+}
+
+section.gold {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 85px 85px 107px;
+  background-color: var(--gold);
+  background-image: url("assets/triforce.svg");
+  background-position: 767px 87px;
+  background-size: 427px 384px;
+  background-repeat: no-repeat;
+  color: var(--ink);
+  --page-color: var(--navy);
+  --rupee-image: url("assets/rupia-navy.svg");
+  --bar-on: var(--navy);
+  --bar-off: var(--gold-2);
+  --code-fg: var(--navy);
+  --code-bg: rgba(26, 21, 48, 0.12);
+}
+
+section.dark {
+  --bar-on: var(--gold);
+  --bar-off: var(--deep);
+}
+
+/* The cover and the closing share the mask, the scattered dots and the dark
+   canvas; only their content differs. */
+section.cover,
+section.closing {
+  background-image: url("assets/majora-mask.png");
+  background-position: 739px 17px;
+  background-size: 507px 457px;
+  background-repeat: no-repeat;
+}
+
+section.cover > header {
+  position: absolute;
+  left: 85px;
+  right: 85px;
+  top: 292px;
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--gold);
+}
+
+section.cover > p {
+  position: absolute;
+}
+
+section.cover > p:has(> img) {
+  left: 79px;
+  top: 269px;
+  width: 526px;
+}
+
+section.cover img {
+  display: block;
+  width: 100%;
+}
+
+section.cover > p:nth-of-type(2) {
+  left: 85px;
+  top: 529px;
+  width: 734px;
+  font-size: 27px;
+  color: var(--lavender);
+}
+
+section.cover > p:nth-of-type(3) {
+  left: 85px;
+  top: 587px;
+  font-size: 19px;
+  color: var(--lavender);
+}
+
+/* Six dots, one pseudo-element: each shadow offsets the base dot to a mockup
+   position and shrinks it with a negative spread. */
+section.cover::before,
+section.closing::before {
+  content: "";
+  position: absolute;
+  left: 107px;
+  top: 107px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--blue);
+  box-shadow:
+    238.5px -48.5px 0 -1.5px var(--green),
+    492px 25px 0 -1px var(--lavender),
+    558.5px -48.5px 0 -1.5px var(--blue),
+    91.5px 111.5px 0 -1.5px var(--green),
+    400px 173px 0 0 var(--lavender);
+}
+
+/* ---------------------------------------------------------------- titles -- */
+
+section.light > header {
+  margin-bottom: 9px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 4px;
+  color: var(--purple);
+}
+
+section.light > h2 {
+  margin-bottom: 37px;
+  font-size: 48px;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+section.gold > h1 {
+  margin-bottom: auto;
+  font-size: 160px;
+  line-height: 1;
+  color: var(--ink);
+}
+
+section.gold > h2 {
+  font-size: 69px;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+section.gold > p {
+  font-size: 27px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+section.dark:not(.closing) {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
+  padding: 85px 85px 107px;
+  background-image: url("assets/clock.svg");
+  background-position: 787px 140px;
+  background-size: 400px 400px;
+  background-repeat: no-repeat;
+}
+
+section.dark:not(.closing) > * {
+  max-width: 760px;
+}
+
+section.dark:not(.closing) > h2 {
+  font-size: 200px;
+  line-height: 1;
+  color: var(--cream);
+}
+
+section.dark:not(.closing) > p:first-of-type {
+  font-size: 35px;
+  color: var(--cream);
+}
+
+section.dark:not(.closing) > p:last-of-type {
+  font-size: 19px;
+  color: var(--lavender);
+}
+
+/* ---------------------------------------------------------------- rules --- */
+
+/* One <hr> draws the whole divider: violet lines on light slides, navy on the
+   gold section, gold on the closing, with the matching triforce in the middle. */
+section hr {
+  --rule-icon: url("assets/separator.svg");
+  --rule-color: var(--purple);
+
+  display: flex;
+  align-items: center;
+  gap: 53px;
+  height: 24px;
+  margin-bottom: 37px;
+  border: 0;
+  background: var(--rule-icon) center / 27px 24px no-repeat;
+}
+
+section hr::before,
+section hr::after {
+  content: "";
+  flex: 1;
+  height: 2px;
+  background: var(--rule-color);
+}
+
+section.gold hr {
+  --rule-icon: url("assets/separator-navy.svg");
+  --rule-color: var(--navy);
+
+  margin-bottom: 0;
+}
+
+section.closing hr {
+  --rule-icon: url("assets/separator-gold.svg");
+  --rule-color: var(--gold);
+
+  margin-bottom: 18px;
+}
+
+/* ----------------------------------------------------------------- bars --- */
+
+/* The mockup marks progress with nine segments across the bottom edge and
+   makes the segment reached by this slide taller. Every segment is its own
+   opaque box, so the gaps are real empty space rather than a mask: a mask makes
+   the PDF printer flatten the whole bar into one low-resolution image, and the
+   separations blur away as soon as the page is zoomed.
+   The mockup's 209/4/213px scale to 139.33/2.67/142; whole pixels keep the
+   printed gap at the mockup's 2.67px without the printer's rounding eating a
+   pixel off it. */
+section.t1,
+section.t2,
+section.t3,
+section.t4,
+section.t5,
+section.t6,
+section.t7,
+section.t8,
+section.t9 {
+  --seg-0: var(--bar-off);
+  --seg-1: var(--bar-off);
+  --seg-2: var(--bar-off);
+  --seg-3: var(--bar-off);
+  --seg-4: var(--bar-off);
+  --seg-5: var(--bar-off);
+  --seg-6: var(--bar-off);
+  --seg-7: var(--bar-off);
+  --seg-8: var(--bar-off);
+}
+
+section.t1 {
+  --n: 1;
+  --seg-0: var(--bar-on);
+}
+
+section.t2 {
+  --n: 2;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+}
+
+section.t3 {
+  --n: 3;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+  --seg-2: var(--bar-on);
+}
+
+section.t4 {
+  --n: 4;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+  --seg-2: var(--bar-on);
+  --seg-3: var(--bar-on);
+}
+
+section.t5 {
+  --n: 5;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+  --seg-2: var(--bar-on);
+  --seg-3: var(--bar-on);
+  --seg-4: var(--bar-on);
+}
+
+section.t6 {
+  --n: 6;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+  --seg-2: var(--bar-on);
+  --seg-3: var(--bar-on);
+  --seg-4: var(--bar-on);
+  --seg-5: var(--bar-on);
+}
+
+section.t7 {
+  --n: 7;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+  --seg-2: var(--bar-on);
+  --seg-3: var(--bar-on);
+  --seg-4: var(--bar-on);
+  --seg-5: var(--bar-on);
+  --seg-6: var(--bar-on);
+}
+
+section.t8 {
+  --n: 8;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+  --seg-2: var(--bar-on);
+  --seg-3: var(--bar-on);
+  --seg-4: var(--bar-on);
+  --seg-5: var(--bar-on);
+  --seg-6: var(--bar-on);
+  --seg-7: var(--bar-on);
+}
+
+section.t9 {
+  --n: 9;
+  --seg-0: var(--bar-on);
+  --seg-1: var(--bar-on);
+  --seg-2: var(--bar-on);
+  --seg-3: var(--bar-on);
+  --seg-4: var(--bar-on);
+  --seg-5: var(--bar-on);
+  --seg-6: var(--bar-on);
+  --seg-7: var(--bar-on);
+  --seg-8: var(--bar-on);
+}
+
+section.t1::before,
+section.t2::before,
+section.t3::before,
+section.t4::before,
+section.t5::before,
+section.t6::before,
+section.t7::before,
+section.t8::before,
+section.t9::before {
+  --segment: 139px;
+  --pitch: 142px;
+
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 1275px;
+  height: 9px;
+  background:
+    linear-gradient(var(--bar-on), var(--bar-on)) calc((var(--n) - 1) * var(--pitch)) bottom /
+      var(--segment) 9px no-repeat,
+    linear-gradient(var(--seg-0), var(--seg-0)) 0 bottom / var(--segment) 5px no-repeat,
+    linear-gradient(var(--seg-1), var(--seg-1)) calc(1 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat,
+    linear-gradient(var(--seg-2), var(--seg-2)) calc(2 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat,
+    linear-gradient(var(--seg-3), var(--seg-3)) calc(3 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat,
+    linear-gradient(var(--seg-4), var(--seg-4)) calc(4 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat,
+    linear-gradient(var(--seg-5), var(--seg-5)) calc(5 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat,
+    linear-gradient(var(--seg-6), var(--seg-6)) calc(6 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat,
+    linear-gradient(var(--seg-7), var(--seg-7)) calc(7 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat,
+    linear-gradient(var(--seg-8), var(--seg-8)) calc(8 * var(--pitch)) bottom / var(--segment)
+      5px no-repeat;
+}
+
+/* ----------------------------------------------------------- pagination --- */
+
+/* Page number plus the rupee marker, bottom right. Marp's own stylesheet hides
+   this on sections it does not paginate. */
+section::after {
+  content: attr(data-marpit-pagination) " / " attr(data-marpit-pagination-total);
+  position: absolute;
+  left: 1103px;
+  right: auto;
+  bottom: 39px;
+  /* Marp's base stylesheet makes the pseudo-element inherit the section
+     padding; reset it so the marker sits on the mockup's baseline. */
+  padding: 0 0 0 25px;
+  font-family: "Inter", Arial, sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 32px;
+  color: var(--page-color, var(--lavender));
+  background: var(--rupee-image, url("assets/rupia-lightgreen.svg")) left center / 16px 32px
+    no-repeat;
+}
+
+/* ----------------------------------------------------------------- lists -- */
+
+/* Plain lists are the bullet slides. The mockup indents the text block by 40px
+   on its 1920 canvas and leaves the markers in that inset (disc, no list
+   padding), so the marker sits left of the text instead of eating into it. */
+section.light > ul {
+  display: flex;
+  flex-direction: column;
+  /* The mockup spaces the items with the 1.35 line-height alone: no extra gap,
+     or the list drifts a whole line off it by the third bullet. */
+  gap: 0;
+  padding-left: 26.67px;
+  list-style: disc;
+}
+
+section.light > ul > li {
+  font-size: 29px;
+  line-height: 1.35;
+}
+
+/* A list whose items open with a heading is the card row. */
+section.light > ul:has(h3) {
+  flex-direction: row;
+  gap: 21px;
+  padding-left: 0;
+  list-style: none;
+  counter-reset: card;
+}
+
+section.light > ul:has(h3) > li {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  padding: 32px;
+  background: #fff;
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+section.light > ul:has(h3) > li::before {
+  counter-increment: card;
+  content: counter(card);
+  font-family: "Fraunces", Georgia, ui-serif, Georgia, serif;
+  font-optical-sizing: none;
+  font-size: 43px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+}
+
+section.light > ul:has(h3) h3 {
+  font-size: 27px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+section.light > ul:has(h3) p {
+  font-size: 20px;
+  color: #4a4560;
+}
+
+/* ------------------------------------------------------------- blockquote -- */
+
+/* A single blockquote is the text/image split: its two paragraphs are the two
+   columns. Three blockquotes make the callout stack. */
+section.light > blockquote:only-of-type {
+  display: grid;
+  grid-template-columns: 40% 1fr;
+  align-items: center;
+  gap: 48px;
+}
+
+section.light > blockquote:only-of-type > p:first-child {
+  font-size: 25px;
+}
+
+section.light > blockquote:only-of-type > p:last-child {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 330px;
+  background: var(--cream-2);
+  font-size: 24px;
+  color: #4a4560;
+}
+
+section.light > blockquote:not(:only-of-type) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 27px;
+}
+
+section.light > blockquote:not(:only-of-type) + blockquote {
+  margin-top: 19px;
+}
+
+section.light > blockquote:not(:only-of-type) > p:first-child {
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+section.light > blockquote:not(:only-of-type) > p:first-child strong {
+  font-size: 16px;
+  letter-spacing: 1px;
+}
+
+section.light > blockquote:not(:only-of-type) > p:last-child {
+  font-size: 23px;
+  color: var(--ink);
+}
+
+section.light > blockquote:not(:only-of-type):nth-of-type(1) {
+  background: #e3eef7;
+}
+
+section.light > blockquote:not(:only-of-type):nth-of-type(1) strong {
+  color: #2f7fbf;
+}
+
+section.light > blockquote:not(:only-of-type):nth-of-type(2) {
+  background: #e1f1e8;
+}
+
+section.light > blockquote:not(:only-of-type):nth-of-type(2) strong {
+  color: #2f9e5f;
+}
+
+section.light > blockquote:not(:only-of-type):nth-of-type(3) {
+  background: #f6ead2;
+}
+
+section.light > blockquote:not(:only-of-type):nth-of-type(3) strong {
+  color: #b9770e;
+}
+
+/* ----------------------------------------------------------------- table -- */
+
+section.light > table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 21px;
+  color: var(--ink);
+  border-top: 2px solid rgba(20, 20, 19, 0.22);
+  border-left: 2px solid rgba(20, 20, 19, 0.22);
+}
+
+section.light > table th,
+section.light > table td {
+  padding: 13px 19px;
+  text-align: left;
+  border-right: 2px solid rgba(20, 20, 19, 0.22);
+  border-bottom: 2px solid rgba(20, 20, 19, 0.22);
+}
+
+section.light > table th {
+  background: var(--navy);
+  color: var(--cream);
+  font-weight: 600;
+}
+
+/* The status column keeps the mockup colours. */
+section.light > table tbody tr:nth-child(1) td:last-child,
+section.light > table tbody tr:nth-child(3) td:last-child {
+  color: #2f7fbf;
+}
+
+section.light > table tbody tr:nth-child(2) td:last-child {
+  color: #2f9e5f;
+}
+
+section.light > table tbody tr:nth-child(4) td:last-child {
+  color: #b9770e;
+}
+
+/* ------------------------------------------------------------------ code -- */
+
+/* Inline code is a tinted pill: the accent colour on a wash of itself, so a
+   technical word reads as one unit without competing with the .code panel.
+   The pill colours are per layout, because the same purple is unreadable on the
+   navy canvas and wrong on the gold one. */
+section code {
+  font-family: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  /* Never break a term such as anju-kafei across two lines. */
+  white-space: nowrap;
+}
+
+/* A fenced block is already a panel: its code must not get the pill too. */
+.code pre code {
+  padding: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+}
+
+/* The deck build turns a fenced block with a title into this panel. */
+.code {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 29px;
+  background: var(--navy);
+  border-radius: 11px;
+}
+
+.code-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 16px;
+  color: #8b86a8;
+}
+
+.code-title i {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.code-title .r {
+  background: var(--red);
+}
+
+.code-title .y {
+  background: var(--gold);
+}
+
+.code-title .g {
+  background: var(--green);
+}
+
+.code-title span {
+  margin-left: 3px;
+}
+
+.code pre {
+  font-family: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 20px;
+  line-height: 1.5;
+  color: #e6e1f5;
+  background: none;
+  white-space: pre;
+}
+
+/* Token colours, sampled from the mockup's graph.py panel. The build tags each
+   token kind; only comments, strings, operators, classes and calls are
+   coloured there, everything else keeps the default text colour. */
+.code .tok-comment {
+  color: #8b86a8;
+  font-style: italic;
+}
+
+.code .tok-string {
+  color: #8fd48a;
+}
+
+.code .tok-class,
+.code .tok-number {
+  color: var(--gold);
+}
+
+.code .tok-call {
+  color: var(--blue);
+}
+
+.code .tok-op,
+.code .tok-keyword {
+  color: #b79ae8;
+}
+
+.code .ln {
+  display: inline-block;
+  width: 24px;
+  color: #7a76a0;
+}
+
+/* --------------------------------------------------------------- diagram -- */
+
+/* The diagram's own look comes from docs/mermaid.css, which the build injects
+   into the SVG; the slide only draws the card around it. */
+.diagram {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 27px;
+  background: var(--navy);
+  border-radius: 11px;
+}
+
+.diagram img {
+  display: block;
+  width: 100%;
+}
+
+.diagram svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* --------------------------------------------------------------- closing -- */
+
+section.closing {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 85px 85px 30px;
+}
+
+section.closing > h1 {
+  margin-bottom: 45px;
+  font-size: 107px;
+  line-height: 1;
+  color: var(--cream);
+}
+
+section.closing > p:first-of-type {
+  margin-bottom: 20px;
+  font-size: 29px;
+  color: var(--lavender);
+}
+
+section.closing > p:last-of-type {
+  display: flex;
+  align-items: center;
+  gap: 43px;
+}
+
+section.closing a {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-size: 21px;
+  color: var(--blue);
+}
+
+section.closing a::before {
+  content: "";
+  display: block;
+  width: 27px;
+  height: 27px;
+  background-position: center;
+  background-size: contain;
+  background-repeat: no-repeat;
+}
+
+section.closing a[href^="mailto:"]::before {
+  background-image: url("assets/email.svg");
+}
+
+section.closing a[href*="github"]::before {
+  background-image: url("assets/github.svg");
+}

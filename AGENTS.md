@@ -397,6 +397,17 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   as the UI) and `--json PATH` writes an extra copy. It needs a configured LLM
   provider on the LLM engine; `--planner deterministic`, and the late-clock
   scenario, run without one. It is not part of pytest.
+* `scripts/slides/` — the deck, kept out of the app: `build.sh` renders
+  `docs/slides.md` to `docs/slides.pdf` with marp-cli and `stage.py` builds the
+  staged copy (each Mermaid fence becomes an inline SVG, a titled code fence
+  becomes the numbered panel the theme draws with its tokens coloured).
+  `docs/marp-theme.css` owns every colour and size, `docs/mermaid.json` plus
+  `docs/mermaid.css` the one diagram style; the deck is plain Markdown with one
+  section class per layout (`cover`, `gold`, `light`, `dark`, `closing`) and
+  `t1`-`t9` for the progress bar. The built PDF is committed, `docs/` stays out
+  of the Docker image, and `tests/test_slides.py` guards the diagram styles and
+  the code-panel tokens. Build: `./scripts/slides/build.sh` (needs Node/npx and
+  Chrome/Chromium; not part of pytest).
 * `app/memory/` — player memory: Pydantic `PlayerPreferences`/`Episode` models
   plus the `MemoryStore` protocol with the thread-safe `InMemoryMemoryStore`
   (keyword ranking; the protocol is the extension point for future persistence).
@@ -569,6 +580,7 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   uv run python -m app                                # headless pipeline demo
   uv run python -m app --deterministic --no-rag       # offline demo
   uv run streamlit run main.py                        # Streamlit UI
+  ./scripts/slides/build.sh                           # rebuild docs/slides.pdf
   ```
 
 ## Git Workflow

@@ -8,4 +8,6 @@ __pycache__/
 htmlcov/
 .cache/
 reports/
+mockup/
+docs/.slides.build.md
 .env
