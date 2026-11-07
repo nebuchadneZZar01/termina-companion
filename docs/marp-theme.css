@@ -736,6 +736,32 @@ section code {
   white-space: pre;
 }
 
+/* Token colours, sampled from the mockup's graph.py panel. The build tags each
+   token kind; only comments, strings, operators, classes and calls are
+   coloured there, everything else keeps the default text colour. */
+.code .tok-comment {
+  color: #8b86a8;
+  font-style: italic;
+}
+
+.code .tok-string {
+  color: #8fd48a;
+}
+
+.code .tok-class,
+.code .tok-number {
+  color: var(--gold);
+}
+
+.code .tok-call {
+  color: var(--blue);
+}
+
+.code .tok-op,
+.code .tok-keyword {
+  color: #b79ae8;
+}
+
 .code .ln {
   display: inline-block;
   width: 24px;

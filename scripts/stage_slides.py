@@ -12,7 +12,8 @@ The deck stays plain Markdown, but two constructs need a build step:
   carries its own style is a build error, so the diagrams cannot drift apart.
 * A fenced code block can name its file with ``title="..."``. Marp has no
   title bar or line numbers, so those fences become the ``div.code`` panel the
-  theme draws, with one numbered span per source line.
+  theme draws, with one numbered span per source line. A Python fence's tokens
+  are wrapped in the classes that give them the mockup's colours.
 
 The output is a staged copy; the source deck itself is never rewritten.
 """
@@ -20,13 +21,16 @@ The output is a staged copy; the source deck itself is never rewritten.
 from __future__ import annotations
 
 import html
+import io
 import json
+import keyword
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import tokenize
 from pathlib import Path
 
 MERMAID_CLI = "@mermaid-js/mermaid-cli@11"
@@ -126,12 +130,115 @@ def render(code: str, workdir: Path, index: int, config: Path) -> str:
     return f'<div class="diagram">{svg}</div>'
 
 
+# The mockup's code panel colours a handful of token kinds and leaves the rest
+# in the default text colour. The spans carry these classes; docs/marp-theme.css
+# owns the actual colours, so the deck never names one.
+_IGNORED_TOKENS = {
+    tokenize.ENCODING,
+    tokenize.ENDMARKER,
+    tokenize.INDENT,
+    tokenize.DEDENT,
+    tokenize.NEWLINE,
+    tokenize.NL,
+}
+# Brackets, separators and the arrow are structure, not operators: the mockup
+# leaves them in the default colour.
+_NEUTRAL_OPERATORS = {
+    "(",
+    ")",
+    "[",
+    "]",
+    "{",
+    "}",
+    ",",
+    ":",
+    ";",
+    ".",
+    "...",
+    "->",
+    "@",
+}
+_STRING_TOKENS = {
+    tokenize.STRING,
+    tokenize.FSTRING_START,
+    tokenize.FSTRING_MIDDLE,
+    tokenize.FSTRING_END,
+}
+
+
+def _token_class(current: tokenize.TokenInfo, following: tokenize.TokenInfo | None) -> str | None:
+    """Pick the stylesheet class for one token, mirroring the mockup's palette."""
+    if current.type in _STRING_TOKENS:
+        return "tok-string"
+    if current.type == tokenize.COMMENT:
+        return "tok-comment"
+    if current.type == tokenize.NUMBER:
+        return "tok-number"
+    if current.type == tokenize.OP:
+        return None if current.string in _NEUTRAL_OPERATORS else "tok-op"
+    if current.type == tokenize.NAME:
+        # Only a name that is actually called gets a colour: the mockup leaves
+        # a class passed as an argument in the default text colour.
+        if following is not None and following.string == "(":
+            return "tok-class" if current.string[:1].isupper() else "tok-call"
+        if keyword.iskeyword(current.string):
+            return "tok-keyword"
+    return None
+
+
+def highlight_python(code: str) -> list[str]:
+    """Split Python source into HTML lines with one span per coloured token.
+
+    Falling back to escaped plain text keeps a snippet with a syntax error
+    readable instead of failing the build.
+    """
+    lines = code.splitlines()
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(code).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return [html.escape(line) for line in lines]
+
+    meaningful = [tok for tok in tokens if tok.type not in _IGNORED_TOKENS]
+    marks: list[list[tuple[int, int, str]]] = [[] for _ in lines]
+    for position, current in enumerate(meaningful):
+        following = meaningful[position + 1] if position + 1 < len(meaningful) else None
+        css = _token_class(current, following)
+        if css is None:
+            continue
+        (start_row, start_col), (end_row, end_col) = current.start, current.end
+        # A multi-line token (a docstring) is one span per line it touches.
+        for row in range(start_row, end_row + 1):
+            begin = start_col if row == start_row else 0
+            end = end_col if row == end_row else len(lines[row - 1])
+            marks[row - 1].append((begin, end, css))
+
+    rendered = []
+    for line, spans in zip(lines, marks, strict=True):
+        pieces: list[str] = []
+        cursor = 0
+        for begin, end, css in sorted(spans):
+            if begin > cursor:
+                pieces.append(html.escape(line[cursor:begin]))
+            pieces.append(f'<span class="{css}">{html.escape(line[begin:end])}</span>')
+            cursor = end
+        pieces.append(html.escape(line[cursor:]))
+        rendered.append("".join(pieces))
+    return rendered
+
+
 def code_panel(match: re.Match[str]) -> str:
     """Turn a titled fence into the code panel with one number per line."""
-    lines = match.group("code").splitlines()
+    code = match.group("code")
+    language = match.group("lang").lower()
+    lines = code.splitlines()
+    highlighted = (
+        highlight_python(code)
+        if language in {"python", "py"}
+        else [html.escape(line) for line in lines]
+    )
     numbered = "\n".join(
-        f'<span class="ln">{number}</span>{html.escape(line)}'
-        for number, line in enumerate(lines, start=1)
+        f'<span class="ln">{number}</span>{line}'
+        for number, line in enumerate(highlighted, start=1)
     )
     title = html.escape(match.group("title"))
     return (

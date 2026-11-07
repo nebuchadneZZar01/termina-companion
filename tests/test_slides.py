@@ -58,3 +58,70 @@ def test_diagram_edges_are_styled() -> None:
             assert f'data-edge-role="{role}"' in css, (
                 f"edge role {role!r} is not styled in docs/mermaid.css"
             )
+
+
+_CODE = """```python title="graph.py"
+# Builds the graph of the four agents
+graph = StateGraph(PlanningState)
+graph.add_node("state", state_agent.run)
+
+
+def start(value: int = 1):
+    return value
+```"""
+
+
+def _code_panel(markdown: str = _CODE) -> str:
+    stager = _stager()
+    match = stager.CODE_FENCE.search(markdown)
+    assert match is not None, "the sample is not a titled fence"
+    return stager.code_panel(match)
+
+
+def test_code_panel_colours_the_mockup_tokens() -> None:
+    """The panel carries the same token kinds the mockup colours."""
+    panel = _code_panel()
+    assert '<span class="tok-comment"># Builds the graph of the four agents</span>' in panel
+    assert '<span class="tok-op">=</span>' in panel
+    assert '<span class="tok-class">StateGraph</span>' in panel
+    assert '<span class="tok-call">add_node</span>' in panel
+    assert '<span class="tok-string">&quot;state&quot;</span>' in panel
+    assert '<span class="tok-keyword">def</span>' in panel
+    assert '<span class="tok-number">1</span>' in panel
+    # The mockup leaves a class passed as an argument, and an uncalled
+    # attribute, in the default text colour.
+    assert '<span class="tok-class">PlanningState</span>' not in panel
+    assert "state_agent.run" in panel
+
+
+def test_code_panel_escapes_source() -> None:
+    """A snippet is text, never markup."""
+    panel = _code_panel(
+        '```python title="x.py"\nprint("<b>")\n```',
+    )
+    assert "&lt;b&gt;" in panel
+    assert "<b>" not in panel
+
+
+def test_code_panel_leaves_other_languages_plain() -> None:
+    """Only Python snippets get token spans."""
+    panel = _code_panel('```bash title="run.sh"\nuv run pytest\n```')
+    assert "tok-" not in panel
+    assert "uv run pytest" in panel
+
+
+def test_code_panel_survives_invalid_python() -> None:
+    """A snippet that does not parse still renders, just unstyled."""
+    panel = _code_panel('```python title="x.py"\ndef broken(\n```')
+    assert "tok-" not in panel
+    assert "def broken(" in panel
+
+
+def test_code_token_classes_are_styled() -> None:
+    """Every token class the build emits has a colour in the theme."""
+    css = (_ROOT / "docs" / "marp-theme.css").read_text(encoding="utf-8")
+    panel = _code_panel()
+    classes = set(re.findall(r'class="(tok-[a-z]+)"', panel))
+    assert classes, "the sample produced no token spans"
+    for name in sorted(classes):
+        assert f".code .{name}" in css, f"token class {name!r} is not styled"
