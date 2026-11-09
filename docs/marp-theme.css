@@ -464,10 +464,17 @@ section.t9::before {
 
 /* ----------------------------------------------------------- pagination --- */
 
-/* Page number plus the rupee marker, bottom right. Marp's own stylesheet hides
-   this on sections it does not paginate. */
-section::after {
-  content: attr(data-marpit-pagination) " / " attr(data-marpit-pagination-total);
+/* Page number plus the rupee marker, bottom right. The deck numbers only the
+   slides between the cover and the closing, so the printed page is not Marp's
+   own slide index. Marp reserves `section::after` for its count and strips any
+   `content` a theme gives it, so `stage.py` appends a real `.page-no` span to
+   each numbered slide and this rule only places it. Marp's base stylesheet
+   still hides its own `::after` on the unpaginated sections. */
+section[data-marpit-pagination]::after {
+  display: none;
+}
+
+.page-no {
   position: absolute;
   left: 1103px;
   right: auto;
@@ -566,7 +573,9 @@ section.light > blockquote:only-of-type > p:last-child {
   align-items: center;
   justify-content: center;
   height: 330px;
-  background: var(--cream-2);
+  /* No card behind the screenshots: the figure only centres the image, and the
+     border lives on the image so it hugs the pixels instead of an empty box. */
+  background: none;
   font-size: 24px;
   color: #4a4560;
 }
@@ -771,13 +780,15 @@ section code {
 /* --------------------------------------------------------------- diagram -- */
 
 /* The diagram's own look comes from docs/mermaid.css, which the build injects
-   into the SVG; the slide only draws the card around it. */
+   into the SVG; the slide only draws the card around it. Screenshots share the
+   same hairline frame, so the deck reads as one set. */
 .diagram {
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 27px;
   background: var(--navy);
+  border: 2px solid var(--cream-2);
   border-radius: 11px;
 }
 
@@ -790,6 +801,21 @@ section code {
   display: block;
   width: 100%;
   height: auto;
+}
+
+/* ----------------------------------------------------------------- shots -- */
+
+/* The text/image split is one blockquote: the second paragraph holds the
+   screenshot, so it has to stay inside the fixed figure area. */
+section.light > blockquote:only-of-type > p:last-child img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  /* Keep the hairline inside the height cap, so the frame never spills past
+     the column and never wraps empty space. */
+  box-sizing: border-box;
+  border: 2px solid var(--cream-2);
+  border-radius: 10px;
 }
 
 /* --------------------------------------------------------------- closing -- */

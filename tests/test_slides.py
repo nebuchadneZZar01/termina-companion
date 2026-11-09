@@ -125,3 +125,60 @@ def test_code_token_classes_are_styled() -> None:
     assert classes, "the sample produced no token spans"
     for name in sorted(classes):
         assert f".code .{name}" in css, f"token class {name!r} is not styled"
+
+
+_DECK_SAMPLE = """---
+marp: true
+paginate: true
+---
+
+<!-- _class: cover -->
+<!-- _paginate: false -->
+
+Cover
+
+---
+
+<!-- _class: light t1 -->
+
+## Content
+
+---
+
+<!-- _class: closing -->
+<!-- _paginate: false -->
+
+Closing
+"""
+
+
+def test_page_numbers_skip_the_unpaginated_slides() -> None:
+    """Cover and closing stay out of the deck's own count."""
+    stager = _stager()
+    assert stager.numbered_slides(_DECK_SAMPLE) == [1]
+
+
+def test_page_numbers_are_real_spans_not_marp_pagination() -> None:
+    """Marp strips `content` from a theme's `section::after`, so the count is a span."""
+    staged = _stager().inject_page_numbers(_DECK_SAMPLE)
+    assert staged.count('class="page-no"') == 1
+    assert '<span class="page-no">1 / 1</span>' in staged
+    assert staged.index('class="page-no"') > staged.index("## Content")
+
+
+def test_page_number_never_swallows_the_next_slide() -> None:
+    """The span needs its own blank line, or Marp stops seeing the `---` break."""
+    staged = _stager().inject_page_numbers(_DECK_SAMPLE)
+    assert "</span>\n\n---\n" in staged
+
+
+def test_page_numbers_match_the_shipped_deck() -> None:
+    """Every numbered slide of the real deck gets exactly one span."""
+    stager = _stager()
+    deck = _DECK.read_text(encoding="utf-8")
+    staged = stager.inject_page_numbers(deck)
+    total = len(stager.numbered_slides(deck))
+    spans = re.findall(r'<span class="page-no">(\d+) / (\d+)</span>', staged)
+    assert len(spans) == total
+    assert [int(page) for page, _ in spans] == list(range(1, total + 1))
+    assert {denominator for _, denominator in spans} == {str(total)}

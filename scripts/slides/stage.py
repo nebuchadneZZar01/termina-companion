@@ -251,6 +251,56 @@ def code_panel(match: re.Match[str]) -> str:
     )
 
 
+FRONT_MATTER = re.compile(r"\A---\n(?P<body>.*?)\n---\n", re.DOTALL)
+SLIDE_SEPARATOR = re.compile(r"\n---\n")
+
+
+def numbered_slides(deck: str) -> list[int]:
+    """Return the 0-based indexes of the slides that carry a page number.
+
+    The deck leaves the cover and the closing out of the count with a local
+    ``_paginate: false`` directive, so their slide is skipped.
+
+    args:
+        deck (str): the deck source, front matter included.
+
+    returns:
+        list[int]: indexes of the numbered slides, in deck order.
+    """
+    match = FRONT_MATTER.match(deck)
+    body = deck[match.end() :] if match else deck
+    slides = SLIDE_SEPARATOR.split(body)
+    return [index for index, slide in enumerate(slides) if "_paginate: false" not in slide]
+
+
+def inject_page_numbers(deck: str) -> str:
+    """Append the printed page number to every numbered slide.
+
+    Marp numbers every slide and reserves ``section::after`` for its own count,
+    whose ``content`` it strips from any theme or ``style`` rule. A real span
+    is the one way to print a different total, and it also keeps the marker in
+    the HTML export.
+
+    args:
+        deck (str): the deck source, front matter included.
+
+    returns:
+        str: the deck with one ``<span class="page-no">`` per numbered slide.
+    """
+    match = FRONT_MATTER.match(deck)
+    head = deck[: match.end()] if match else ""
+    body = deck[match.end() :] if match else deck
+    slides = SLIDE_SEPARATOR.split(body)
+    positions = numbered_slides(deck)
+    total = len(positions)
+    if not total:
+        return deck
+    for page, index in enumerate(positions, start=1):
+        slides[index] += f'\n\n<span class="page-no">{page} / {total}</span>\n'
+    separator = "\n---\n".join(slides)
+    return head + separator
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print("usage: stage.py <input.md> <output.md>", file=sys.stderr)
@@ -258,6 +308,7 @@ def main() -> int:
 
     source_path, output_path = (Path(arg) for arg in sys.argv[1:3])
     deck = source_path.read_text(encoding="utf-8")
+    deck = inject_page_numbers(deck)
 
     if not shutil.which("npx"):
         print("npx not found: install Node.js to render the Mermaid diagrams", file=sys.stderr)
