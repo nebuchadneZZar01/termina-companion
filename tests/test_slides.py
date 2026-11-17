@@ -19,7 +19,6 @@ _CSS = _ROOT / "docs" / "mermaid.css"
 
 _FENCE = re.compile(r"^```mermaid\n(.*?)^```$", re.MULTILINE | re.DOTALL)
 _ROLE = re.compile(r"^class\s+[\w,\s]+?\s+([A-Za-z]\w*)\s*;\s*$", re.MULTILINE)
-_EDGE = re.compile(r"\be_([A-Za-z][\w-]*?)@", re.MULTILINE)
 
 
 def _stager():
@@ -47,17 +46,6 @@ def test_diagram_roles_are_styled() -> None:
     for fence in _fences():
         for role in _ROLE.findall(fence):
             assert f".{role} rect" in css, f"role {role!r} is not styled in docs/mermaid.css"
-
-
-def test_diagram_edges_are_styled() -> None:
-    """Every edge role the deck tags has a rule in the shared stylesheet."""
-    css = _CSS.read_text(encoding="utf-8")
-    for fence in _fences():
-        for tag in _EDGE.findall(fence):
-            role = tag.rstrip("0123456789") or tag
-            assert f'data-edge-role="{role}"' in css, (
-                f"edge role {role!r} is not styled in docs/mermaid.css"
-            )
 
 
 _CODE = """```python title="graph.py"

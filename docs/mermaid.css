@@ -6,10 +6,8 @@
  * diagram when it is inlined in the slide. Mermaid prefixes every selector with
  * the diagram id, so plain selectors are enough.
  *
- * The deck only says *what* a thing is: `class gs start;` gives a node a role,
- * and an edge id like `e_acc1@-->` (the trailing digit only keeps the ids
- * unique) marks an edge with a role. Every colour lives here, so all diagrams
- * in the deck share one look.
+ * The deck only says *what* a thing is: `class gs start;` gives a node a role.
+ * Every colour lives here, so all diagrams in the deck share one look.
  */
 
 /* ------------------------------------------------------------------ nodes -- */
@@ -110,9 +108,11 @@
   stroke-width: 3px;
 }
 
-/* The re-plan branch: the decision's "No" exit and the edge looping back. */
-path[data-edge-role="acc"] {
-  stroke: #b79ae8 !important;
+/* Dashed edges are the support links around the run, so they take the support
+   grey instead of the pipeline's gold. */
+path.edge-pattern-dotted {
+  stroke: #6b628f !important;
+  stroke-width: 2px !important;
 }
 
 /* Mermaid draws edge labels as half-transparent rectangles; the mockup uses
@@ -137,4 +137,108 @@ path[data-edge-role="acc"] {
 .node rect.label-container {
   rx: 14px;
   ry: 14px;
+}
+
+/* ---------------------------------------------------------------- support -- */
+
+/* Infrastructure stands beside the pipeline, not in it: dashed outline and
+   muted fill, so the solid nodes and gold arrows stay the plan path. */
+.ext rect,
+.ext polygon,
+.ext ellipse,
+.ext circle,
+.ext path {
+  fill: rgba(58, 49, 96, 0.35) !important;
+  stroke: #6b628f !important;
+  stroke-width: 1.5px !important;
+  stroke-dasharray: 6 5 !important;
+  color: #cdc6e6 !important;
+}
+
+.ext tspan {
+  fill: #cdc6e6 !important;
+}
+
+/* ---------------------------------------------------------------- cluster -- */
+
+/* The re-plan cycle is a subgraph, so its bound is drawn and not only stated
+   in a bullet: a dashed purple box around Planning and Critic, labelled with
+   the attempt limit. */
+.cluster rect {
+  fill: rgba(183, 154, 232, 0.07) !important;
+  stroke: #b79ae8 !important;
+  stroke-width: 1.5px !important;
+  stroke-dasharray: 7 6 !important;
+  rx: 14px;
+  ry: 14px;
+}
+
+.cluster text {
+  fill: #f0b24a !important;
+  font-size: 21px !important;
+  letter-spacing: 0.06em;
+}
+
+/* --------------------------------------------------------------- sequence -- */
+
+/* A sequence diagram draws lifelines and frames with its own primitives, so the
+   loop frame, its tag and the note need the same palette by hand. */
+.actor {
+  fill: #2b2352 !important;
+  stroke: #8b7bd8 !important;
+}
+
+.actor tspan {
+  fill: #f3ecdd !important;
+}
+
+/* Lifelines are the run's timeline, not an actor: a thin support grey. */
+.actor-line {
+  stroke: #6b628f !important;
+  stroke-width: 1px !important;
+}
+
+.loopLine {
+  stroke: #6b628f !important;
+  stroke-width: 1.5px !important;
+}
+
+.loopText,
+.loopText tspan {
+  fill: #cdc6e6 !important;
+  color: #cdc6e6 !important;
+}
+
+/* The frame's tag sits on its own border, so it takes the card colour and reads
+   as a chip instead of a box drawn over the line. */
+.labelBox {
+  fill: #1a1530 !important;
+  stroke: none !important;
+  rx: 6px;
+  ry: 6px;
+}
+
+.labelText,
+.labelText tspan {
+  fill: #f3ecdd !important;
+  color: #f3ecdd !important;
+}
+
+.messageText,
+.messageText tspan {
+  fill: #f3ecdd !important;
+  color: #f3ecdd !important;
+}
+
+/* A call is part of the plan path, so it is gold; a return is the same path
+   drawn dashed, never the grey reserved for support links. */
+.messageLine0 {
+  stroke: #f0b24a !important;
+  stroke-width: 2px !important;
+}
+
+.messageLine1 {
+  stroke: #f0b24a !important;
+  stroke-width: 2px !important;
+  stroke-dasharray: 6 5 !important;
 }
