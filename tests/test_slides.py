@@ -140,6 +140,38 @@ Closing
 """
 
 
+_ACTOR_SVG = (
+    '<svg viewBox="-50 -17 430 191">'
+    '<g class="actor-man actor-top" name="U" data-type="actor" '
+    'style="stroke: rgb(139, 123, 216);">'
+    '<line id="actor-man-torso0" x1="75" y1="25" x2="75" y2="45"/>'
+    '<line id="actor-man-arms0" x1="57" y1="33" x2="93" y2="33"/>'
+    '<circle cx="75" cy="10" r="15"/>'
+    '<text x="75" y="67.5" class="actor actor-man"><tspan>Player</tspan></text>'
+    "</g>"
+    '<g class="actor actor-box"><rect width="150" height="65"/></g>'
+    "</svg>"
+)
+
+
+def test_sequence_actor_keeps_its_figure_and_gets_dressed() -> None:
+    """The stick figure stays; the cap and the sword sit on its head and hand."""
+    marked = _stager().player_mark(_ACTOR_SVG)
+    assert marked.count('class="player-mark"') == 1
+    assert "actor-man-torso0" in marked
+    assert "actor-man-arms0" in marked
+    assert "Player" in marked
+    assert "translate(75 10)" in marked
+    # The participants stay untouched: only the actor is dressed.
+    assert 'class="actor actor-box"' in marked
+
+
+def test_actor_without_a_head_is_left_alone() -> None:
+    """A group with no head to anchor on never changes."""
+    odd = '<g class="actor-man actor-top"><text>Player</text></g>'
+    assert _stager().player_mark(odd) == odd
+
+
 def test_page_numbers_skip_the_unpaginated_slides() -> None:
     """Cover and closing stay out of the deck's own count."""
     stager = _stager()

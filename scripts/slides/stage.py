@@ -104,6 +104,51 @@ def tag_edges(svg: str) -> str:
     )
 
 
+# A sequence-diagram actor is Mermaid's stick figure. The deck's player is the
+# same figure, wearing a green cap and holding a sword in its right hand: the
+# mark is drawn on top of the actor, anchored at the centre of its head. A fence
+# may not carry style, and this is not a role but one specific actor.
+_PLAYER_MARK = (
+    # The cap: a band across the crown and a point above it.
+    '<path d="M-16 -4 Q-15 -13 -4 -16 Q6 -11 14 -4 Z" fill="#4caf50" '
+    'stroke="#2f7d32" stroke-width="1.4" stroke-linejoin="round"/>'
+    '<path d="M-17 -4 Q-2 2 15 -6" fill="none" stroke="#2f7d32" '
+    'stroke-width="2.2" stroke-linecap="round"/>'
+    # The sword, raised from the hand at the right arm (x +18, y +23).
+    '<path d="M18 14 L18 -2" stroke="#dfe6f2" stroke-width="3.2" '
+    'stroke-linecap="round" fill="none"/>'
+    '<path d="M11 16 L25 16" stroke="#f0b24a" stroke-width="2.8" '
+    'stroke-linecap="round" fill="none"/>'
+    '<path d="M18 25 L18 17" stroke="#8a5a2b" stroke-width="3" '
+    'stroke-linecap="round" fill="none"/>'
+)
+_ACTOR = re.compile(r'<g class="actor-man[^"]*"[^>]*>.*?</g>', re.DOTALL)
+_ACTOR_HEAD = re.compile(r'<circle cx="([-\d.]+)" cy="([-\d.]+)"')
+
+
+def player_mark(svg: str) -> str:
+    """Dress Mermaid's stick-figure actor as the player, keeping its label.
+
+    args:
+        svg (str): a rendered Mermaid SVG.
+
+    returns:
+        str: the SVG with every actor wearing the cap and holding the sword.
+    """
+
+    def swap(match: re.Match[str]) -> str:
+        group = match.group(0)
+        head = _ACTOR_HEAD.search(group)
+        if head is None:
+            return group
+        x = float(head.group(1))
+        y = float(head.group(2))
+        icon = f'<g class="player-mark" transform="translate({x:g} {y:g})">{_PLAYER_MARK}</g>'
+        return group.replace("</g>", f"{icon}</g>")
+
+    return _ACTOR.sub(swap, svg)
+
+
 def render(code: str, workdir: Path, index: int, config: Path) -> str:
     source = workdir / f"diagram-{index}.mmd"
     target = workdir / f"diagram-{index}.svg"
@@ -126,7 +171,7 @@ def render(code: str, workdir: Path, index: int, config: Path) -> str:
         ],
         check=True,
     )
-    svg = tag_edges(target.read_text(encoding="utf-8").strip())
+    svg = player_mark(tag_edges(target.read_text(encoding="utf-8").strip()))
     return f'<div class="diagram">{svg}</div>'
 
 

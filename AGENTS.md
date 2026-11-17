@@ -400,7 +400,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
 * `scripts/slides/` — the deck, kept out of the app: `build.sh` renders
   `docs/slides.md` to `docs/slides.pdf` with marp-cli and `stage.py` builds the
   staged copy (each Mermaid fence becomes an inline SVG, a titled code fence
-  becomes the numbered panel the theme draws with its tokens coloured).
+  becomes the numbered panel the theme draws with its tokens coloured, and a
+  sequence diagram's actor is dressed as the deck's player — a green cap and a
+  sword on Mermaid's stick figure).
   `docs/marp-theme.css` owns every colour and size, `docs/mermaid.json` plus
   `docs/mermaid.css` the one diagram style; the deck is plain Markdown with one
   section class per layout (`cover`, `gold`, `light`, `dark`, `closing`) and
