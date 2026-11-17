@@ -15,9 +15,16 @@
   "flowchart": {
     "curve": "linear",
     "htmlLabels": false,
-    "nodeSpacing": 50,
-    "rankSpacing": 80,
+    "nodeSpacing": 45,
+    "rankSpacing": 60,
     "padding": 10,
     "wrappingWidth": 400
+  },
+  "sequence": {
+    "mirrorActors": false,
+    "messageMargin": 30,
+    "actorMargin": 30,
+    "boxMargin": 10,
+    "diagramMarginY": 17
   }
 }
