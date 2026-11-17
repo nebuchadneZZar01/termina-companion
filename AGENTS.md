@@ -524,15 +524,17 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   the run id, node timeline and any errors after the plan. `--deterministic`
   and `--no-rag` run it fully offline (no LLM, no wiki), `--debug` adds the
   traceback of an unexpected failure.
-* `docker-compose.yml` — local stack. The default `docker compose up -d` starts
-  only the Arize Phoenix container (web UI and OTLP/HTTP receiver share
-  `:6006`; Phoenix has no `:4318` listener — that port belongs to the generic
-  OTel Collector). The `app` profile
-  (`docker compose --profile app up -d --build`) adds TaIA itself, reading
-  `.env`, persisting `/data` on the `termina_data` volume, pinning the LLM
-  values explicitly and taking the container base URL from
+* `docker-compose.yml` — local stack. `docker compose up -d` starts TaIA
+  together with the Arize Phoenix container (web UI and OTLP/HTTP receiver
+  share `:6006`; Phoenix has no `:4318` listener — that port belongs to the
+  generic OTel Collector); the `app` service **pulls** the image
+  CI publishes to GHCR
+  (`ghcr.io/nebuchadnezzar01/termina-companion:latest`, or whatever
+  `TERMINA_IMAGE` names) instead of building it locally. It reads
+  `.env`, persists `/data` on the `termina_data` volume, pins the LLM
+  values explicitly and takes the container base URL from
   `LLM_BASE_URL_DOCKER` (`.env`'s localhost stays valid for local runs), and
-  overriding the OTLP endpoint to `http://phoenix:6006`. The app is fully
+  overrides the OTLP endpoint to `http://phoenix:6006`. The app is fully
   functional (no-op tracing) when Phoenix is not running.
 * `docker-compose.ollama.yml` — optional override adding a containerized Ollama
   (`ollama_data` volume, `ollama list` healthcheck) and pointing `app` at it via

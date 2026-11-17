@@ -505,8 +505,9 @@ for now).
 
 * [x] Add `Dockerfile` for the Streamlit app (multi-stage uv build, slim
   runtime, `/data` volume)
-* [x] Add `docker-compose.yml` for local orchestration (the `app` profile runs
-  TaIA next to Phoenix and overrides the OTLP endpoint for the Compose network)
+* [x] Add `docker-compose.yml` for local orchestration (one `up -d` runs TaIA
+  from the published image next to Phoenix and overrides the OTLP endpoint for
+  the Compose network)
 * [x] Run the app as a non-root user in the container (uid 10001)
 * [x] Add healthcheck for the running app (`/_stcore/health`, declared both in
   the image and by Compose)

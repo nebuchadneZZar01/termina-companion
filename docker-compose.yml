@@ -3,9 +3,12 @@
 # Phoenix only:
 #   docker compose up -d
 #
-# TaIA + Phoenix:
-#   docker compose --profile app up -d --build
+# TaIA + Phoenix (the app image is pulled from GHCR, never built here):
+#   docker compose up -d
 #   # TaIA: http://localhost:8501 - Phoenix: http://localhost:6006
+#
+# TERMINA_IMAGE picks the app image (default :latest; pin a :sha-<commit> or a
+# release tag for a reproducible run).
 #
 # Containerized Ollama: add -f docker-compose.ollama.yml (see that file).
 #
@@ -15,10 +18,7 @@
 
 services:
   app:
-    profiles: ["app"]
-    build:
-      context: .
-    image: termina-companion:local
+    image: ${TERMINA_IMAGE:-ghcr.io/nebuchadnezzar01/termina-companion:latest}
     container_name: termina-app
 
     env_file:

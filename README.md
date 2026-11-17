@@ -108,12 +108,19 @@ docker build -t termina-companion .
 docker run --rm -p 8501:8501 --env-file .env termina-companion
 ```
 
-Or start TaIA together with the Phoenix tracing backend through Compose:
+Or start TaIA together with the Phoenix tracing backend through Compose. The
+`app` service pulls the image CI publishes to GHCR, it does not build it:
 
 ```sh
-docker compose --profile app up -d --build
-docker compose --profile app logs -f app
+docker compose up -d
+docker compose logs -f app
 ```
+
+The image defaults to `ghcr.io/nebuchadnezzar01/termina-companion:latest`; set
+`TERMINA_IMAGE` to pin another one (`:sha-<commit>`, a release tag) or to run a
+local build (`TERMINA_IMAGE=termina-companion:local` after
+`docker build -t termina-companion .`). `docker compose pull` refreshes
+`:latest` before a run.
 
 Open <http://localhost:8501> (set `TERMINA_PORT` to publish a different port).
 `curl localhost:8501/_stcore/health` answers `ok` when the app is healthy; the
@@ -158,8 +165,7 @@ override file. It only adds the service and points TaIA at it over the Compose
 network (service DNS, no host gateway):
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.ollama.yml \
-  --profile app up -d --build
+docker compose -f docker-compose.yml -f docker-compose.ollama.yml up -d
 docker compose -f docker-compose.yml -f docker-compose.ollama.yml \
   exec ollama ollama pull llama3.2
 ```
@@ -173,7 +179,14 @@ image and the model. A host Ollama keeps using `docker-compose.yml` alone.
 
 CI builds the image on every push and pull request and publishes it on `main`
 and on `v*` tags as `ghcr.io/<owner>/termina-companion:latest`, `:sha-<commit>`
-and the release tag, so a run can pull it instead of building:
+and the release tag. Compose pulls that image, so no local build is needed:
+
+```sh
+docker compose pull            # refresh :latest
+docker compose up -d
+```
+
+A plain `docker run` works the same way:
 
 ```sh
 docker run --rm -p 8501:8501 --env-file .env \

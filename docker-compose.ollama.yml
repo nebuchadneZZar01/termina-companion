@@ -1,7 +1,6 @@
 # Optional override: TaIA against a containerized Ollama.
 #
-#   docker compose -f docker-compose.yml -f docker-compose.ollama.yml \
-#     --profile app up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.ollama.yml up -d
 #   docker compose -f docker-compose.yml -f docker-compose.ollama.yml \
 #     exec ollama ollama pull llama3.2
 #
