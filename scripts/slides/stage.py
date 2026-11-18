@@ -114,165 +114,139 @@ _PLAYER_MARK = (
     # LINK'S GREEN CAP
     # ==========================================
     '<g transform="translate(-2.0 -4.1) scale(1.2) rotate(15)">'
-
     # Original cap with taller upper tip curved to the right
     '<path d="'
-    'M-11 -2 '
-    'C-10 -10 -6 -18 -2 -21 '
-    'C2 -23 8 -22 12 -21 '
-    'L13 -18 '
-    'C16 -15 22 -13 28 -13 '
-    'C33 -13 37 -17 39 -20 '
-    'Q38 -14 29 -9 '
-    'Q18 -3 7 -4 '
-    'Q-3 1 -11 -2 Z'
+    "M-11 -2 "
+    "C-10 -10 -6 -18 -2 -21 "
+    "C2 -23 8 -22 12 -21 "
+    "L13 -18 "
+    "C16 -15 22 -13 28 -13 "
+    "C33 -13 37 -17 39 -20 "
+    "Q38 -14 29 -9 "
+    "Q18 -3 7 -4 "
+    "Q-3 1 -11 -2 Z"
     '" fill="#4caf50" stroke="#2f7d32" '
     'stroke-width="1.4" stroke-linejoin="round"/>'
-
     # Original curved brim
     '<path d="M-12 -2 Q-2 2 5 -2 Q10 -4 14 -7" '
     'fill="none" stroke="#256b2c" '
     'stroke-width="2.8" stroke-linecap="round"/>'
-
-    '</g>'
-
+    "</g>"
     # ==========================================
     # MASTER SWORD
     # Pivot: right hand (25, 25)
     # ==========================================
     '<g transform="rotate(25 18 25)">'
-
     # Blade
     '<path d="'
-    'M15.5 12 '
-    'L14.5 4 '
-    'L15.5 -8 '
-    'L18 -17 '
-    'L20.5 -8 '
-    'L21.5 4 '
-    'L20.5 12 Z'
+    "M15.5 12 "
+    "L14.5 4 "
+    "L15.5 -8 "
+    "L18 -17 "
+    "L20.5 -8 "
+    "L21.5 4 "
+    "L20.5 12 Z"
     '" fill="#dce6f2" stroke="#8798b3" '
     'stroke-width="0.8" stroke-linejoin="round"/>'
-
     # Central blade ridge
     '<path d="M18 12 L18 -15 '
     'L19.5 -8 L19.5 4 Z" '
     'fill="#a9c6e8"/>'
-
     # Left blade highlight
     '<path d="M16 8 L16.5 -7 L18 -15" '
     'fill="none" stroke="#ffffff" '
     'stroke-width="0.9" stroke-linecap="round"/>'
-
     # Blue central fuller
     '<path d="M18 8 L18 -12" '
     'fill="none" stroke="#779ac8" '
     'stroke-width="0.65" stroke-linecap="round"/>'
-
     # Left wing
     '<path d="M17 14 Q13 10 9 7 L7 8 '
     'Q8 13 12 17 L17 16 Z" '
     'fill="#393064" stroke="#211a49" '
     'stroke-width="1" stroke-linejoin="round"/>'
-
     # Right wing
     '<path d="M19 14 Q23 10 27 7 L29 8 '
     'Q28 13 24 17 L19 16 Z" '
     'fill="#393064" stroke="#211a49" '
     'stroke-width="1" stroke-linejoin="round"/>'
-
     # Gold decorative wing edges
     '<path d="M8 8 Q12 11 16 14 '
     'M28 8 Q24 11 20 14" '
     'fill="none" stroke="#c69a42" '
     'stroke-width="0.8" stroke-linecap="round"/>'
-
     # Violet wing highlights
     '<path d="M10 9 Q13 12 15 14 '
     'M26 9 Q23 12 21 14" '
     'fill="none" stroke="#7165a8" '
     'stroke-width="0.9" stroke-linecap="round"/>'
-
     # Central guard
     '<path d="M15 12 L18 9 L21 12 '
     'L20 17 L16 17 Z" '
     'fill="#302653" stroke="#211a49" '
     'stroke-width="0.9"/>'
-
     # Golden central jewel
     '<path d="M18 10.5 L20 13 '
     'L18 15.5 L16 13 Z" '
     'fill="#e5ae3e" stroke="#a87524" '
     'stroke-width="0.7"/>'
-
     # Dark violet-blue handle
     '<path d="M18 17 L18 24" '
     'stroke="#29204f" stroke-width="3.5" '
     'stroke-linecap="round" fill="none"/>'
-
     # Grip texture
     '<path d="M16.7 19 L19.3 21 '
     'M16.7 22 L19.3 24" '
     'stroke="#6555a0" stroke-width="0.8" '
     'stroke-linecap="round" fill="none"/>'
-
     # Golden pommel
     '<circle cx="18" cy="25" r="1.8" '
     'fill="#d5a33e" stroke="#8a6429" '
     'stroke-width="0.7"/>'
-
-    '</g>'
-
+    "</g>"
     # ==========================================
     # HYLIAN SHIELD
     # ==========================================
     '<g transform="translate(-19 23) scale(0.75)">'
-
     # Outer golden border
     '<path d="'
-    'M-10 -15 '
-    'L10 -15 '
-    'L10 3 '
-    'Q9 16 0 23 '
-    'Q-9 16 -10 3 Z'
+    "M-10 -15 "
+    "L10 -15 "
+    "L10 3 "
+    "Q9 16 0 23 "
+    "Q-9 16 -10 3 Z"
     '" fill="#d6a33e" stroke="#805d26" '
     'stroke-width="1.5" stroke-linejoin="round"/>'
-
     # Blue shield body
     '<path d="'
-    'M-8 -13 '
-    'L8 -13 '
-    'L8 3 '
-    'Q7 14 0 20 '
-    'Q-7 14 -8 3 Z'
+    "M-8 -13 "
+    "L8 -13 "
+    "L8 3 "
+    "Q7 14 0 20 "
+    "Q-7 14 -8 3 Z"
     '" fill="#28558c" stroke="#182f58" '
     'stroke-width="1"/>'
-
     # Central silver ridge
     '<path d="M0 -12 L0 18" '
     'stroke="#8ca9cf" stroke-width="0.8" '
     'opacity="0.8"/>'
-
     # Triforce
     '<path d="M0 -9 L-3 -4 L3 -4 Z '
-    'M-3 -4 L-6 1 L0 1 Z '
+    "M-3 -4 L-6 1 L0 1 Z "
     'M3 -4 L0 1 L6 1 Z" '
     'fill="#f5d45c" stroke="#b58a32" '
     'stroke-width="0.55" stroke-linejoin="round"/>'
-
     # Red bird crest
     '<path d="M-6 6 Q-3 3 0 7 '
-    'Q3 3 6 6 Q3 11 0 12 '
+    "Q3 3 6 6 Q3 11 0 12 "
     'Q-3 11 -6 6 Z" '
     'fill="#b83242" stroke="#76212e" '
     'stroke-width="0.7"/>'
-
     # Decorative lower detail
     '<path d="M-3 14 L0 17 L3 14" '
     'fill="none" stroke="#e4c36a" '
     'stroke-width="0.8"/>'
-
-    '</g>'
+    "</g>"
 )
 
 _ACTOR = re.compile(r'<g class="actor-man[^"]*"[^>]*>.*?</g>', re.DOTALL)
