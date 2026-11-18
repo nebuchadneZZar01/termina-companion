@@ -1,5 +1,6 @@
 ---
 marp: true
+title: TaIA - Majora's Mask Multiagent Planner
 theme: taia-slides
 paginate: true
 size: 16:9
