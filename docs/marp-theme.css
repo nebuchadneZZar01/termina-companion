@@ -557,8 +557,9 @@ section.light > ul:has(h3) p {
 
 /* A single blockquote with two paragraphs is the text/image split: the two
    paragraphs are the two columns. With one paragraph it is a lead sentence.
-   Three blockquotes make the callout stack. */
-section.light > blockquote:only-of-type:has(> p + p) {
+   Three blockquotes make the callout stack, and one labelled blockquote is a
+   lone callout. */
+section.light > blockquote:only-of-type:has(> p + p):not(:has(> p:first-child > strong:only-child)) {
   display: grid;
   grid-template-columns: 40% 1fr;
   align-items: center;
@@ -569,7 +570,7 @@ section.light > blockquote:only-of-type:has(> p + p) > p:first-child {
   font-size: 25px;
 }
 
-section.light > blockquote:only-of-type:has(> p + p) > p:last-child {
+section.light > blockquote:only-of-type:has(> p + p):not(:has(> p:first-child > strong:only-child)) > p:last-child {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -586,7 +587,8 @@ section.light > blockquote:only-of-type:not(:has(> p + p)) {
   line-height: 1.5;
 }
 
-section.light > blockquote:not(:only-of-type) {
+section.light > blockquote:not(:only-of-type),
+section.light > blockquote:has(> p:first-child > strong:only-child) {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -597,17 +599,20 @@ section.light > blockquote:not(:only-of-type) + blockquote {
   margin-top: 19px;
 }
 
-section.light > blockquote:not(:only-of-type) > p:first-child {
+section.light > blockquote:not(:only-of-type) > p:first-child,
+section.light > blockquote:has(> p:first-child > strong:only-child) > p:first-child {
   font-size: 16px;
   line-height: 1.4;
 }
 
-section.light > blockquote:not(:only-of-type) > p:first-child strong {
+section.light > blockquote:not(:only-of-type) > p:first-child strong,
+section.light > blockquote:has(> p:first-child > strong:only-child) > p:first-child strong {
   font-size: 16px;
   letter-spacing: 1px;
 }
 
-section.light > blockquote:not(:only-of-type) > p:last-child {
+section.light > blockquote:not(:only-of-type) > p:last-child,
+section.light > blockquote:has(> p:first-child > strong:only-child) > p:last-child {
   font-size: 23px;
   color: var(--ink);
 }
@@ -634,6 +639,29 @@ section.light > blockquote:not(:only-of-type):nth-of-type(3) {
 
 section.light > blockquote:not(:only-of-type):nth-of-type(3) strong {
   color: #b9770e;
+}
+
+/* A lone labelled callout takes the stack's first colour, in a compact box so
+   it fits under a diagram and its bullets without pushing past the page. */
+section.light > blockquote:has(> p:first-child > strong:only-child) {
+  background: #e3eef7;
+  padding: 10px 22px;
+  gap: 2px;
+}
+
+section.light > blockquote:has(> p:first-child > strong:only-child) > p:first-child,
+section.light > blockquote:has(> p:first-child > strong:only-child) > p:first-child strong {
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+
+section.light > blockquote:has(> p:first-child > strong:only-child) > p:last-child {
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+section.light > blockquote:has(> p:first-child > strong:only-child) strong {
+  color: #2f7fbf;
 }
 
 /* ----------------------------------------------------------------- table -- */

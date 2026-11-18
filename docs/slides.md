@@ -214,7 +214,7 @@ def _offset(t: ClockTime) -> int:
 
 <hr>
 
-> The model writes a strict JSON draft. Every ref is grounded, every window is clamped inside an occurrence still open at the player's clock; owned rewards mark earlier steps done, missing steps are re-inserted in order.
+> The model returns a structured draft. Every ref is grounded, every window is clamped inside an occurrence still open at the player's clock; owned rewards mark earlier steps done, missing steps are re-inserted in order.
 
 ---
 
@@ -284,7 +284,9 @@ flowchart LR
 - Warm hits are capped per source, near-duplicates collapsed, stale pages revalidated
 - The wiki leg runs under a global time budget and fails fast instead of retrying
 
-A wiki failure degrades to `wiki_miss` with a warning; only a broken index or embedding turns retrieval `unavailable`. Either way the plan still ships.
+> **INFO**
+>
+> A wiki failure degrades to `wiki_miss` with a warning; only a broken index or embedding turns retrieval `unavailable`. Either way the plan still ships.
 
 ---
 
