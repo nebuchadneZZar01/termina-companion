@@ -263,7 +263,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   `deterministic` (evaluation baseline, no LLM call), validated as a
   `Literal`; blank optional values load as `None`, `LLM_API_KEY` is a
   `SecretStr`, and derived properties expose the Phoenix annotation URL and
-  the Phoenix UI URL. `get_settings()` builds a fresh instance (not cached, so
+  the Phoenix UI URL (`PHOENIX_PUBLIC_URL` overrides the latter, so a container
+  hands the browser the host URL instead of `phoenix:6006`). `get_settings()`
+  builds a fresh instance (not cached, so
   runtime env changes such as the evaluation A/B flag are seen) and is called
   first by `configure_logging()`, so a malformed value fails at startup.
   `load_dotenv()` lives here: `.env` still populates the process environment
@@ -303,7 +305,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
 * `app/save.py` — `SaveSnapshot` plus `save_state`/`load_state`: persists the
   sidebar form (day/time, location, masks, inventory, completed objectives,
   quest progress, goal) as JSON in `saves/last_save.json` under the save
-  directory derived from `RAG_QDRANT_PATH`. The file is at version 3; version-2
+  directory beside the Qdrant store (`/data/saves` in the container, on the
+  writable volume), and reads a file still sitting in the pre-fix location so a
+  local save survives the move. The file is at version 3; version-2
   saves carry no completed objectives and load unchanged. Version-1 saves are
   migrated to the game-day clock on
   load: an old early-morning hour moves to the previous game day's night

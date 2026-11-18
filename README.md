@@ -253,8 +253,9 @@ deterministic clock matrix in `tests/test_temporal_matrix.py`.
 The sidebar has **Save** and **Load** buttons for the current game state
 (day/time, location, masks, inventory, quest progress and goal).
 
-Saves are written as JSON to `saves/last_save.json` (the directory is
-derived from `RAG_QDRANT_PATH`, so it sits next to `.cache/`). **Load**
+Saves are written as JSON to `saves/last_save.json` in the save directory, which
+sits beside the Qdrant store (`RAG_QDRANT_PATH`): `.cache/termina-companion/saves/`
+locally and `/data/saves` in the container, on the same writable volume. **Load**
 restores every form field from that file, including the completed objectives; if
 no valid save exists the app shows a warning and keeps the current state. The
 file is at version 3; version 2 saves (no completed objectives) load unchanged. Saves from the earlier absolute-day
@@ -320,7 +321,10 @@ Then open http://localhost:6006 to browse each run's full trace, including the
 complete system/user/assistant prompts of every LLM call (with model, token
 usage and latency). `PHOENIX_BASE_URL` optionally overrides where span
 annotations are posted when it differs from the OTLP endpoint (default: reuse
-the OTLP endpoint). Full prompts also go to console logs at `INFO`, bounded in
+the OTLP endpoint). `PHOENIX_PUBLIC_URL` overrides the URL the *Open Phoenix*
+link opens: the compose stack sets it to `http://localhost:6006`, because a
+browser on the host cannot resolve the in-network `phoenix:6006`. Full prompts
+also go to console logs at `INFO`, bounded in
 length by `LLM_LOG_PAYLOAD_LIMIT` so one runaway prompt cannot flood the
 console. In the app, the Trace tab shows the
 `run_id`, the node timeline and any errors — errors only, no prompt bodies.
@@ -601,7 +605,8 @@ retrieval (`RAG_ENABLED=0`) to compare plan quality with and without it.
 
 Every run also writes its report to the shared store
 (`app/evaluation/storage.py`): `last_evaluation.json` in the save directory
-derived from `RAG_QDRANT_PATH` (`.cache/saves/` by default, gitignored) plus a
+derived from `RAG_QDRANT_PATH` (`.cache/termina-companion/saves/` by default,
+gitignored) plus a
 timestamped copy in `evaluations/` underneath it. `--json` writes an extra
 copy at an explicit path. The report records its sweep metadata — the RAG
 flag, the planner engine, the model that produced each plan, the repeat count
