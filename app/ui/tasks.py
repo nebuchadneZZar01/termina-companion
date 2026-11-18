@@ -13,7 +13,7 @@ import streamlit as st
 from app.evaluation.models import EvaluationReport, ScenarioResult
 from app.evaluation.runner import run_scenarios
 from app.evaluation.scenarios import SCENARIOS_BY_ID
-from app.evaluation.storage import save_report
+from app.evaluation.storage import save_report, stamp_report
 from app.graph import build_graph
 from app.phoenix import publish_plan_validation
 from app.state import PlanningState
@@ -101,9 +101,18 @@ class _EvaluationTask:
     total: int = 0
     current: str = ""
     error: str = ""
+    # The sweep's own metadata, kept on the task so the results card rendered
+    # right after the run carries the same engine, RAG flag and stamp as the
+    # report written to disk instead of falling back to schema defaults.
+    rag_on: bool = True
+    planner: str = ""
+    repeats: int = 1
+    report: EvaluationReport | None = None
 
 
-def _save_evaluation_report(results: list[ScenarioResult], rag_on: bool, planner: str) -> None:
+def _save_evaluation_report(
+    results: list[ScenarioResult], rag_on: bool, planner: str, repeats: int = 1
+) -> EvaluationReport | None:
     """Persist the outcome of a sweep.
 
     The report is written from the worker thread, so it survives a closed
@@ -114,18 +123,25 @@ def _save_evaluation_report(results: list[ScenarioResult], rag_on: bool, planner
         results (list[ScenarioResult]): the evaluated scenarios.
         rag_on (bool): whether the supplemental wiki retrieval ran.
         planner (str): the planner engine the sweep used.
+        repeats (int, default 1): how many times each scenario ran.
 
     returns:
-        None: writes the report, logging a warning on failure.
+        EvaluationReport | None: the stamped report that reached disk, or None
+        when nothing was saved. The caller keeps it so the in-session card
+        shows the same metadata as the stored file.
     """
     if not results:
-        return
+        return None
+    report = stamp_report(
+        EvaluationReport(results=results, rag_on=rag_on, planner=planner, repeats=repeats)
+    )
     try:
-        path = save_report(EvaluationReport(results=results, rag_on=rag_on, planner=planner))
+        path = save_report(report)
     except Exception as exc:  # noqa: BLE001 - a failed save must not kill the sweep
         logger.warning("Could not save the evaluation report: %s", exc)
-        return
+        return None
     logger.info("Evaluation report saved to %s", path)
+    return report
 
 
 def _run_evaluation(scenarios, rag_on: bool, planner: str, task: _EvaluationTask) -> None:
@@ -145,6 +161,8 @@ def _run_evaluation(scenarios, rag_on: bool, planner: str, task: _EvaluationTask
         None: runs in the background.
     """
     collected: list[ScenarioResult] = []
+    task.rag_on = rag_on
+    task.planner = planner
 
     def _on_progress(scenario, result: ScenarioResult) -> None:
         """Queue a finished scenario and keep it for the saved report.
@@ -170,7 +188,9 @@ def _run_evaluation(scenarios, rag_on: bool, planner: str, task: _EvaluationTask
     except Exception as exc:  # noqa: BLE001 - the UI shows the failure
         task.events.put(exc)
     finally:
-        _save_evaluation_report(collected, rag_on=rag_on, planner=planner)
+        task.report = _save_evaluation_report(
+            collected, rag_on=rag_on, planner=planner, repeats=task.repeats
+        )
         task.events.put(None)
 
 

@@ -1389,6 +1389,42 @@ def test_evaluation_worker_saves_the_report(tmp_path, monkeypatch) -> None:
     assert [result.scenario_id for result in saved.results] == ["anju-kafei"]
     assert saved.passed == 1
     assert saved.planner == "llm"
+    # The task keeps the stamped report, so the card in session matches disk.
+    assert task.report is not None
+    assert task.report.planner == "llm"
+    assert task.report.created_at == saved.created_at
+
+
+def test_evaluation_result_card_shows_the_engine_it_used(tmp_path, monkeypatch) -> None:
+    """A finished sweep reports its own engine, not "unknown".
+
+    The card used to be rebuilt from the bare results, so ``planner`` fell back
+    to its empty default and the header read "unknown".
+    """
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    from app.evaluation.models import ScenarioResult
+
+    monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
+    app_path = Path(__file__).resolve().parents[1] / "main.py"
+    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at.session_state["lang"] = "en"
+    at.run()
+    assert not at.exception
+
+    task = tasks._EvaluationTask(total=1, status="done", rag_on=False, planner="deterministic")
+    task.results = [ScenarioResult(scenario_id="anju-kafei", passed=True)]
+    at.session_state["_evaluation_task"] = task
+    at.run()
+
+    assert not at.exception
+    meta = [caption.value for caption in at.caption if "planner:" in caption.value]
+    assert meta, "the sweep metadata caption is missing"
+    assert "planner: Deterministic baseline" in meta[0]
+    assert "wiki retrieval: off" in meta[0]
+    assert "planner: unknown" not in meta[0]
 
 
 def test_evaluation_worker_skips_an_empty_sweep(tmp_path, monkeypatch) -> None:
