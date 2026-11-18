@@ -401,7 +401,7 @@ flowchart LR
 
 - Multi-stage uv image: frozen lock, non-root user, healthcheck
 - `/data` volume holds the Qdrant store, saves and the FastEmbed cache
-- Compose: Phoenix by default, `--profile app` adds TaIA, an Ollama override
+- Compose: `up -d` runs TaIA from GHCR beside Phoenix
 - CI: lint, tests, the eval gate, then build, smoke test and GHCR push
 
 ```mermaid
