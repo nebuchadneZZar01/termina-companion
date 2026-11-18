@@ -43,6 +43,9 @@ services:
       # Traces go to the Phoenix service, not to the host.
       OTEL_EXPORTER_OTLP_ENDPOINT: http://phoenix:6006
       PHOENIX_BASE_URL: ""
+      # The UI link must open on the host: the container reaches Phoenix at
+      # phoenix:6006, a browser cannot resolve that name.
+      PHOENIX_PUBLIC_URL: ${PHOENIX_PUBLIC_URL:-http://localhost:6006}
 
     ports:
       - "${TERMINA_PORT:-8501}:8501"

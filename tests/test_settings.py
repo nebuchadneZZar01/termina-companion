@@ -143,6 +143,24 @@ def test_phoenix_ui_url_is_derived_from_the_otlp_endpoint(monkeypatch):
     assert get_settings().phoenix_ui_url == "http://localhost:6006"
 
 
+def test_phoenix_ui_url_can_point_at_the_host(monkeypatch):
+    """A container hands the browser the host URL, not its in-network one."""
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://phoenix:6006")
+    assert get_settings().phoenix_ui_url == "http://phoenix:6006"
+
+    monkeypatch.setenv("PHOENIX_PUBLIC_URL", "http://localhost:6006/")
+    settings = get_settings()
+
+    assert settings.phoenix_ui_url == "http://localhost:6006"
+    # The tracing endpoint and the annotation URL stay in-network.
+    assert settings.otel_exporter_otlp_endpoint == "http://phoenix:6006"
+    assert settings.phoenix_annotation_url == "http://phoenix:6006"
+
+    # A blank value is unset, so the derivation comes back.
+    monkeypatch.setenv("PHOENIX_PUBLIC_URL", "")
+    assert get_settings().phoenix_ui_url == "http://phoenix:6006"
+
+
 def test_tracing_flag_follows_the_otlp_endpoint(monkeypatch):
     assert get_settings().tracing_enabled is False
 
