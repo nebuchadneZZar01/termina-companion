@@ -78,11 +78,27 @@ DEFAULT_SAVE_NAME = "last_save.json"
 
 
 def get_save_dir() -> Path:
-    """Return the directory where save files are stored."""
-    cache_dir = get_settings().rag.qdrant_path.parent
-    save_dir = cache_dir.parent / "saves"
+    """Return the directory where save files are stored.
+
+    The directory sits beside the Qdrant store, so it follows the data volume:
+    ``/data/qdrant`` puts saves in ``/data/saves``.
+    """
+    qdrant_dir = get_settings().rag.qdrant_path.parent
+    save_dir = qdrant_dir / "saves"
     save_dir.mkdir(parents=True, exist_ok=True)
     return save_dir
+
+
+def _legacy_save_path(filename: str) -> Path:
+    """Return the pre-fix location of a save file, created or not.
+
+    The save directory used to be derived one level above the Qdrant store's
+    own directory. In a container that resolved to ``/saves``, which the app
+    user cannot write, so saves failed with a permission error. Files written
+    locally before the fix still load from there; writes always go to
+    :func:`get_save_dir`.
+    """
+    return get_settings().rag.qdrant_path.parent.parent / "saves" / filename
 
 
 def get_save_path(filename: str = DEFAULT_SAVE_NAME) -> Path:
@@ -107,7 +123,10 @@ def load_state(filename: str = DEFAULT_SAVE_NAME) -> SaveSnapshot | None:
     try:
         path = get_save_path(filename)
         if not path.exists():
-            return None
+            legacy = _legacy_save_path(filename)
+            if not legacy.exists():
+                return None
+            path = legacy
         with path.open("r", encoding="utf-8") as f:
             raw = json.load(f)
         return SaveSnapshot.model_validate(raw)

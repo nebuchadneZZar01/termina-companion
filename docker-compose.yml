@@ -3,9 +3,12 @@
 # Phoenix only:
 #   docker compose up -d
 #
-# TaIA + Phoenix:
-#   docker compose --profile app up -d --build
+# TaIA + Phoenix (the app image is pulled from GHCR, never built here):
+#   docker compose up -d
 #   # TaIA: http://localhost:8501 - Phoenix: http://localhost:6006
+#
+# TERMINA_IMAGE picks the app image (default :latest; pin a :sha-<commit> or a
+# release tag for a reproducible run).
 #
 # Containerized Ollama: add -f docker-compose.ollama.yml (see that file).
 #
@@ -15,10 +18,7 @@
 
 services:
   app:
-    profiles: ["app"]
-    build:
-      context: .
-    image: termina-companion:local
+    image: ${TERMINA_IMAGE:-ghcr.io/nebuchadnezzar01/termina-companion:latest}
     container_name: termina-app
 
     env_file:
@@ -43,6 +43,9 @@ services:
       # Traces go to the Phoenix service, not to the host.
       OTEL_EXPORTER_OTLP_ENDPOINT: http://phoenix:6006
       PHOENIX_BASE_URL: ""
+      # The UI link must open on the host: the container reaches Phoenix at
+      # phoenix:6006, a browser cannot resolve that name.
+      PHOENIX_PUBLIC_URL: ${PHOENIX_PUBLIC_URL:-http://localhost:6006}
 
     ports:
       - "${TERMINA_PORT:-8501}:8501"

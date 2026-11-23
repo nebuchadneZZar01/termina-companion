@@ -62,7 +62,8 @@ def _snapshot() -> dict:
 
 def _break_save_dir(tmp_path, monkeypatch) -> None:
     """Point the save store at a directory that cannot exist."""
-    (tmp_path / "saves").write_text("not a directory")
+    (tmp_path / "cache").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "cache" / "saves").write_text("not a directory")
     monkeypatch.setenv("RAG_QDRANT_PATH", str(tmp_path / "cache" / "qdrant"))
 
 

@@ -108,12 +108,19 @@ docker build -t termina-companion .
 docker run --rm -p 8501:8501 --env-file .env termina-companion
 ```
 
-Or start TaIA together with the Phoenix tracing backend through Compose:
+Or start TaIA together with the Phoenix tracing backend through Compose. The
+`app` service pulls the image CI publishes to GHCR, it does not build it:
 
 ```sh
-docker compose --profile app up -d --build
-docker compose --profile app logs -f app
+docker compose up -d
+docker compose logs -f app
 ```
+
+The image defaults to `ghcr.io/nebuchadnezzar01/termina-companion:latest`; set
+`TERMINA_IMAGE` to pin another one (`:sha-<commit>`, a release tag) or to run a
+local build (`TERMINA_IMAGE=termina-companion:local` after
+`docker build -t termina-companion .`). `docker compose pull` refreshes
+`:latest` before a run.
 
 Open <http://localhost:8501> (set `TERMINA_PORT` to publish a different port).
 `curl localhost:8501/_stcore/health` answers `ok` when the app is healthy; the
@@ -158,8 +165,7 @@ override file. It only adds the service and points TaIA at it over the Compose
 network (service DNS, no host gateway):
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.ollama.yml \
-  --profile app up -d --build
+docker compose -f docker-compose.yml -f docker-compose.ollama.yml up -d
 docker compose -f docker-compose.yml -f docker-compose.ollama.yml \
   exec ollama ollama pull llama3.2
 ```
@@ -173,7 +179,14 @@ image and the model. A host Ollama keeps using `docker-compose.yml` alone.
 
 CI builds the image on every push and pull request and publishes it on `main`
 and on `v*` tags as `ghcr.io/<owner>/termina-companion:latest`, `:sha-<commit>`
-and the release tag, so a run can pull it instead of building:
+and the release tag. Compose pulls that image, so no local build is needed:
+
+```sh
+docker compose pull            # refresh :latest
+docker compose up -d
+```
+
+A plain `docker run` works the same way:
 
 ```sh
 docker run --rm -p 8501:8501 --env-file .env \
@@ -240,8 +253,9 @@ deterministic clock matrix in `tests/test_temporal_matrix.py`.
 The sidebar has **Save** and **Load** buttons for the current game state
 (day/time, location, masks, inventory, quest progress and goal).
 
-Saves are written as JSON to `saves/last_save.json` (the directory is
-derived from `RAG_QDRANT_PATH`, so it sits next to `.cache/`). **Load**
+Saves are written as JSON to `saves/last_save.json` in the save directory, which
+sits beside the Qdrant store (`RAG_QDRANT_PATH`): `.cache/termina-companion/saves/`
+locally and `/data/saves` in the container, on the same writable volume. **Load**
 restores every form field from that file, including the completed objectives; if
 no valid save exists the app shows a warning and keeps the current state. The
 file is at version 3; version 2 saves (no completed objectives) load unchanged. Saves from the earlier absolute-day
@@ -307,7 +321,10 @@ Then open http://localhost:6006 to browse each run's full trace, including the
 complete system/user/assistant prompts of every LLM call (with model, token
 usage and latency). `PHOENIX_BASE_URL` optionally overrides where span
 annotations are posted when it differs from the OTLP endpoint (default: reuse
-the OTLP endpoint). Full prompts also go to console logs at `INFO`, bounded in
+the OTLP endpoint). `PHOENIX_PUBLIC_URL` overrides the URL the *Open Phoenix*
+link opens: the compose stack sets it to `http://localhost:6006`, because a
+browser on the host cannot resolve the in-network `phoenix:6006`. Full prompts
+also go to console logs at `INFO`, bounded in
 length by `LLM_LOG_PAYLOAD_LIMIT` so one runaway prompt cannot flood the
 console. In the app, the Trace tab shows the
 `run_id`, the node timeline and any errors — errors only, no prompt bodies.
@@ -588,7 +605,8 @@ retrieval (`RAG_ENABLED=0`) to compare plan quality with and without it.
 
 Every run also writes its report to the shared store
 (`app/evaluation/storage.py`): `last_evaluation.json` in the save directory
-derived from `RAG_QDRANT_PATH` (`.cache/saves/` by default, gitignored) plus a
+derived from `RAG_QDRANT_PATH` (`.cache/termina-companion/saves/` by default,
+gitignored) plus a
 timestamped copy in `evaluations/` underneath it. `--json` writes an extra
 copy at an explicit path. The report records its sweep metadata — the RAG
 flag, the planner engine, the model that produced each plan, the repeat count

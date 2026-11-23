@@ -1,5 +1,6 @@
 ---
 marp: true
+title: TaIA - Majora's Mask Multiagent Planner
 theme: taia-slides
 paginate: true
 size: 16:9
@@ -214,7 +215,7 @@ def _offset(t: ClockTime) -> int:
 
 <hr>
 
-> The model writes a strict JSON draft. Every ref is grounded, every window is clamped inside an occurrence still open at the player's clock; owned rewards mark earlier steps done, missing steps are re-inserted in order.
+> The model returns a structured draft. Every ref is grounded, every window is clamped inside an occurrence still open at the player's clock; owned rewards mark earlier steps done, missing steps are re-inserted in order.
 
 ---
 
@@ -284,7 +285,9 @@ flowchart LR
 - Warm hits are capped per source, near-duplicates collapsed, stale pages revalidated
 - The wiki leg runs under a global time budget and fails fast instead of retrying
 
-A wiki failure degrades to `wiki_miss` with a warning; only a broken index or embedding turns retrieval `unavailable`. Either way the plan still ships.
+> **INFO**
+>
+> A wiki failure degrades to `wiki_miss` with a warning; only a broken index or embedding turns retrieval `unavailable`. Either way the plan still ships.
 
 ---
 
@@ -399,7 +402,7 @@ flowchart LR
 
 - Multi-stage uv image: frozen lock, non-root user, healthcheck
 - `/data` volume holds the Qdrant store, saves and the FastEmbed cache
-- Compose: Phoenix by default, `--profile app` adds TaIA, an Ollama override
+- Compose: `up -d` runs TaIA from GHCR beside Phoenix
 - CI: lint, tests, the eval gate, then build, smoke test and GHCR push
 
 ```mermaid

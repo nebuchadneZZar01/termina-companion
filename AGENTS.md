@@ -263,7 +263,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   `deterministic` (evaluation baseline, no LLM call), validated as a
   `Literal`; blank optional values load as `None`, `LLM_API_KEY` is a
   `SecretStr`, and derived properties expose the Phoenix annotation URL and
-  the Phoenix UI URL. `get_settings()` builds a fresh instance (not cached, so
+  the Phoenix UI URL (`PHOENIX_PUBLIC_URL` overrides the latter, so a container
+  hands the browser the host URL instead of `phoenix:6006`). `get_settings()`
+  builds a fresh instance (not cached, so
   runtime env changes such as the evaluation A/B flag are seen) and is called
   first by `configure_logging()`, so a malformed value fails at startup.
   `load_dotenv()` lives here: `.env` still populates the process environment
@@ -303,7 +305,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
 * `app/save.py` — `SaveSnapshot` plus `save_state`/`load_state`: persists the
   sidebar form (day/time, location, masks, inventory, completed objectives,
   quest progress, goal) as JSON in `saves/last_save.json` under the save
-  directory derived from `RAG_QDRANT_PATH`. The file is at version 3; version-2
+  directory beside the Qdrant store (`/data/saves` in the container, on the
+  writable volume), and reads a file still sitting in the pre-fix location so a
+  local save survives the move. The file is at version 3; version-2
   saves carry no completed objectives and load unchanged. Version-1 saves are
   migrated to the game-day clock on
   load: an old early-morning hour moves to the previous game day's night
@@ -400,7 +404,9 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
 * `scripts/slides/` — the deck, kept out of the app: `build.sh` renders
   `docs/slides.md` to `docs/slides.pdf` with marp-cli and `stage.py` builds the
   staged copy (each Mermaid fence becomes an inline SVG, a titled code fence
-  becomes the numbered panel the theme draws with its tokens coloured).
+  becomes the numbered panel the theme draws with its tokens coloured, and a
+  sequence diagram's actor is dressed as the deck's player — a green cap and a
+  sword on Mermaid's stick figure).
   `docs/marp-theme.css` owns every colour and size, `docs/mermaid.json` plus
   `docs/mermaid.css` the one diagram style; the deck is plain Markdown with one
   section class per layout (`cover`, `gold`, `light`, `dark`, `closing`) and
@@ -524,15 +530,17 @@ for it. Plan evaluation is implemented in `app/evaluation/`.
   the run id, node timeline and any errors after the plan. `--deterministic`
   and `--no-rag` run it fully offline (no LLM, no wiki), `--debug` adds the
   traceback of an unexpected failure.
-* `docker-compose.yml` — local stack. The default `docker compose up -d` starts
-  only the Arize Phoenix container (web UI and OTLP/HTTP receiver share
-  `:6006`; Phoenix has no `:4318` listener — that port belongs to the generic
-  OTel Collector). The `app` profile
-  (`docker compose --profile app up -d --build`) adds TaIA itself, reading
-  `.env`, persisting `/data` on the `termina_data` volume, pinning the LLM
-  values explicitly and taking the container base URL from
+* `docker-compose.yml` — local stack. `docker compose up -d` starts TaIA
+  together with the Arize Phoenix container (web UI and OTLP/HTTP receiver
+  share `:6006`; Phoenix has no `:4318` listener — that port belongs to the
+  generic OTel Collector); the `app` service **pulls** the image
+  CI publishes to GHCR
+  (`ghcr.io/nebuchadnezzar01/termina-companion:latest`, or whatever
+  `TERMINA_IMAGE` names) instead of building it locally. It reads
+  `.env`, persists `/data` on the `termina_data` volume, pins the LLM
+  values explicitly and takes the container base URL from
   `LLM_BASE_URL_DOCKER` (`.env`'s localhost stays valid for local runs), and
-  overriding the OTLP endpoint to `http://phoenix:6006`. The app is fully
+  overrides the OTLP endpoint to `http://phoenix:6006`. The app is fully
   functional (no-op tracing) when Phoenix is not running.
 * `docker-compose.ollama.yml` — optional override adding a containerized Ollama
   (`ollama_data` volume, `ollama list` healthcheck) and pointing `app` at it via

@@ -1,5 +1,7 @@
 """Save/load snapshots persist and reload the UI game state."""
 
+import json
+
 import pytest
 
 from app.domain import ClockTime
@@ -118,3 +120,30 @@ def test_load_invalid_json_returns_none():
     path = get_save_path()
     path.write_text("{not json", encoding="utf-8")
     assert load_state() is None
+
+
+def test_save_dir_sits_beside_the_qdrant_store(store_dir):
+    """Saves live under the data directory, so a container writes /data/saves.
+
+    The old derivation climbed one level higher, which resolved to /saves and
+    failed with a permission error inside the image.
+    """
+    assert get_save_path().parent == store_dir.parent / "saves"
+    assert store_dir.parent / "saves" / DEFAULT_SAVE_NAME == get_save_path()
+
+
+def test_legacy_save_location_still_loads(store_dir):
+    """A save written before the fix loads from the old place; new ones move."""
+    legacy = store_dir.parent.parent / "saves" / DEFAULT_SAVE_NAME
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(json.dumps(_payload()), encoding="utf-8")
+
+    snapshot = load_state()
+
+    assert snapshot is not None
+    assert snapshot.goal == "Reunite Anju and Kafei"
+    assert get_save_path().exists() is False
+
+    save_state(_payload())
+    assert get_save_path().exists()
+    assert json.loads(legacy.read_text(encoding="utf-8"))["goal"] == "Reunite Anju and Kafei"

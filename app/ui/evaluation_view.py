@@ -432,7 +432,16 @@ def _render_evaluation(editor: dict) -> None:
             st.warning(t("eval_stopped"))
         if task.error:
             st.error(task.error)
-        _render_evaluation_results(EvaluationReport(results=task.results))
+        # The worker stamps the report it saved, so the card shown right after
+        # the sweep carries the same engine and RAG metadata as the stored
+        # file; an interrupted sweep falls back to what the task collected.
+        report = task.report or EvaluationReport(
+            results=task.results,
+            rag_on=task.rag_on,
+            planner=task.planner,
+            repeats=task.repeats,
+        )
+        _render_evaluation_results(report)
         return
 
     # No sweep in this session: show the report restored from disk.

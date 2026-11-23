@@ -94,6 +94,10 @@ class Settings(BaseSettings):
     planner: Literal["llm", "deterministic"] = "llm"
     otel_exporter_otlp_endpoint: str | None = None
     phoenix_base_url: str | None = None
+    #: URL the browser uses to open Phoenix. The tracing endpoint stays the
+    #: in-network one, so a container never hands the host a "phoenix:6006"
+    #: link it cannot resolve.
+    phoenix_public_url: str | None = None
     rag: RAGSettings = Field(default_factory=RAGSettings)
 
     @field_validator(
@@ -103,6 +107,7 @@ class Settings(BaseSettings):
         "llm_api_key",
         "otel_exporter_otlp_endpoint",
         "phoenix_base_url",
+        "phoenix_public_url",
         mode="before",
     )
     @classmethod
@@ -139,12 +144,17 @@ class Settings(BaseSettings):
 
     @property
     def phoenix_ui_url(self) -> str:
-        """Phoenix web UI base URL derived from the OTLP endpoint.
+        """Phoenix web UI URL the browser opens.
 
-        Phoenix serves the UI and the OTLP/HTTP receiver on the same port, so
-        the UI origin is scheme + host of the configured endpoint with the
-        port forced to :data:`PHOENIX_UI_PORT`.
+        ``PHOENIX_PUBLIC_URL`` wins when set: in a container the tracing
+        endpoint is the in-network ``http://phoenix:6006``, which a browser on
+        the host cannot resolve. Without it, Phoenix serves the UI and the
+        OTLP/HTTP receiver on the same port, so the origin is scheme + host of
+        the configured endpoint with the port forced to
+        :data:`PHOENIX_UI_PORT`.
         """
+        if self.phoenix_public_url:
+            return self.phoenix_public_url.rstrip("/")
         parsed = urlsplit(self.otel_exporter_otlp_endpoint or "")
         if not parsed.scheme or not parsed.hostname:
             return DEFAULT_PHOENIX_UI_URL
